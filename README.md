@@ -27,6 +27,15 @@ Early prototype, milestone 1 (game feel offline). See [docs/PLAN.md](docs/PLAN.m
 
   This needs the Godot export templates, JDK 17 and the Android SDK, configured in Godot's editor settings.
 
+- Run the automated tests (needs `godot` on the PATH; a few seconds):
+
+  ```
+  tests/run.sh
+  ```
+
+  `python3 tests/sabotage.py` checks that the tests really catch deliberate breakage. GitHub Actions runs the
+  tests on every push and pull request and builds the debug APK (download it from the run's artifacts).
+
 ## Licence
 
 GNU AGPL v3, see [LICENSE](LICENSE).

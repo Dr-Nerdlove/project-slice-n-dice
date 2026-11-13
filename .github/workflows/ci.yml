@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# A newer push to the same branch makes the older run pointless.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GODOT_VERSION: 4.7.2
+  GODOT_RELEASE: https://github.com/godotengine/godot/releases/download/4.7.2-stable
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot editor
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-bin
+          key: godot-editor-${{ env.GODOT_VERSION }}-linux-x86_64
+
+      - name: Download Godot editor
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          set -eu
+          mkdir -p ~/godot-bin ~/godot-dl
+          cd ~/godot-dl
+          zip=Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          curl -fsSL -O "$GODOT_RELEASE/$zip"
+          curl -fsSL -O "$GODOT_RELEASE/SHA512-SUMS.txt"
+          grep " $zip\$" SHA512-SUMS.txt | sha512sum -c -
+          unzip -q "$zip" -d ~/godot-bin
+          mv ~/godot-bin/Godot_v${GODOT_VERSION}-stable_linux.x86_64 ~/godot-bin/godot
+          chmod +x ~/godot-bin/godot
+
+      - name: Add Godot to PATH
+        run: echo "$HOME/godot-bin" >> "$GITHUB_PATH"
+
+      - name: Run tests
+        run: tests/run.sh
+
+  apk:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Godot editor
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-bin
+          key: godot-editor-${{ env.GODOT_VERSION }}-linux-x86_64
+
+      - name: Cache Android export templates
+        id: cache-templates
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/godot/export_templates/${{ env.GODOT_VERSION }}.stable
+          key: godot-android-templates-${{ env.GODOT_VERSION }}
+
+      - name: Download Godot editor
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          set -eu
+          mkdir -p ~/godot-bin ~/godot-dl
+          cd ~/godot-dl
+          zip=Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          curl -fsSL -O "$GODOT_RELEASE/$zip"
+          curl -fsSL -O "$GODOT_RELEASE/SHA512-SUMS.txt"
+          grep " $zip\$" SHA512-SUMS.txt | sha512sum -c -
+          unzip -q "$zip" -d ~/godot-bin
+          mv ~/godot-bin/Godot_v${GODOT_VERSION}-stable_linux.x86_64 ~/godot-bin/godot
+          chmod +x ~/godot-bin/godot
+
+      # The full template archive is 1.3 GB; only the Android part is kept (and cached).
+      - name: Download Android export templates
+        if: steps.cache-templates.outputs.cache-hit != 'true'
+        run: |
+          set -eu
+          mkdir -p ~/godot-dl
+          cd ~/godot-dl
+          tpz=Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          curl -fsSL -O "$GODOT_RELEASE/$tpz"
+          curl -fsSL -O "$GODOT_RELEASE/SHA512-SUMS.txt"
+          grep " $tpz\$" SHA512-SUMS.txt | sha512sum -c -
+          dest=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          mkdir -p "$dest"
+          unzip -q -j "$tpz" 'templates/android_*' templates/version.txt -d "$dest"
+          rm -f "$tpz"
+          ls -l "$dest"
+
+      - name: Configure Godot for the Android export
+        run: |
+          set -eu
+          echo "$HOME/godot-bin" >> "$GITHUB_PATH"
+          # Debug keystore generated on the fly; it only signs debug builds.
+          keytool -genkeypair -keystore "$RUNNER_TEMP/debug.keystore" \
+            -storepass android -keypass android -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 9999 \
+            -dname "CN=Android Debug,O=Android,C=US"
+          # Godot reads these paths from its editor settings (no environment variables exist for them).
+          cfg="${XDG_CONFIG_HOME:-$HOME/.config}/godot"
+          mkdir -p "$cfg"
+          cat > "$cfg/editor_settings-4.7.tres" <<TRES
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/debug_keystore = "$RUNNER_TEMP/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          TRES
+
+      - name: Export debug APK
+        run: |
+          set -eu
+          mkdir -p build
+          godot --headless --path game --import
+          godot --headless --path game --export-debug "Android" ../build/slice-n-dice-debug.apk
+          size=$(stat -c %s build/slice-n-dice-debug.apk)
+          echo "APK size: $size bytes"
+          if [ "$size" -lt 1000000 ]; then
+            echo "APK is missing or too small" >&2
+            exit 1
+          fi
+
+      - name: Short commit hash
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slice-n-dice-debug-${{ steps.sha.outputs.short }}
+          path: build/slice-n-dice-debug.apk
+          if-no-files-found: error
+          retention-days: 14
