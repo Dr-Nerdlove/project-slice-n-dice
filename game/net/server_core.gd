@@ -7,12 +7,24 @@ extends RefCounted
 ## packet is lost). The server keeps a small jitter buffer per player, consumes one input per tick and
 ## tells the client in every snapshot which sequence number it has consumed last, so the client can
 ## re-simulate the inputs the server has not seen yet.
+##
+## The buffer adds to how late every action of a player happens on the server, so its target size is adaptive per
+## player: it starts at JITTER_START and grows by one when the buffer runs dry (an underrun: the last input has to
+## be repeated, which the client may have predicted differently) or inputs arrive in a burst; it shrinks by one
+## after SHRINK_AFTER quiet ticks, and a buffer that stays above its target is trimmed (TRIM_AFTER).
 
 const SNAPSHOT_EVERY := 2          # ticks between snapshots (30 Hz)
-const JITTER_TICKS := 3            # inputs to collect before a player's first input is used
+const JITTER_MIN := 1              # the smallest target
+const JITTER_START := 1            # inputs a player's buffer collects before its first input is used (and its target at first)
+const JITTER_MAX := 5              # the target a player's buffer can grow to (inputs waiting; MAX_BUFFER stays the hard limit)
+const TRIM_AFTER := 30             # ticks in which the buffer never ran down to its target: one input too many is dropped
+const SHRINK_AFTER := 300          # ticks without an underrun or a burst: the target shrinks by one ...
+const SHRINK_MAX := 3600           # ... but every growth doubles that wait (up to this), so a link that needs the
+                                   # bigger buffer does not run dry again every few seconds
+const BURST := 3                   # this many new inputs in one tick count as a burst
 const MAX_BUFFER := 8              # more waiting inputs than this: the oldest are dropped (bounded delay)
 const NEUTRAL_AFTER := 30          # ticks without any new input: stop repeating the last one
-const REBUFFER_AFTER := 30         # ticks without any new input: collect JITTER_TICKS inputs again
+const REBUFFER_AFTER := 30         # ticks without any new input: collect the target number of inputs again
 const HELLO_TIMEOUT := 300         # ticks a new connection may stay silent before it is dropped
 const MAX_PENDING := 8             # connections that have not said hello yet
 
@@ -27,8 +39,11 @@ var log_fn: Callable = Callable()
 ## Counters (tests and the status line).
 var dropped_packets := 0
 var stale_inputs := 0
+var trimmed_inputs := 0                    # inputs dropped because a player's buffer stayed above its target
 var underruns := 0
 var rejected := 0
+var delay_sum := 0                         # over all used inputs: server ticks between an input's arrival and its use
+var delay_count := 0
 var skipped_inputs := 0                    # input numbers the server never received (lost, not covered by redundancy)
 var last_snapshot_bytes := 0
 
@@ -39,18 +54,30 @@ var _peer_slot := {}               # peer -> slot index
 class Slot extends RefCounted:
 	var peer := -1
 	var buffer := {}               # input seq -> SimInput
+	var arrived := {}              # input seq -> server tick of its arrival (for the delay statistics)
 	var last_consumed := 0
 	var started := false
 	var last_input := SimInput.new()
 	var starved := 0
+	var target := JITTER_START     # inputs that should be waiting when one is used
+	var calm := 0                  # ticks since the last underrun or burst
+	var shrink_wait := SHRINK_AFTER   # calm ticks needed before the target shrinks
+	var excess := 0                # consecutive ticks with more than `target` inputs waiting
+	var new_inputs := 0            # inputs that arrived since the last tick used one
 
 	func reset() -> void:
 		peer = -1
 		buffer.clear()
+		arrived.clear()
 		last_consumed = 0
 		started = false
 		last_input = SimInput.new()
 		starved = 0
+		target = JITTER_START
+		calm = 0
+		shrink_wait = SHRINK_AFTER
+		excess = 0
+		new_inputs = 0
 
 
 func _init(config: Config, endpoint: NetEndpoint, seed_value := 1, with_bots := false) -> void:
@@ -118,14 +145,36 @@ func tick() -> void:
 
 func _next_input(s: Slot) -> SimInput:
 	while s.buffer.size() > MAX_BUFFER:
-		s.buffer.erase(_lowest(s.buffer))
+		_drop_oldest(s, false)
 		stale_inputs += 1
-	if not s.started and s.buffer.size() >= JITTER_TICKS:
+	# Adapt the target: a burst of arrivals grows it, quiet ticks shrink it again.
+	s.calm += 1
+	if s.new_inputs >= BURST:
+		_grow(s)
+	s.new_inputs = 0
+	if s.calm >= s.shrink_wait:
+		s.calm = 0
+		if s.target > JITTER_MIN:
+			s.target -= 1
+			s.shrink_wait = maxi(s.shrink_wait / 2, SHRINK_AFTER)
+	if not s.started and s.buffer.size() >= s.target:
 		s.started = true
+	# A buffer that never ran down to its target holds an input too many: drop the oldest.
+	if s.started and s.buffer.size() > s.target:
+		s.excess += 1
+		if s.excess >= TRIM_AFTER:
+			s.excess = 0
+			_drop_oldest(s, true)
+			trimmed_inputs += 1
+	else:
+		s.excess = 0
 	if s.started and not s.buffer.is_empty():
 		var seq := _lowest(s.buffer)
 		var inp: SimInput = s.buffer[seq]
 		s.buffer.erase(seq)
+		delay_sum += sim.tick - int(s.arrived[seq])
+		delay_count += 1
+		s.arrived.erase(seq)
 		skipped_inputs += seq - s.last_consumed - 1   # a gap (lost input) is skipped
 		s.last_consumed = seq
 		s.last_input = inp
@@ -135,12 +184,33 @@ func _next_input(s: Slot) -> SimInput:
 	if s.started:
 		s.starved += 1
 		underruns += 1
+		if s.starved == 1:
+			_grow(s)
 		if s.starved > NEUTRAL_AFTER:
 			s.last_input = SimInput.new()
 		if s.starved > REBUFFER_AFTER:
 			s.started = false
 		return s.last_input.repeated()   # a dash is an edge: never repeated
 	return SimInput.new()
+
+
+func _grow(s: Slot) -> void:
+	s.target = mini(s.target + 1, JITTER_MAX)
+	s.calm = 0
+	s.shrink_wait = mini(s.shrink_wait * 2, SHRINK_MAX)
+
+
+## Drops the oldest waiting input. A dash in it is handed on to the next one (it is an edge: it must not be lost).
+## `acknowledge`: the input counts as used (the client may stop re-simulating it, and it is no gap).
+func _drop_oldest(s: Slot, acknowledge: bool) -> void:
+	var old := _lowest(s.buffer)
+	var inp: SimInput = s.buffer[old]
+	s.buffer.erase(old)
+	s.arrived.erase(old)
+	if inp.dash and not s.buffer.is_empty():
+		(s.buffer[_lowest(s.buffer)] as SimInput).dash = true
+	if acknowledge:
+		s.last_consumed = old
 
 
 static func _lowest(buffer: Dictionary) -> int:
@@ -262,3 +332,5 @@ func _on_input(s: Slot, msg: Array) -> void:
 		var q := seq - k
 		if q > s.last_consumed and not s.buffer.has(q):
 			s.buffer[q] = decoded[k]
+			s.arrived[q] = sim.tick
+			s.new_inputs += 1

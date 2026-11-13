@@ -182,8 +182,11 @@ missing, with a recommendation, and let the people choose.
 
 ## Project knowledge
 
-- **People:** The repository owner (GitHub: Dr-Nerdlove) works on the project alone, together with AI
-  assistants, and does not program themselves. They decide about merging and releases.
+- **People:** Two people work on the project together with AI assistants; neither programs themselves. The
+  repository owner (GitHub: Dr-Nerdlove) and a collaborator (GitHub: Joni9993), who has admin rights and whose
+  machine the local sessions run on (`gh` is logged in as Joni9993 there: `gh repo create` creates under that
+  account even when another owner is named). Agreed between them (2026-11-13): while the concept is being worked
+  out, Joni9993 works ahead and decides about merging and test releases; Dr-Nerdlove builds on it afterwards.
 - **What the project is:** "Slice n Dice", a top-down arena brawler for Android with online multiplayer
   (2-8 players) and a yo-yo as the weapon. Plan and decisions: `docs/PLAN.md`.
 - **Product languages:** Not finally decided. The prototype UI is German for now.
@@ -207,7 +210,10 @@ missing, with a recommendation, and let the people choose.
   validation), the `NetEndpoint` interface with `ENetEndpoint` (real UDP), `LoopbackHub` (in memory with delay and
   loss, for tests) and `LagEndpoint` (the artificial lag tool of the Online menu page). The own player is predicted; the OTHER players are
   drawn from `ClientCore.display_sim`, an interpolation between buffered snapshots about 4+ ticks in the past (switch
-  "Gegner glätten"; `ArenaView.set_others`), so hits (decided on present positions) are not lag-compensated yet. `Sim.save_state()` /
+  "Gegner glätten"; `ArenaView.set_others`), except their yo-yo heads that are out and their shards: those are drawn
+  from the predicted sim, in the present, with a decaying visual offset against pops (`ClientCore._apply_predicted`,
+  `predict_heads`). Hits are decided on present positions and not lag-compensated (open design decision in
+  `docs/PLAN.md`). The server's input buffer per player is adaptive (`ServerCore.Slot.target`). `Sim.save_state()` /
   `load_state()` snapshot every script variable by reflection (`game/sim/state_io.gd`): a variable that is not
   state (computed property, static data) must be listed in its class's `STATE_SKIP`, everything else is included
   automatically. Run the server: `godot --headless --path game -- --server [--port N] [--bots]` (default UDP

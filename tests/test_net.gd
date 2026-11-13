@@ -225,6 +225,10 @@ func test_prediction() -> void:
 	ref.load_state(cl.sim.save_state())
 	ref.apply_mods(0, Mods.empty_levels())
 	var slot := cl.slot
+	# This tests the prediction itself, not the server's adaptive input buffer (which starts small and may run dry
+	# for a moment while it learns, see test_input_buffer): give the player a buffer that stays at 3.
+	server.slots[slot].target = 3
+	server.slots[slot].shrink_wait = 1 << 30
 	var pred := {}
 	var srv := {}
 	var same_as_ref := true
@@ -532,6 +536,7 @@ func feed(fs: Dictionary, tick_no: int) -> void:
 func test_interpolation() -> void:
 	var fs := interp_setup()
 	var cl: ClientCore = fs["client"]
+	cl.predict_heads = false     # this tests the interpolation itself; the fake server's yo-yos are not what the client predicts
 	feed(fs, 100)
 	check("interp: before the first snapshot is used, a single snapshot is held", cl.displayed_pos(1, 0.5).x == 5.0 and cl.display_sim != null)
 	var px: Array[float] = []
@@ -695,6 +700,465 @@ func test_interpolation() -> void:
 		c5.tick(SimInput.new())
 	feed(fs5, t5)
 	check("interp: lost snapshots grow the delay (%.0f -> %.0f ms)" % [before5, c5.interp_delay_ms()], c5.interp_delay_ms() > before5 + 30.0)
+
+
+# ---------------------------------------------------------------- the victim sees the head arrive
+
+## What the others do in the "hit" scenarios. A (client 0) always stands still; B (client 1) aims at -x.
+## "flight": the thrown head flies through A. "retract": the head lands, B walks diagonally and calls it back, the
+## way home leads through A (who stands beside the way out). "shard": the head lands, B calls it back with the
+## shards mod, one of the shards flies at A.
+func hit_script(scn: String, t: int) -> SimInput:
+	var aim := Vector2(-1.0, 0.0)
+	if t >= 10 and t < 100:
+		return inp(Vector2.ZERO, aim, true)                                  # charge, thrown at 100
+	if scn == "retract":
+		if t >= 140 and t < 162:
+			return inp(Vector2(-0.447, -0.894))
+		if t >= 170 and t < 173:
+			return inp(Vector2.ZERO, Vector2.ZERO, true)                     # tap: retract
+	if scn == "shard" and t >= 150 and t < 153:
+		return inp(Vector2.ZERO, Vector2.ZERO, true)
+	return inp()
+
+
+const HIT_SCENARIOS := {
+	"flight": [Vector2(19.0, 11.0), Vector2(25.0, 11.0)],
+	"retract": [Vector2(21.0, 4.86), Vector2(25.0, 6.0)],
+	"shard": [Vector2(18.5, 8.6), Vector2(25.0, 6.0)],
+}
+
+
+## B throws at the standing A. The gap is, on A's screen, the distance between the drawn enemy head (or shard) and
+## the drawn A, minus the hit distance: 0 = touching, positive = the killer has not arrived yet. Measured on the
+## local tick on which A's client learns of its death ("learn"), and on the tick of A's own time that the server
+## was at when it killed A ("server": the input number the server had consumed, which is A's local tick).
+func measure_hit(scn: String, delay_ms: float, loss: float, predict := true, seed := 31) -> Dictionary:
+	var rig := make_rig(delay_ms, loss, 2, seed)
+	warm_up(rig)
+	var a: ClientCore = rig["clients"][0]
+	var b: ClientCore = rig["clients"][1]
+	var server: ServerCore = rig["server"]
+	if not predict:
+		a.set("predict_heads", false)       # (on is the default)
+	var sa := a.slot
+	var sb := b.slot
+	for k in 2:
+		var p: SimPlayer = server.sim.players[[sa, sb][k]]
+		p.pos = (HIT_SCENARIOS[scn][k] as Vector2)
+		p.prev_pos = p.pos
+	if scn == "shard":
+		var m := Mods.empty_levels()
+		m["shards"] = 1
+		b.set_mods(m)
+	for _t in 60:
+		step_rig(rig, func(_k: int) -> SimInput: return inp())    # let the clients take the new positions
+	var gaps := {}                 # A's local tick (input number) -> gap
+	var learn_gap := INF
+	var server_gap := INF
+	var server_seq := -1
+	var kill_state := -1
+	var pr := a.cfg.player_radius
+	var first_local := 0
+	for t in 330:
+		if learn_gap != INF and server_seq >= 0:
+			break
+		step_rig(rig, func(k: int) -> SimInput: return hit_script(scn, t) if k == 1 else inp())
+		var mine: Vector2 = a.sim.players[sa].prev_pos.lerp(a.sim.players[sa].pos, 0.5)
+		var gap := INF
+		for k in a.sim.players[sb].heads.size():
+			var h := a.displayed_head_pos(sb, k, 0.5)
+			gap = minf(gap, h.distance_to(mine) - (a.cfg.head_radius + pr))
+		for sh: Dictionary in a.displayed_other_shards(0.5):
+			gap = minf(gap, (sh["pos"] as Vector2).distance_to(mine) - ((sh["radius"] as float) + pr))
+		gaps[a.seq] = gap
+		if learn_gap == INF and not a.sim.players[sa].alive:
+			learn_gap = gap
+			first_local = t
+		if server_seq < 0 and not server.sim.players[sa].alive:
+			server_seq = server.slots[sa].last_consumed
+			for h in server.sim.players[sb].heads:
+				kill_state = h.state
+			if server.sim.events.size() > 0 and kill_state != SimHead.S.HAND:
+				pass
+	if server_seq >= 0:
+		server_gap = gaps.get(server_seq, INF)
+	return {"killed": learn_gap != INF and server_seq >= 0, "learn": learn_gap, "server": server_gap, "state": kill_state,
+			"learn_tick": first_local}
+
+
+func test_victim_sees_arrival() -> void:
+	var worst_near := -INF       # 0 and 20 ms per direction
+	var worst_far := -INF        # 50 ms per direction
+	var best_old := INF
+	var min_gap := INF
+	var line := ""
+	var all_killed := true
+	var info_old := ""
+	var states := {}
+	for scn in ["flight", "retract", "shard"]:
+		for delay in [0.0, 20.0, 50.0]:
+			for loss in [0.0, 2.0]:
+				var m := measure_hit(scn, delay, loss)
+				var o := measure_hit(scn, delay, loss, false) if loss == 0.0 else m
+				all_killed = all_killed and m["killed"] and o["killed"]
+				var worst := maxf(m["learn"], m["server"] if scn != "shard" else -INF)   # a shard's origin (the tap) is not known earlier
+				if delay <= 20.0:
+					worst_near = maxf(worst_near, maxf(m["learn"], m["server"]))
+				else:
+					worst_far = maxf(worst_far, worst)
+				min_gap = minf(min_gap, m["learn"])
+				if loss == 0.0:
+					best_old = minf(best_old, maxf(o["learn"], o["server"]))
+				if scn != "shard":
+					states[scn] = m["state"]
+				line += " %s %d/%d:%.2f|%.2f" % [scn.left(2), delay, loss, m["learn"], m["server"]]
+				if loss == 0.0:
+					info_old += " %s %d/%d:%.2f|%.2f" % [scn.left(2), delay, loss, o["learn"], o["server"]]
+	print("INFO  hit gap new (learn|server, m):" + line)
+	print("INFO  hit gap old (learn|server, m):" + info_old)
+	check("hit scenarios: A is killed in every scenario and setting", all_killed)
+	check("hit scenarios: the retract scenario kills with a retracting head, the flight one with a flying head", states["retract"] == SimHead.S.RETRACT and states["flight"] == SimHead.S.FLIGHT, str(states))
+	check("victim sees the arrival: at 0 and 20 ms per direction the killer is within %.2f m of touching when the death is learned / was decided" % worst_near, worst_near < 0.5)
+	check("victim sees the arrival: at 50 ms per direction within %.2f m (the head is thrown less than a ping before it hits; old display at least %.1f m)" % [worst_far, best_old], worst_far < 2.0)
+	check("victim sees the arrival: the killer is never drawn far past the victim (%.2f m)" % min_gap, min_gap > -0.6)
+
+
+# ---------------------------------------------------------------- predicted enemy heads: no pops
+
+func send_snapshot_inputs(fs: Dictionary, state: Sim, tick_no: int, acked: int, inputs: Array) -> void:
+	var enc: Array = []
+	for i in 4:
+		enc.append(NetProto.encode_input(inputs[i]))
+	var body := NetProto.snapshot_body(enc, state.save_state())
+	(fs["hub"] as LoopbackHub).server.send(1, NetProto.snapshot_packet(tick_no, acked, body), false)
+	(fs["hub"] as LoopbackHub).advance(1.0)
+	(fs["client"] as ClientCore).poll()
+
+
+## B (slot 1) of a scripted server charges and throws (tick 20), taps to retract (tick 80). `event` is Callable(n, sim)
+## and may meddle with the server sim before the tick's snapshot (a wrong prediction, a teleport, a kill).
+## Returns the per-tick series of how the head of B is drawn on A's screen against the predicted sim.
+const HEAD_LAT := 6   # ticks (100 ms) between the server and the client in the scripted server
+
+
+func run_head_script(event: Callable, ticks := 190, predict := true, charge_until := 40) -> Dictionary:
+	var fs := interp_setup()
+	var cl: ClientCore = fs["client"]
+	if not predict:
+		cl.predict_heads = false      # (on is the default and is what the other runs use)
+	var s: Sim = fs["sim"]
+	s.players[0].pos = Vector2(3.0, 11.0)
+	s.players[1].pos = Vector2(8.0, 11.0)
+	for k in 2:
+		s.players[k].prev_pos = s.players[k].pos
+		s.players[k].facing = Vector2.RIGHT
+	var disp: Array[Vector2] = []
+	var pred: Array[Vector2] = []
+	var hand: Array[bool] = []
+	var body_hand: Array[Vector2] = []   # where the hand of B's drawn body is
+	var first := true
+	var hist := {}                 # server tick -> [state, inputs]: the snapshots reach the client LAT ticks late
+	for n in ticks:
+		var b := inp()
+		if n >= 4 and n < charge_until:
+			b = inp(Vector2.ZERO, Vector2(1.0, 0.0), true)
+		elif n >= 100 and n < 103:
+			b = inp(Vector2.ZERO, Vector2.ZERO, true)
+		var ins := [inp(), b, inp(), inp()]
+		s.step(ins)
+		event.call(n, s)
+		hist[s.tick] = [s.save_state(), ins]
+		if s.tick % 2 == 0 and hist.has(s.tick - HEAD_LAT):
+			var old := Sim.new(cl.cfg, 1)
+			old.load_state(hist[s.tick - HEAD_LAT][0])
+			send_snapshot_inputs(fs, old, old.tick, cl.seq - HEAD_LAT if not first else 0, hist[s.tick - HEAD_LAT][1])
+			if first:
+				first = false
+				continue
+		if first:
+			continue
+		cl.tick(inp())
+		var ph := cl.sim.players[1].heads[0]
+		disp.append(cl.displayed_head_pos(1, 0, 0.5))
+		pred.append(ph.prev_pos.lerp(ph.pos, 0.5) if ph.state != SimHead.S.HAND else ClientCore._hand_pos(cl.sim, cl.sim.players[1], cl.sim.players[1].prev_pos.lerp(cl.sim.players[1].pos, 0.5)))
+		hand.append(ph.state == SimHead.S.HAND)
+		var dp := cl.display_sim.players[1]
+		body_hand.append(ClientCore._hand_pos(cl.display_sim, dp, dp.prev_pos.lerp(dp.pos, cl.display_alpha)))
+	return {"disp": disp, "pred": pred, "hand": hand, "body_hand": body_hand, "cl": cl, "server": s}
+
+
+func test_predicted_heads() -> void:
+	var catch_up := ClientCore.HEAD_CATCHUP_TICKS
+	check("predicted heads: drawing the enemy heads from the predicted sim is the default", fake_server_setup()["client"].predict_heads)
+	var normal := func(_n: int, _s: Sim) -> void: pass
+	var r := run_head_script(normal)
+	var disp: Array[Vector2] = r["disp"]
+	var pred: Array[Vector2] = r["pred"]
+	var hand: Array[bool] = r["hand"]
+	# (1) the throw: the head first appears where the (interpolated) hand is and slides to the predicted path
+	var thrown := -1
+	for k in hand.size():
+		if not hand[k]:
+			thrown = k
+			break
+	var off0 := disp[thrown].distance_to(pred[thrown]) if thrown >= 0 else 0.0
+	var mono := true
+	for k in range(thrown + 1, thrown + catch_up):
+		mono = mono and disp[k].distance_to(pred[k]) <= disp[k - 1].distance_to(pred[k - 1]) + 0.001
+	check("predicted heads: the thrown head is first drawn at the hand and not at the predicted place (offset %.2f m)" % off0, thrown > 0 and off0 > 0.3)
+	check("predicted heads: the offset shrinks every tick and is gone after %d ticks (then %.4f m)" % [catch_up, disp[thrown + catch_up].distance_to(pred[thrown + catch_up])], mono and disp[thrown + catch_up].distance_to(pred[thrown + catch_up]) < 0.001)
+	var worst_step := 0.0
+	var plain_step := 0.0
+	for k in range(1, disp.size()):
+		if hand[k] or hand[k - 1]:
+			continue
+		worst_step = maxf(worst_step, disp[k].distance_to(disp[k - 1]))
+	check("predicted heads: the head never jumps (largest one-tick step %.2f m, flight speed %.2f m)" % [worst_step, r["cl"].cfg.flight_speed / 60.0], worst_step < r["cl"].cfg.flight_speed / 60.0 + off0 / catch_up + 0.05)
+	# (2) after the first few ticks the head is exactly on the predicted path; on its way home and in the hand again too
+	var exact := true
+	var back_in_hand := -1
+	for k in range(thrown + catch_up + 1, disp.size()):
+		if hand[k]:
+			back_in_hand = k
+			break
+		exact = exact and (disp[k].distance_to(pred[k]) < 0.001 or k >= 96)   # (the tap at 100 reaches the client late: the retract is predicted wrong for a moment)
+	check("predicted heads: flight and landing are drawn exactly where the predicted sim has them", exact and back_in_hand > 0, "back in hand at %d" % back_in_hand)
+	var after_ok := true
+	for k in range(back_in_hand + catch_up + 1, disp.size()):
+		after_ok = after_ok and disp[k].distance_to(pred[k]) < 0.001
+	check("predicted heads: back in the hand the head is drawn at the hand again after the catch-up", after_ok and back_in_hand > 0)
+
+	# (3) a snapshot corrects the predicted head by 1 m: the drawn head slides instead of popping
+	var shift := func(n: int, sv: Sim) -> void:
+		if n == 50:
+			var h := sv.players[1].heads[0]
+			h.pos.x += 1.0
+			h.prev_pos.x += 1.0
+	var cfg_step: float = r["cl"].cfg.flight_speed / 60.0
+	var c := run_head_script(shift)
+	var cd: Array[Vector2] = c["disp"]
+	var cp: Array[Vector2] = c["pred"]
+	var jump := 0.0
+	var gap_max := 0.0
+	var k_gap := -1
+	var k_c := -1
+	for k in range(thrown + catch_up + 2, 90):
+		if k_c < 0 and absf((cp[k] - cp[k - 1]).length() - cfg_step) > 0.5:
+			k_c = k
+		if k_c < 0 or k > k_c + 8:
+			continue
+		jump = maxf(jump, ((cd[k] - disp[k]) - (cd[k - 1] - disp[k - 1])).length())   # against the run without the correction
+		if cd[k].distance_to(cp[k]) > gap_max:
+			gap_max = cd[k].distance_to(cp[k])
+			k_gap = k
+	var settle := -1
+	for k in range(maxi(k_gap, 0), 90):
+		if cd[k].distance_to(cp[k]) < 0.001:
+			settle = k
+			break
+	check("predicted heads: a 1 m correction of the head slides (largest one-tick shift against the run without the correction %.2f m, drawn at most %.2f m from the predicted place)" % [jump, gap_max], gap_max > 0.5 and gap_max <= 1.001 and jump < 1.0 / catch_up + 0.03)
+	check("predicted heads: ... and is settled %d ticks after the correction" % (settle - k_gap), settle > 0 and settle - k_gap <= catch_up + 1)
+	# (4) a teleport (more than HEAD_MAX_OFFSET) is not slid over
+	var tele := func(n: int, sv: Sim) -> void:
+		if n == 50:
+			var h := sv.players[1].heads[0]
+			h.pos.x += ClientCore.HEAD_MAX_OFFSET + 3.0
+			h.prev_pos.x += ClientCore.HEAD_MAX_OFFSET + 3.0
+	var tp := run_head_script(tele)
+	var td: Array[Vector2] = tp["disp"]
+	var tpd: Array[Vector2] = tp["pred"]
+	var k_t := -1
+	for k in range(thrown + catch_up + 2, tpd.size()):
+		if tpd[k].distance_to(tpd[k - 1]) > 4.0:
+			k_t = k
+			break
+	check("predicted heads: a teleport of the head is drawn at once (%.4f m off in the frame it happens)" % (td[k_t].distance_to(tpd[k_t]) if k_t > 0 else -1.0), k_t > 0 and td[k_t].distance_to(tpd[k_t]) < 0.001)
+	# (5) a kill and a respawn: the head of the respawned player is in the hand, nothing slides over from before
+	var kill := func(n: int, sv: Sim) -> void:
+		if n == 60:
+			sv._kill(sv.players[1], sv.players[0])
+		if n == 70:
+			sv._respawn(sv.players[1])
+			sv.players[1].pos = Vector2(8.0, 11.0)
+			sv.players[1].prev_pos = Vector2(8.0, 11.0)
+	var kr := run_head_script(kill, 190, true, 24)     # a short throw: the head dies within the 6 m a slide may cover
+	var kd: Array[Vector2] = kr["disp"]
+	var kp: Array[Vector2] = kr["pred"]
+	var respawn_off := 0.0
+	var kh: Array[Vector2] = kr["body_hand"]
+	for k in range(68, 110):
+		respawn_off = maxf(respawn_off, kd[k].distance_to(kh[k]))
+	check("predicted heads: after a kill and a respawn the head is drawn in the hand of the drawn body, nothing slides over from before (%.4f m off)" % respawn_off, respawn_off < 0.001 and kr["hand"][100])
+	# (5b) the string bends where the predicted head bounced: the pins of the predicted head are drawn
+	var pinned := run_head_script(normal, 56)
+	var pcl: ClientCore = pinned["cl"]
+	var pin_head := pcl.sim.players[1].heads[0]
+	pin_head.pins = PackedVector2Array([Vector2(10.0, 11.0), Vector2(11.0, 9.0)])
+	pcl.prepare_display(0.5)
+	var shown_pins := pcl.display_sim.players[1].heads[0].pins
+	check("predicted heads: the drawn string goes through the pins of the predicted head", pin_head.state != SimHead.S.HAND and shown_pins == pin_head.pins, str(shown_pins))
+	# (6) the switch off gives the old picture: the head is on the interpolated path, the predicted sim is not used
+	var old := run_head_script(normal, 190, false)
+	var od: Array[Vector2] = old["disp"]
+	var op: Array[Vector2] = old["pred"]
+	var far := 0.0
+	for k in range(thrown, thrown + 20):
+		far = maxf(far, od[k].distance_to(op[k]))
+	check("predicted heads: predict_heads off draws the heads from the interpolation, in the past (%.2f m behind the predicted head)" % far, far > 1.0)
+	var raw := run_head_script(normal)
+	var rcl: ClientCore = raw["cl"]
+	rcl.smooth_others = false
+	var sim_head := rcl.sim.players[1].heads[0]
+	check("predicted heads: 'Gegner glätten' off draws the raw predicted path", rcl.displayed_head_pos(1, 0, 1.0) == (sim_head.pos if sim_head.state != SimHead.S.HAND else ClientCore._hand_pos(rcl.sim, rcl.sim.players[1], rcl.sim.players[1].pos)) and rcl.display_sim == null)
+
+
+# ---------------------------------------------------------------- server input buffer
+
+## Two clients duel; returns how far the snapshots moved the predicted own position and how long the inputs waited.
+func measure_buffer(delay_ms: float, loss: float, ticks := 1500, seed := 9) -> Dictionary:
+	var rig := make_rig(delay_ms, loss, 2, seed)
+	warm_up(rig)
+	var cs: Array = rig["clients"]
+	var server: ServerCore = rig["server"]
+	var sum_corr := 0.0
+	var big := 0
+	var n := 0
+	for t in ticks:
+		step_rig(rig, func(k: int) -> SimInput: return duel(k, t))
+		for k in 2:
+			var c: ClientCore = cs[k]
+			sum_corr += c.correction
+			if c.correction > 0.01:
+				big += 1
+			n += 1
+	return {"corr_avg": sum_corr / n, "corr_n": big, "delay": float(server.get("delay_sum")) / maxf(float(server.get("delay_count")), 1.0),
+			"underruns": server.underruns, "stale": server.stale_inputs}
+
+
+## One raw player on a server without clients; `send_n` inputs per tick are fed by the caller.
+func raw_player() -> Dictionary:
+	var rig := make_rig(0.0, 0.0, 0)
+	var raw := join_raw(rig)
+	var hub: LoopbackHub = rig["hub"]
+	var server: ServerCore = rig["server"]
+	var slot: ServerCore.Slot = server.slots[0]
+	return {"hub": hub, "server": server, "raw": raw, "slot": slot, "seq": 0}
+
+
+## A tick of the raw player: sends the next `n` inputs (numbered on), then the server ticks.
+func raw_tick(rp: Dictionary, n := 1, dash_first := false) -> void:
+	var raw: LoopbackHub.LoopbackEndpoint = rp["raw"]
+	for k in n:
+		rp["seq"] += 1
+		raw.send(1, NetProto.pack([NetProto.T_INPUT, rp["seq"], [NetProto.encode_input(inp(Vector2.RIGHT, Vector2.ZERO, false, dash_first and k == 0))]]), false)
+	(rp["hub"] as LoopbackHub).advance(DT_MS)
+	(rp["server"] as ServerCore).tick()
+
+
+func measure_single(delay_ms: float, loss: float, ticks := 1200) -> Dictionary:
+	var rig := make_rig(delay_ms, loss, 1, 5)
+	warm_up(rig)
+	var cl: ClientCore = rig["clients"][0]
+	var server: ServerCore = rig["server"]
+	var n := 0
+	var mx := 0.0
+	var last := cl.snapshots_applied
+	for t in ticks:
+		step_rig(rig, func(_k: int) -> SimInput: return scripted(0, t))
+		if cl.snapshots_applied != last:
+			last = cl.snapshots_applied
+			if cl.correction > 0.001:
+				n += 1
+				mx = maxf(mx, cl.correction)
+	return {"corr": n, "max": mx, "underruns": server.underruns, "delay": float(server.delay_sum) / maxf(float(server.delay_count), 1.0)}
+
+
+func test_input_buffer() -> void:
+	# --- one client alone (the prediction test's routine, but with the adaptive buffer): it runs dry while it learns,
+	# which costs a few corrections of one tick of input (the fixed buffer of 3 had none)
+	var one := measure_single(100.0, 2.0)
+	print("INFO  one client, 100 ms / 2 %%: %d corrections (largest %.2f m) in 1200 ticks, %d underruns, inputs wait %.2f ticks" % [one["corr"], one["max"], one["underruns"], one["delay"]])
+	check("buffer: alone at 100 ms / 2 %% loss only a few small corrections while the buffer learns (%d, largest %.2f m; fixed buffer: 0)" % [one["corr"], one["max"]], one["corr"] <= 4 and one["max"] <= 0.25)
+	# --- the adaptive buffer of one player
+	var rp := raw_player()
+	var server: ServerCore = rp["server"]
+	var slot: ServerCore.Slot = rp["slot"]
+	check("buffer: a new player's target starts small (%d)" % slot.target, slot.target == ServerCore.JITTER_START and ServerCore.JITTER_START == 1)
+	for _t in 200:
+		raw_tick(rp)
+	check("buffer: with even arrivals nothing waits, nothing runs dry, the target stays", server.underruns == 0 and slot.target == ServerCore.JITTER_START and server.delay_sum == 0, "underruns=%d target=%d delay=%d" % [server.underruns, slot.target, server.delay_sum])
+	raw_tick(rp, 0)    # one input is late: the buffer runs dry
+	check("buffer: running dry repeats the last input and grows the target by one", server.underruns == 1 and slot.target == ServerCore.JITTER_START + 1 and slot.last_input.move == Vector2.RIGHT)
+	var wait_after_one := slot.shrink_wait
+	raw_tick(rp, 2)    # the late one arrives together with the next
+	check("buffer: ... the late input is used afterwards, no input is lost", server.skipped_inputs == 0 and slot.buffer.size() == 1, "skipped=%d buffer=%d" % [server.skipped_inputs, slot.buffer.size()])
+	for _t in 3:
+		raw_tick(rp, 0)
+		raw_tick(rp, 1)
+	for _t in 3:
+		raw_tick(rp, 0)
+	raw_tick(rp, 4)    # a burst of four
+	check("buffer: a burst of inputs grows the target too", slot.target > ServerCore.JITTER_START + 1, "target=%d" % slot.target)
+	var rb := raw_player()
+	for _t in 100:
+		raw_tick(rb)
+	raw_tick(rb, 4)    # four at once, though nothing ran dry before
+	check("buffer: a burst alone (nothing ran dry) grows the target by one", (rb["server"] as ServerCore).underruns == 0 and (rb["slot"] as ServerCore.Slot).target == ServerCore.JITTER_START + 1, "target=%d" % (rb["slot"] as ServerCore.Slot).target)
+	var cap_ok := true
+	for _t in 40:
+		raw_tick(rp, 0)
+		raw_tick(rp, 5)
+		cap_ok = cap_ok and slot.target <= ServerCore.JITTER_MAX
+	check("buffer: the target never grows beyond JITTER_MAX (%d)" % slot.target, cap_ok and slot.target == ServerCore.JITTER_MAX)
+	check("buffer: every growth doubles the quiet time needed to shrink again (%d -> %d ticks)" % [wait_after_one, slot.shrink_wait], slot.shrink_wait > wait_after_one and slot.shrink_wait <= ServerCore.SHRINK_MAX)
+	# quiet: the surplus is trimmed, then the target shrinks, slowly
+	var target_before := slot.target
+	var trimmed_before := server.trimmed_inputs
+	var skipped_before := server.skipped_inputs
+	for _t in ServerCore.TRIM_AFTER * 12:
+		raw_tick(rp)
+	check("buffer: a buffer that stays above its target is trimmed back (%d dropped, now %d waiting)" % [server.trimmed_inputs - trimmed_before, slot.buffer.size()], server.trimmed_inputs > trimmed_before and slot.buffer.size() <= slot.target)
+	check("buffer: trimmed inputs are no lost inputs (acknowledged, no gap counted)", server.skipped_inputs == skipped_before)
+	var shrink_wait := slot.shrink_wait
+	for _t in shrink_wait + 20:
+		raw_tick(rp)
+	check("buffer: after the quiet time the target shrinks by one (%d -> %d)" % [target_before, slot.target], slot.target == target_before - 1)
+	check("buffer: ... and the next shrink comes sooner (wait %d -> %d)" % [shrink_wait, slot.shrink_wait], slot.shrink_wait < shrink_wait or shrink_wait == ServerCore.SHRINK_AFTER)
+	slot.shrink_wait = ServerCore.SHRINK_AFTER
+	for _t in ServerCore.SHRINK_AFTER * (ServerCore.JITTER_MAX + 1):
+		raw_tick(rp)
+	check("buffer: in the end it is back at the start size (%d)" % slot.target, slot.target == ServerCore.JITTER_START)
+	# a dash in a dropped input is handed on
+	var s2 := ServerCore.Slot.new()
+	var d := SimInput.new()
+	d.dash = true
+	s2.buffer[7] = d
+	s2.buffer[8] = SimInput.new()
+	s2.arrived[7] = 0
+	s2.arrived[8] = 0
+	server._drop_oldest(s2, true)
+	check("buffer: when an input is dropped its dash goes to the next one, and it counts as used", (s2.buffer[8] as SimInput).dash and s2.last_consumed == 7 and s2.buffer.size() == 1)
+	# a player's slot starts fresh for the next one
+	slot.target = 4
+	slot.reset()
+	check("buffer: a freed slot forgets the target", slot.target == ServerCore.JITTER_START and slot.shrink_wait == ServerCore.SHRINK_AFTER)
+
+	# --- against two clients: how long the inputs wait on the server, and what it costs in corrections
+	# (the fixed 3-input buffer before: wait 2.0 / 2.6 ticks at 0 / 50 ms and no loss, 16 corrections in 3000
+	# client-ticks at every setting, 100 ms / 2 %: wait 1.55)
+	var worst_wait := 0.0
+	var worst_corr := 0
+	var line := ""
+	for cond in [[0.0, 0.0], [50.0, 0.0], [100.0, 2.0]]:
+		var m := measure_buffer(cond[0], cond[1])
+		line += " %d/%d:%d corrections, wait %.2f;" % [cond[0], cond[1], m["corr_n"], m["delay"]]
+		if cond[1] == 0.0:
+			worst_wait = maxf(worst_wait, m["delay"])
+		worst_corr = maxi(worst_corr, m["corr_n"])
+	print("INFO  server input buffer (of 3000 ticks):" + line)
+	check("buffer: without loss the inputs wait clearly less than the 2 to 2.6 ticks of the fixed buffer (worst %.2f ticks)" % worst_wait, worst_wait < 1.0)
+	check("buffer: no real rise in corrections (worst %d of 3000 ticks; fixed buffer: 16)" % worst_corr, worst_corr <= 26)
 
 
 # ---------------------------------------------------------------- the view draws the others from the display sim
@@ -1395,6 +1859,9 @@ func _initialize() -> void:
 	test_interpolation()
 	test_view_others()
 	test_other_display()
+	test_victim_sees_arrival()
+	test_predicted_heads()
+	test_input_buffer()
 	test_two_clients()
 	test_redundancy()
 	test_jitter_buffer()
