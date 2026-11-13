@@ -110,12 +110,12 @@ const TABLE := {
 	"pierce": {
 		"name": "Durchschlag", "tier": Tier.EXPENSIVE,
 		"desc": [
-			"Der fliegende Jojo geht durch Hindernisblöcke (aber nicht durch die Außenwände).",
-			"Auch beim Einholen durch Blöcke und Kiste, Reichweite +{range_pct} %.",
+			"Der Jojo geht im Flug und beim Einholen durch Hindernisblöcke (aber nicht durch die Außenwände).",
+			"Auch durch die Kiste, Reichweite +{range_pct} %.",
 			"Dazu unaufhaltsam im Duell: Gegnerische Jojos werden weggeschlagen, deiner fliegt weiter.",
 		],
 		"n": {
-			"pass_flight": [1, 2, 2], "pass_retract": [0, 2, 2],
+			"pass_flight": [1, 2, 2], "pass_retract": [1, 2, 2],
 			"range_pct": [0, 20, 20], "duel": [0, 0, 1], "duel_knock": [1.5, 1.5, 1.5],
 		},
 	},

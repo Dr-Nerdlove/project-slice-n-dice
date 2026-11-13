@@ -14,6 +14,8 @@ SB=[
  ("3 no retract x1.5","sim/sim.gd",' * mv(p, "twin", "retract_mult", 1.0)',''),
  ("3 no free pull","sim/sim.gd","func _can_free_pull(p: SimPlayer) -> bool:\n","func _can_free_pull(p: SimPlayer) -> bool:\n\tif true:\n\t\treturn false\n"),
  ("4 shards+warhead","sim/sim.gd","\t\t\tif s.blast > 0.0:","\t\t\tif false:"),
+ ("7 pierce L1 retract blocked","sim/mods.gd",'"pass_retract": [1, 2, 2]','"pass_retract": [0, 2, 2]'),
+ ("7 pierce L1 retract passes crate","sim/sim.gd","\t\tif pass_level < 2:\n\t\t\tpos = _crate_vs_circle(pos, r, 1.0)","\t\tif true:\n\t\t\tpass"),
  ("4 shards+pierce","sim/sim.gd","s.pass_level = _flight_pass(p)","s.pass_level = 0"),
  ("4 shards+bounce","sim/sim.gd",'s.bounces_left += int(Mods.n("bounce", "bounces", lv(p, "bounce")))','s.bounces_left += 0'),
  ("4 shards+bighead","sim/sim.gd",'* bighead_factor(p, "shards_bighead")','* 1.0'),
