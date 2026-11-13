@@ -45,6 +45,7 @@ var _wire_core: Array[MeshInstance3D] = []
 var _wire_glow: Array[MeshInstance3D] = []
 var _shard_nodes: Array[MeshInstance3D] = []
 var _aim_marks: Array[MeshInstance3D] = []
+var _ring: MeshInstance3D
 var _crate: MeshInstance3D
 var _box: MeshInstance3D
 var _spin := 0.0
@@ -62,6 +63,14 @@ func setup(s: Sim) -> void:
 	_build_environment()
 	_build_arena()
 	_build_players()
+
+
+## Shows another sim (the predicted one while playing online) and marks `local_slot` as the own player.
+func use_sim(s: Sim, local_slot: int) -> void:
+	sim = s
+	cfg = s.cfg
+	_ring.get_parent().remove_child(_ring)
+	_bodies[local_slot].add_child(_ring)
 
 
 func _mat(c: Color, unshaded := false, alpha := 1.0) -> StandardMaterial3D:
@@ -183,7 +192,7 @@ func _build_players() -> void:
 		add_child(mark)
 		_aim_marks.append(mark)
 
-	# Ring under the local player (index 0).
+	# Ring under the local player (index 0 until use_sim moves it).
 	var ring := MeshInstance3D.new()
 	var rc := CylinderMesh.new()
 	rc.top_radius = 1.0
@@ -192,6 +201,7 @@ func _build_players() -> void:
 	ring.mesh = rc
 	ring.material_override = _mat(Color(1, 1, 1), true, 0.35)
 	ring.name = "LocalRing"
+	_ring = ring
 	_bodies[0].add_child(ring)
 
 

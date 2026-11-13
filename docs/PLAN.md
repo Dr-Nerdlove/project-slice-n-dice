@@ -141,7 +141,11 @@ The tuning menu has a "Werte kopieren" button. It copies one compact text block 
   - Interpolation for other players.
   - Lag compensation for hits.
   - UDP (ENet), tick rate 30-60 Hz.
-  - Evaluate the netfox addon for prediction and rollback before building something custom.
+  - Evaluate the netfox addon for prediction and rollback before building something custom. **Decision (first
+    experiment):** custom prediction by re-simulating the pure `Sim`, without netfox. netfox synchronises
+    properties of nodes, while this game's whole state lives in one pure-code simulation without nodes; here
+    prediction is just "load the server state, step the same code again with the unacknowledged inputs". netfox
+    was **not tried in practice**; if the custom code turns out to be too much work, it can still be evaluated.
 - **Biggest technical risk:** Pulling to the yo-yo must feel instant even at 60 ms ping. Test early with artificial lag and packet loss.
 - **Graphics:** Placeholders and free asset packs until the MVP, own high-quality models in the polish phase. Mobile renderer; target devices are ordinary Android phones.
 - **Readability:** With 8 players on a phone screen it gets crowded. Check in milestone 2 and limit FFA to 6 if necessary.
@@ -184,6 +188,18 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
 - Test tool for artificial lag and packet loss.
 - **Done when:** A match with 100 ms lag and 2 % packet loss plays smoothly and fairly.
 
+**First experiment (done, to be played on phones):**
+- `Sim.save_state()` / `load_state()` snapshot all mutable state by reflection (`game/sim/state_io.gd`).
+- `game/net/`: `ServerCore` (authoritative sim, 60 Hz, 30 Hz snapshots, per-player input buffer), `ClientCore` (prediction
+  of the own player and yo-yo by re-simulating, correction measure, ping), a lag/loss tool (`LagEndpoint`), an
+  ENet transport and an in-memory transport for tests. Headless server: `godot --headless --path game -- --server`.
+- Menu page "Online": server address, connect, artificial one-way delay (0-300 ms) and packet loss (0-20 %).
+- What it does **not** do yet: interpolation of the other players (they are extrapolated with their last input and
+  snap to the server state with every snapshot), lag compensation for hits, hosting on the internet (the home server,
+  router and DNS are untouched), 8 players (the sim has 4 slots), reconnecting, a lobby.
+- The owner's question for the test: does pulling to the yo-yo feel instant at 60-100 ms (set 30-50 ms per direction
+  in the menu, the ping shown in the HUD is the round trip)?
+
 ### M3: Match loop
 - Rounds, points, target score, winner screen.
 - Shop phase with coins, interest, reroll and upgrading.
@@ -216,4 +232,4 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
 
 ## 11. Next step
 
-Finish and tune the M1 prototype on the phone.
+Finish and tune the M1 prototype on the phone, and play the first netcode experiment (M2) on the LAN with 2-4 phones.

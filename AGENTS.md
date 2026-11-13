@@ -190,19 +190,40 @@ missing, with a recommendation, and let the people choose.
 - **Build and test:** Godot 4.7.2, project in `game/`. Run on PC: `godot --path game`. Android debug APK:
   `godot --headless --path game --export-debug "Android" ../build/slice-n-dice-debug.apk` (needs Godot export
   templates, JDK 17 and the Android SDK configured in Godot's editor settings). Tests: `tests/run.sh` (needs `godot` on the
-  PATH; ~3 s) runs the headless checks of the simulation and the menus in `tests/test_sim.gd`; it prints only
+  PATH; ~25 s) runs the headless checks of the simulation and the menus in `tests/test_sim.gd` and of the netcode
+  in `tests/test_net.gd` (loopback with fake clock, real ENet on localhost, the real main scene); it prints only
   failures and a summary and exits non-zero on a failed check, an engine/script error or zero checks.
   `tests/run.sh soak` runs a longer bot soak run (~30 s, not in CI). `python3 tests/sabotage.py [prefix]`
   breaks the game code on purpose, one change at a time, and checks that the tests notice; it restores every
   file byte for byte (check `git status` afterwards). When game code is refactored, its patterns may go stale
   (the script reports "pattern count 0"): update them. New testable behaviour gets a check in
-  `tests/test_sim.gd` and, if sensible, an entry in `tests/sabotage.py`. The tests live outside `game/` so the
-  APK does not contain them.
+  `tests/test_sim.gd` (netcode: `tests/test_net.gd`) and, if sensible, an entry in `tests/sabotage.py` (names
+  starting with "8" are the netcode ones). The tests live outside `game/` so the APK does not contain them. A new
+  `class_name` file needs `godot --headless --path game --import` once before the tests see it.
 - **Architecture rule:** `game/sim` is a pure fixed-tick simulation without nodes, physics or Input;
   `game/view` only reads it.
+- **Netcode (experiment, M2):** `game/net/`, pure logic without nodes except `server_main.gd`. `ServerCore`
+  (authoritative sim, 60 Hz), `ClientCore` (prediction by re-simulating the pure `Sim`), `NetProto` (wire format,
+  validation), the `NetEndpoint` interface with `ENetEndpoint` (real UDP), `LoopbackHub` (in memory with delay and
+  loss, for tests) and `LagEndpoint` (the artificial lag tool of the Online menu page). `Sim.save_state()` /
+  `load_state()` snapshot every script variable by reflection (`game/sim/state_io.gd`): a variable that is not
+  state (computed property, static data) must be listed in its class's `STATE_SKIP`, everything else is included
+  automatically. Run the server: `godot --headless --path game -- --server [--port N] [--bots]` (default UDP
+  24565; no hosting is set up); check a running one with
+  `godot --headless --path game -s tests/net_probe.gd -- HOST[:PORT] [--lag MS] [--loss PCT]`. Decisions and what is
+  not done yet: `docs/PLAN.md` (M2).
 - **Modifiers:** Modifier definitions, German texts and all their numbers live in `game/sim/mods.gd`.
 - **Release:** No releases yet. Version scheme `vMAJOR.MINOR.PATCH` (see "Releases" above).
-- **Traps:** None known yet.
+- **Traps:** (1) ENet turns an unreliable packet bigger than one MTU into a reliable one unless it is sent with
+  `FLAG_UNRELIABLE_FRAGMENT` (`ENetEndpoint` does; from ENet's source, not provable from GDScript). (2)
+  `PackedByteArray.decompress_dynamic` works only for gzip, deflate and brotli, not zstd: the snapshot stores its raw
+  size. (3) `bytes_to_var` prints an engine ERROR for every malformed buffer (run.sh counts those as failures), so
+  `NetProto.unpack` only decodes buffers that start with an Array header; a truncated Array with a valid header still
+  prints one error line on the server (harmless noise, not tested). (4) A slider (`Range`) only emits
+  `value_changed` after the frame that follows `add_child`. (5) Two RefCounted objects that reference each other leak
+  and make Godot print "resources still in use" at exit, which run.sh counts as an error: see the weak reference in
+  `LoopbackEndpoint`. (6) Client and server clocks are not synchronised: a client that ticks slower or faster than
+  60 Hz makes the server's input buffer run dry or drop inputs (corrections, never a crash).
 - **Repository:** Private, owned by Dr-Nerdlove. Licence: GNU AGPL v3 (`LICENSE`). Default branch `main`. CI:
   `.github/workflows/ci.yml` runs on every push and pull request: job `test` runs `tests/run.sh`; job `apk`
   (after `test`) exports the debug APK and uploads it as an artifact (14 days). Godot and the Android export

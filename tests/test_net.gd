@@ -1,0 +1,938 @@
+extends SceneTree
+## Netcode tests (headless). Run through tests/run.sh. Everything but the last section runs over the
+## in-memory loopback with a fake clock, so it is fast and fully deterministic.
+
+var fails := 0
+const Y := SimPlayer.Yo
+const DT_MS := 1000.0 / 60.0
+
+
+func check(name: String, ok: bool, info := "") -> void:
+	print(("PASS  " if ok else "FAIL  ") + name + ("  [" + info + "]" if info != "" else ""))
+	if not ok:
+		fails += 1
+
+
+func inp(move := Vector2.ZERO, aim := Vector2.ZERO, held := false, dash := false) -> SimInput:
+	var i := SimInput.new()
+	i.move = move
+	i.aim = aim
+	i.aim_held = held
+	i.dash = dash
+	return i
+
+
+# ---------------------------------------------------------------- rig
+
+## Loopback hub + server + n clients. delay_ms is per direction.
+func make_rig(delay_ms: float, loss: float, n_clients: int, seed := 1, with_bots := false) -> Dictionary:
+	var hub := LoopbackHub.new(seed)
+	hub.delay_ms = delay_ms
+	hub.loss_pct = loss
+	var server := ServerCore.new(Config.new(), hub.server, 7, with_bots)
+	var clients: Array[ClientCore] = []
+	for i in n_clients:
+		clients.append(ClientCore.new(hub.connect_client()))
+	return {"hub": hub, "server": server, "clients": clients}
+
+
+## One 60 Hz frame of everything. `f` is Callable(client index) -> SimInput.
+func step_rig(rig: Dictionary, f: Callable) -> void:
+	var hub: LoopbackHub = rig["hub"]
+	hub.advance(DT_MS)
+	var cs: Array = rig["clients"]
+	for k in cs.size():
+		var c: ClientCore = cs[k]
+		c.poll(DT_MS / 1000.0)
+		c.tick(f.call(k))
+	(rig["server"] as ServerCore).tick()
+
+
+func warm_up(rig: Dictionary, max_ticks := 240) -> bool:
+	for _t in max_ticks:
+		step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
+		var all := true
+		for c: ClientCore in rig["clients"]:
+			if c.state != ClientCore.State.ONLINE:
+				all = false
+		if all:
+			return true
+	return false
+
+
+## A looping 5 s routine: walk, charge, throw, tap (retract), walk, charge, throw, hold (pull), dash.
+## Player k mirrors player k - 1.
+func scripted(k: int, t: int) -> SimInput:
+	var dx := 1.0 if k % 2 == 0 else -1.0
+	var ph := t % 300
+	if ph < 60:
+		return inp(Vector2(dx, 0.0))
+	if ph < 90:
+		return inp(Vector2.ZERO, Vector2(dx, 0.0), true)                 # charge, released at 90: thrown
+	if ph < 125:
+		return inp()
+	if ph < 128:
+		return inp(Vector2.ZERO, Vector2.ZERO, true)                     # tap while out: retract
+	if ph < 160:
+		return inp(Vector2(0.0, dx * 0.7))
+	if ph < 190:
+		return inp(Vector2.ZERO, Vector2(dx, 0.0), true)                 # charge, thrown at 190
+	if ph < 225:
+		return inp()
+	if ph < 275:
+		return inp(Vector2.ZERO, Vector2.ZERO, true)                     # held while out: pull
+	if ph == 280:
+		return inp(Vector2(dx, 0.0), Vector2.ZERO, false, true)          # dash
+	return inp(Vector2(-dx, 0.3).limit_length(1.0))
+
+
+## Two players go to the bottom edge (clear of the obstacles), walk towards each other, throw at each
+## other, retract and walk back a little.
+func duel(k: int, t: int) -> SimInput:
+	var dx := 1.0 if k % 2 == 0 else -1.0
+	var ph := t % 260
+	if ph < 47:
+		return inp(Vector2(0.0, 1.0))
+	if ph < 137:
+		return inp(Vector2(dx, 0.0))
+	if ph < 179:
+		return inp(Vector2.ZERO, Vector2(dx, 0.0), true)
+	if ph < 215:
+		return inp()
+	if ph < 218:
+		return inp(Vector2.ZERO, Vector2.ZERO, true)
+	return inp(Vector2(-dx, 0.0))
+
+
+func state_without_tick(s: Sim) -> PackedByteArray:
+	var d := s.save_state()
+	d.erase("tick")
+	return var_to_bytes(d)
+
+
+# ---------------------------------------------------------------- snapshot
+
+func random_mods(r: RandomNumberGenerator) -> Dictionary:
+	var m := {}
+	for id in Mods.ORDER:
+		m[id] = r.randi_range(0, 3)
+	return m
+
+
+func has_object(v: Variant) -> bool:
+	match typeof(v):
+		TYPE_OBJECT:
+			return true
+		TYPE_ARRAY:
+			for e: Variant in v:
+				if has_object(e):
+					return true
+		TYPE_DICTIONARY:
+			for k: Variant in v:
+				if has_object(k) or has_object(v[k]):
+					return true
+	return false
+
+
+func test_snapshot() -> void:
+	var worst := 0
+	var runs := 0
+	var all_ok := true
+	var no_objects := true
+	var kills_seen := 0
+	var info := ""
+	for seed_v in [3, 11, 42]:
+		var cfg := Config.new()
+		var a := Sim.new(cfg, seed_v)
+		var bots: Array[Bot] = []
+		for i in 4:
+			bots.append(Bot.new(i, cfg, 100 + seed_v + i))
+		var r := RandomNumberGenerator.new()
+		r.seed = seed_v
+		var points := [150, 400, 900]
+		var t := 0
+		for point: int in points:
+			while t < point:
+				if t % 120 == 0:
+					for i in 4:
+						a.apply_mods(i, random_mods(r))
+				var ins: Array = []
+				for b in bots:
+					ins.append(b.think(a, 1.0 / 60.0))
+				a.step(ins)
+				for e: Dictionary in a.events:
+					if e["type"] == "kill":
+						kills_seen += 1
+				t += 1
+			var st := a.save_state()
+			var bytes := var_to_bytes(st)
+			no_objects = no_objects and not has_object(st)
+			var b_sim := Sim.new(Config.new(), 999)
+			b_sim.load_state(bytes_to_var(bytes))
+			if var_to_bytes(b_sim.save_state()) != bytes:
+				all_ok = false
+				info = "load/save differs at seed %d tick %d" % [seed_v, t]
+			# Copies of the bots (their own rng and phase are not sim state): only the inputs matter, so
+			# record them once and feed both sims the same ones.
+			var rec: Array = []
+			for k in 400:
+				var ins2: Array = []
+				for b in bots:
+					ins2.append(b.think(a, 1.0 / 60.0))
+				rec.append(ins2)
+				a.step(ins2)
+				b_sim.step(ins2)
+				if var_to_bytes(a.save_state()) != var_to_bytes(b_sim.save_state()):
+					all_ok = false
+					info = "diverged %d ticks after the snapshot (seed %d, tick %d)" % [k + 1, seed_v, t]
+					break
+				for e: Dictionary in a.events:
+					if e["type"] == "kill":
+						kills_seen += 1
+			t += 400
+			runs += 1
+	check("snapshot: round trip through var_to_bytes, then identical for 400 ticks (%d runs)" % runs, all_ok, info)
+	check("snapshot: contains no Objects", no_objects)
+	check("snapshot: the runs include kills (so respawn rng is exercised)", kills_seen >= 3, "kills=%d" % kills_seen)
+
+	# load_state keeps the existing objects, also when the head count changes
+	var s1 := Sim.new(Config.new(), 5)
+	var s2 := Sim.new(Config.new(), 6)
+	s2.apply_mods(0, {"twin": 3})
+	s2.players[0].heads.append(SimHead.new())
+	var p0 := s1.players[0]
+	var h0 := s1.players[0].heads[0]
+	var p3 := s1.players[3]
+	s1.load_state(s2.save_state())
+	check("snapshot: load keeps SimPlayer and SimHead objects", s1.players[0] == p0 and s1.players[0].heads[0] == h0 and s1.players[3] == p3 and s1.players.size() == 4)
+	check("snapshot: load adapts the head count", s1.players[0].heads.size() == 2)
+	check("snapshot: events are not part of it", not s2.save_state().has("events") and not s2.save_state().has("cfg"))
+	# the same snapshot twice gives identical bytes; a copy is independent of the live sim
+	var st1 := s2.save_state()
+	s2.players[0].pos = Vector2(1, 1)
+	check("snapshot: dump is a deep copy", st1["players"][0]["pos"] != Vector2(1, 1))
+
+
+# ---------------------------------------------------------------- prediction
+
+func test_prediction() -> void:
+	var rig := make_rig(100.0, 2.0, 1, 5)
+	check("net: client joins over 100 ms / 2 % loss", warm_up(rig))
+	var cl: ClientCore = rig["clients"][0]
+	var server: ServerCore = rig["server"]
+	check("net: gets slot 0 and the server config", cl.slot == 0 and cl.cfg != null and is_equal_approx(cl.cfg.player_speed, 6.0))
+	var ref := Sim.new(cl.cfg, 1)
+	ref.load_state(cl.sim.save_state())
+	ref.apply_mods(0, Mods.empty_levels())
+	var slot := cl.slot
+	var pred := {}
+	var srv := {}
+	var same_as_ref := true
+	var first_diff := -1
+	var diff_key := ""
+	var max_corr := 0.0
+	var reacted_move := false
+	var reacted_throw := false
+	var reacted_pull := false
+	var server_lagged_throw := false
+	var prev_consumed := 0
+	var yo_seen := {}
+	var total := 600
+	for t in total:
+		var input := scripted(0, t)
+		var pos_before := cl.sim.players[slot].pos
+		var hand_before := cl.sim.players[slot].hand_index()
+		step_rig(rig, func(_k: int) -> SimInput: return input)
+		ref.step([input, SimInput.new(), SimInput.new(), SimInput.new()])
+		var me := cl.sim.players[slot]
+		# (a) reaction on the same local tick
+		if t % 300 == 5:
+			reacted_move = me.pos != pos_before
+		if t % 300 == 90:
+			reacted_throw = hand_before >= 0 and me.hand_index() < 0 and me.ystate == Y.FLIGHT
+			server_lagged_throw = server.sim.players[slot].hand_index() >= 0
+		yo_seen[me.ystate] = true
+		if t % 300 == 225 + int(cl.cfg.tap_threshold * 60.0) + 3:
+			reacted_pull = reacted_pull or me.ystate == Y.PULL
+		if state_without_tick(cl.sim) != state_without_tick(ref):
+			same_as_ref = false
+			if first_diff < 0:
+				first_diff = t
+				var a := cl.sim.save_state()
+				var b := ref.save_state()
+				for key: String in a:
+					if var_to_bytes(a[key]) != var_to_bytes(b[key]) and key != "tick":
+						diff_key = key
+						if key == "players":
+							for pi in 4:
+								for f: String in a[key][pi]:
+									if var_to_bytes(a[key][pi][f]) != var_to_bytes(b[key][pi][f]):
+										diff_key += " p%d.%s %s vs %s" % [pi, f, str(a[key][pi][f]).left(60), str(b[key][pi][f]).left(60)]
+		max_corr = maxf(max_corr, cl.correction)
+		pred[cl.seq] = me.pos
+		var lc: int = server.slots[slot].last_consumed
+		if lc != prev_consumed:
+			prev_consumed = lc
+			srv[lc] = server.sim.players[slot].pos
+	check("predict (a): own character moves on the very tick of the input", reacted_move)
+	check("predict (a): the throw leaves the hand on the very tick of the release, the server does not know yet", reacted_throw and server_lagged_throw)
+	check("predict (a): the pull starts on the tick the hold becomes a pull", yo_seen.has(Y.PULL) and reacted_pull)
+	check("predict (a): the routine covers charge, flight, out, pull and retract", yo_seen.has(Y.CHARGING) and yo_seen.has(Y.FLIGHT) and yo_seen.has(Y.OUT) and yo_seen.has(Y.RETRACT), str(yo_seen.keys()))
+	check("predict (a): client state equals a purely local sim on every tick (first diff tick %d %s)" % [first_diff, diff_key], same_as_ref)
+	var compared := 0
+	var mismatches := 0
+	for s: int in srv:
+		if pred.has(s):
+			compared += 1
+			if pred[s] != srv[s]:
+				mismatches += 1
+	check("predict (b): predicted position of input N equals the server's after N (%d compared)" % compared, compared > total * 0.9 and mismatches == 0, "mismatches=%d" % mismatches)
+	check("predict (b): zero corrections without other players", max_corr == 0.0 and cl.snapshots_applied > 100, "max=%.4f applied=%d" % [max_corr, cl.snapshots_applied])
+	check("predict: server never ran dry and the client has few unacknowledged inputs", server.underruns == 0 and cl.pending_inputs() > 0 and cl.pending_inputs() < 30, "underruns=%d pending=%d" % [server.underruns, cl.pending_inputs()])
+	check("predict: ping estimate is about the round trip (200 ms + buffering)", cl.ping_ms > 190.0 and cl.ping_ms < 260.0, "ping=%.1f" % cl.ping_ms)
+
+
+func test_two_clients() -> void:
+	var rig := make_rig(100.0, 2.0, 2, 9)
+	check("net: two clients join", warm_up(rig))
+	var cs: Array = rig["clients"]
+	var server: ServerCore = rig["server"]
+	check("net: they get different slots", cs[0].slot != cs[1].slot and server.players_online() == 2)
+	var sum_corr := 0.0
+	var max_corr := 0.0
+	var n := 0
+	var max_pending := 0
+	var kills := 0
+	for t in 1500:
+		step_rig(rig, func(k: int) -> SimInput: return duel(k, t))
+		for k in 2:
+			var c: ClientCore = cs[k]
+			sum_corr += c.correction
+			max_corr = maxf(max_corr, c.correction)
+			n += 1
+			max_pending = maxi(max_pending, c.pending_inputs())
+			for e: Dictionary in c.events:
+				if e["type"] == "kill":
+					kills += 1
+	for _t in 180:
+		step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
+	var conv := true
+	var worst := 0.0
+	for k in 2:
+		var c: ClientCore = cs[k]
+		for i in 4:
+			var d := c.sim.players[i].pos.distance_to(server.sim.players[i].pos)
+			worst = maxf(worst, d)
+			if d > 0.001 or c.sim.players[i].alive != server.sim.players[i].alive or c.sim.players[i].enabled != server.sim.players[i].enabled:
+				conv = false
+	check("2 clients: they really interact (kills seen by the clients)", kills > 0, "kills=%d" % kills)
+	check("2 clients: corrections stay bounded (avg %.3f m, max %.2f m)" % [sum_corr / n, max_corr], sum_corr / n < 0.1 and max_corr < 3.0)
+	check("2 clients: unacknowledged inputs stay bounded", max_pending < 40, "max=%d" % max_pending)
+	check("2 clients: after the inputs stop, both clients converge to the server (worst %.4f m)" % worst, conv)
+	check("2 clients: server buffers stay bounded", server.stale_inputs == 0 and server.slots[0].buffer.size() <= ServerCore.MAX_BUFFER)
+
+
+func test_redundancy() -> void:
+	var skipped := {}
+	for red in [4, 1]:
+		var rig := make_rig(60.0, 10.0, 1, 21)
+		warm_up(rig)
+		var cl: ClientCore = rig["clients"][0]
+		if red != 4:
+			cl.redundancy = red
+		for t in 1200:
+			step_rig(rig, func(_k: int) -> SimInput: return scripted(0, t))
+		skipped[red] = (rig["server"] as ServerCore).skipped_inputs
+	check("redundancy: at 10 %% loss the previous inputs fill the holes (skipped %d with, %d without)" % [skipped[4], skipped[1]], skipped[1] > 40 and skipped[4] * 5 < skipped[1])
+
+
+func test_jitter_buffer() -> void:
+	var rig := make_rig(0.0, 0.0, 1, 2)
+	warm_up(rig)
+	var server: ServerCore = rig["server"]
+	var cl: ClientCore = rig["clients"][0]
+	# a burst of 60 inputs at once: the buffer must not grow, the oldest are dropped
+	var raw := cl.net
+	var base := cl.seq + 1000
+	for k in 60:
+		raw.send(1, NetProto.pack([NetProto.T_INPUT, base + k, [NetProto.encode_input(inp(Vector2.RIGHT))]]), false)
+	(rig["hub"] as LoopbackHub).advance(DT_MS)
+	server.tick()
+	var s: ServerCore.Slot = server.slots[cl.slot]
+	check("server: a burst of inputs does not make the buffer grow", s.buffer.size() <= ServerCore.MAX_BUFFER and server.stale_inputs > 0, "buffer=%d stale=%d" % [s.buffer.size(), server.stale_inputs])
+	# a stalled client: the last input is repeated for a while, then the player stands still
+	for _t in 400:
+		(rig["hub"] as LoopbackHub).advance(DT_MS)
+		server.tick()
+	check("server: without input the player stops (no runaway repeat)", server.slots[cl.slot].last_input.move == Vector2.ZERO and server.underruns > 0)
+
+
+# ---------------------------------------------------------------- server robustness
+
+func join_raw(rig: Dictionary, version := NetProto.VERSION) -> LoopbackHub.LoopbackEndpoint:
+	var hub: LoopbackHub = rig["hub"]
+	var raw := hub.connect_client()
+	hub.advance(1.0)
+	(rig["server"] as ServerCore).pump()
+	raw.poll()
+	raw.send(1, NetProto.pack([NetProto.T_HELLO, version]), true)
+	hub.advance(1.0)
+	(rig["server"] as ServerCore).pump()
+	return raw
+
+
+func test_robustness() -> void:
+	var rig := make_rig(0.0, 0.0, 0, 3)
+	var server: ServerCore = rig["server"]
+	var hub: LoopbackHub = rig["hub"]
+	var raw := join_raw(rig)
+	var welcome := false
+	for ev: Dictionary in raw.poll():
+		var m := NetProto.unpack(ev["data"], 65536) if ev["kind"] == NetEndpoint.Kind.PACKET else []
+		if not m.is_empty() and m[0] == NetProto.T_WELCOME:
+			welcome = true
+	check("server: a valid hello gets a welcome with the slot", welcome and server.players_online() == 1)
+
+	var garbage: Array[PackedByteArray] = []
+	garbage.append(PackedByteArray())
+	garbage.append(PackedByteArray([0]))
+	garbage.append(PackedByteArray([1, 2, 3]))
+	garbage.append(PackedByteArray([7, 7, 7, 7, 7, 7, 7, 7, 7]))
+	var rr := RandomNumberGenerator.new()
+	rr.seed = 5
+	for _k in 20:
+		var b := PackedByteArray()
+		b.resize(rr.randi_range(5, 200))
+		for j in b.size():
+			b[j] = rr.randi() % 256
+		b[0] = NetProto.K_PLAIN if rr.randf() < 0.7 else b[0]
+		garbage.append(b)
+	garbage.append(NetProto.pack([]))                                           # empty message
+	garbage.append(NetProto.pack(["input", 1]))                                 # type is not an int
+	garbage.append(NetProto.pack([NetProto.T_INPUT]))                           # too short
+	garbage.append(NetProto.pack([NetProto.T_INPUT, "x", []]))                  # seq not an int
+	garbage.append(NetProto.pack([NetProto.T_INPUT, 5, []]))                    # no inputs
+	garbage.append(NetProto.pack([NetProto.T_INPUT, 5, [[1, 2, 3]]]))           # input too short
+	garbage.append(NetProto.pack([NetProto.T_INPUT, 5, [["a", 0, 0, 0, 0]]]))   # field is a string
+	garbage.append(NetProto.pack([NetProto.T_INPUT, 5, [[NAN, 0.0, 0.0, 0.0, 0]]]))
+	garbage.append(NetProto.pack([NetProto.T_INPUT, 5, [[INF, 0.0, 0.0, 0.0, 0]]]))
+	garbage.append(NetProto.pack([NetProto.T_INPUT, -4, [[0, 0, 0, 0, 0]]]))    # negative seq
+	garbage.append(NetProto.pack([NetProto.T_INPUT, 1 << 40, [[0, 0, 0, 0, 0]]]))
+	garbage.append(NetProto.pack([NetProto.T_MODS, 17]))
+	garbage.append(NetProto.pack([NetProto.T_PING, "now"]))
+	garbage.append(NetProto.pack([999, 1, 2, 3]))                               # unknown type
+	var many: Array = []
+	for _k in 40:
+		many.append([0, 0, 0, 0, 0])
+	garbage.append(NetProto.pack([NetProto.T_INPUT, 50, many]))                 # too many inputs
+	var before_dropped := server.dropped_packets
+	for g in garbage:
+		raw.send(1, g, false)
+	hub.advance(1.0)
+	var tick_before := server.sim.tick
+	for _t in 3:
+		hub.advance(DT_MS)
+		server.tick()
+	check("server: garbage packets are ignored and counted (%d of %d)" % [server.dropped_packets - before_dropped, garbage.size()],
+			server.dropped_packets - before_dropped >= garbage.size() - 1 and server.sim.tick == tick_before + 3 and server.players_online() == 1)
+
+	# an oversized but otherwise valid packet
+	var fat := {}
+	for k in 300:
+		fat["junk%d" % k] = 1
+	var fat_packet := NetProto.pack([NetProto.T_MODS, fat])
+	var d0 := server.dropped_packets
+	raw.send(1, fat_packet, true)
+	hub.advance(1.0)
+	server.pump()
+	check("server: an oversized packet (%d bytes) is dropped unread" % fat_packet.size(), fat_packet.size() > NetProto.MAX_CLIENT_PACKET and server.dropped_packets == d0 + 1)
+
+	# out-of-range sticks are clamped to length 1
+	var seq_base := 100
+	for k in 6:
+		raw.send(1, NetProto.pack([NetProto.T_INPUT, seq_base + k, [[100.0, 100.0, -50.0, 1e30, 3]]]), false)
+	hub.advance(1.0)
+	var slot_i: int = server.slots.find_custom(func(s: ServerCore.Slot) -> bool: return s.peer >= 0)
+	var start := server.sim.players[slot_i].pos
+	var max_len := 0.0
+	for _t in 60:
+		hub.advance(DT_MS)
+		server.tick()
+		max_len = maxf(max_len, maxf(server.current_inputs[slot_i].move.length(), server.current_inputs[slot_i].aim.length()))
+	# keep feeding the same extreme input so the player keeps walking
+	check("server: stick values are clamped to length <= 1 (max %.4f)" % max_len, max_len <= 1.0001)
+	var moved := server.sim.players[slot_i].pos.distance_to(start)
+	check("server: clamped input cannot move faster than the speed limit", moved <= 6.0 * 1.2, "moved %.2f m in 1 s" % moved)
+
+	# input before hello is ignored; a second hello is ignored
+	var raw2 := hub.connect_client()
+	hub.advance(1.0)
+	server.pump()
+	var d1 := server.dropped_packets
+	raw2.send(1, NetProto.pack([NetProto.T_INPUT, 1, [[1, 0, 0, 0, 0]]]), false)
+	hub.advance(1.0)
+	server.pump()
+	check("server: input before the hello is ignored", server.dropped_packets == d1 + 1 and server.players_online() == 1)
+
+	# modifier levels are validated
+	raw.send(1, NetProto.pack([NetProto.T_MODS, {"twin": 99, "nonsense": 5, "bounce": -3, "pierce": 2.0}]), true)
+	hub.advance(1.0)
+	server.pump()
+	var mods := server.sim.players[slot_i].mods
+	check("server: modifier levels are clamped, unknown ids dropped", int(mods["twin"]) == Mods.MAX_LEVEL and int(mods["bounce"]) == 0 and int(mods["pierce"]) == 2 and not mods.has("nonsense"))
+
+	# a ping gets a pong
+	raw.poll()
+	raw.send(1, NetProto.pack([NetProto.T_PING, 1234]), false)
+	hub.advance(1.0)
+	server.pump()
+	var pong := false
+	for ev: Dictionary in raw.poll():
+		var m := NetProto.unpack(ev["data"], 65536) if ev["kind"] == NetEndpoint.Kind.PACKET else []
+		if not m.is_empty() and m[0] == NetProto.T_PONG and m[1] == 1234:
+			pong = true
+	check("server: ping is answered", pong)
+
+
+func test_join_rules() -> void:
+	# wrong protocol version
+	var rig := make_rig(0.0, 0.0, 0, 4)
+	var server: ServerCore = rig["server"]
+	var raw := join_raw(rig, NetProto.VERSION + 1)
+	var rejected := false
+	for ev: Dictionary in raw.poll():
+		if ev["kind"] == NetEndpoint.Kind.PACKET:
+			var m := NetProto.unpack(ev["data"], 65536)
+			rejected = rejected or (not m.is_empty() and m[0] == NetProto.T_REJECT and m[1] == "version")
+	check("server: a wrong protocol version is refused", rejected and server.players_online() == 0)
+
+	# a client core that gets refused ends in FAILED
+	var rig2 := make_rig(0.0, 0.0, 0, 4)
+	var hub2: LoopbackHub = rig2["hub"]
+	# fill the server first, then a fifth client has to be refused
+	var fillers: Array[ClientCore] = []
+	for _k in 4:
+		fillers.append(ClientCore.new(hub2.connect_client()))
+	rig2["clients"] = fillers
+	warm_up(rig2)
+	var late := ClientCore.new(hub2.connect_client())
+	for _t in 30:
+		hub2.advance(DT_MS)
+		late.poll(DT_MS / 1000.0)
+		(rig2["server"] as ServerCore).tick()
+		for f in fillers:
+			f.poll()
+			f.tick(SimInput.new())
+	check("server: four players fit", (rig2["server"] as ServerCore).players_online() == 4 and fillers[0].state == ClientCore.State.ONLINE)
+	check("server: a fifth client is refused with 'full'", late.state == ClientCore.State.FAILED and late.fail_reason == "full" and (rig2["server"] as ServerCore).players_online() == 4, "state=%d reason=%s" % [late.state, late.fail_reason])
+
+	# leaving frees the slot, and a newcomer can take it
+	var gone: ClientCore = fillers[1]
+	var gone_slot := gone.slot
+	gone.close()
+	for _t in 10:
+		hub2.advance(DT_MS)
+		(rig2["server"] as ServerCore).tick()
+	check("server: leaving frees the slot", (rig2["server"] as ServerCore).players_online() == 3 and (rig2["server"] as ServerCore).slots[gone_slot].peer < 0)
+	var again := ClientCore.new(hub2.connect_client())
+	for _t in 30:
+		hub2.advance(DT_MS)
+		again.poll(DT_MS / 1000.0)
+		(rig2["server"] as ServerCore).tick()
+	check("server: a newcomer gets the freed slot", again.slot == gone_slot, "slot=%d expected %d" % [again.slot, gone_slot])
+
+	# a server with bots fills the free slots and hands them over
+	var rig3 := make_rig(0.0, 0.0, 1, 4, true)
+	check("bots: the server runs bots in the free slots", warm_up(rig3))
+	var srv3: ServerCore = rig3["server"]
+	for _t in 300:
+		step_rig(rig3, func(_k: int) -> SimInput: return SimInput.new())
+	var bots_enabled := 0
+	for i in 4:
+		if srv3.sim.players[i].enabled and i != rig3["clients"][0].slot:
+			bots_enabled += 1
+	check("bots: three bots plus the human", bots_enabled == 3 and srv3.bots.size() == 4)
+	var bot_moved := false
+	for i in 4:
+		if i != rig3["clients"][0].slot and srv3.current_inputs[i].move != Vector2.ZERO:
+			bot_moved = true
+	check("bots: the bots produce input", bot_moved)
+
+
+# ---------------------------------------------------------------- client against a scripted server
+
+func fake_server_setup() -> Dictionary:
+	var hub := LoopbackHub.new(1)
+	var cl := ClientCore.new(hub.connect_client())
+	hub.advance(1.0)
+	cl.poll()                                   # sends the hello
+	hub.server.poll()                           # connect event
+	var cfg := Config.new()
+	hub.server.send(1, NetProto.pack([NetProto.T_WELCOME, NetProto.VERSION, 0, cfg.to_dict()]), true)
+	hub.advance(1.0)
+	cl.poll()
+	return {"hub": hub, "client": cl, "cfg": cfg}
+
+
+func send_snapshot(fs: Dictionary, state: Sim, tick_no: int, acked: int) -> void:
+	var enc: Array = []
+	for i in 4:
+		enc.append(NetProto.encode_input(SimInput.new()))
+	var body := NetProto.snapshot_body(enc, state.save_state())
+	(fs["hub"] as LoopbackHub).server.send(1, NetProto.snapshot_packet(tick_no, acked, body), false)
+	(fs["hub"] as LoopbackHub).advance(1.0)
+	(fs["client"] as ClientCore).poll()
+
+
+func test_client_rules() -> void:
+	var fs := fake_server_setup()
+	var cl: ClientCore = fs["client"]
+	var s := Sim.new(fs["cfg"], 1)
+	for i in 4:
+		s.set_player_enabled(i, i < 2)
+		s.players[i].alive = true
+	s.crate_pos = Vector2(-50, -50)
+	s.box_active = false
+	s.box_timer = 9999.0
+	check("client: welcome gives slot and config but it is not online before the first snapshot", cl.slot == 0 and cl.sim != null and cl.state == ClientCore.State.CONNECTING)
+	s.tick = 100
+	send_snapshot(fs, s, 100, 0)
+	check("client: the first snapshot puts it online", cl.state == ClientCore.State.ONLINE and cl.sim.tick == 100)
+	s.tick = 90
+	var older := Sim.new(fs["cfg"], 1)
+	older.load_state(s.save_state())
+	older.players[0].pos = Vector2(20, 3)
+	send_snapshot(fs, older, 90, 0)
+	check("client: an older snapshot is dropped", cl.snapshots_dropped == 1 and cl.sim.players[0].pos != Vector2(20, 3) and cl.sim.tick == 100)
+	s.tick = 100
+	var dup := Sim.new(fs["cfg"], 1)
+	dup.load_state(s.save_state())
+	dup.players[0].pos = Vector2(20, 3)
+	send_snapshot(fs, dup, 100, 0)
+	check("client: a snapshot with the same tick is dropped as well", cl.snapshots_dropped == 2)
+
+	# events of re-simulated ticks do not reach the view
+	var k := Sim.new(fs["cfg"], 1)
+	k.load_state(s.save_state())
+	k.players[1].pos = Vector2(8, 6.3)
+	k.players[1].prev_pos = Vector2(8, 6.3)
+	k.players[0].pos = Vector2(5, 6.3)
+	k.players[0].prev_pos = Vector2(5, 6.3)
+	var h := k.players[0].heads[0]
+	h.state = SimHead.S.FLIGHT
+	h.pos = Vector2(7.7, 6.3)
+	h.prev_pos = Vector2(7.7, 6.3)
+	h.throw_dir = Vector2.RIGHT
+	h.flight_dist = 8.0
+	var probe := Sim.new(fs["cfg"], 1)
+	probe.load_state(k.save_state())
+	probe.step([SimInput.new(), SimInput.new(), SimInput.new(), SimInput.new()])
+	var probe_kill := false
+	for e: Dictionary in probe.events:
+		probe_kill = probe_kill or e["type"] == "kill"
+	check("client test setup: the crafted state really produces a kill in one tick", probe_kill)
+	k.tick = 110
+	send_snapshot(fs, k, 110, 0)                   # reconcile onto the crafted state
+	cl.tick(SimInput.new())                        # seq 1: predicted, produces the kill event
+	var own_kill := false
+	for e: Dictionary in cl.events:
+		own_kill = own_kill or e["type"] == "kill"
+	check("client: events of the newest local tick are handed on", own_kill)
+	cl.events = []
+	k.tick = 120
+	send_snapshot(fs, k, 120, 0)                   # same crafted state, seq 1 still pending: it is replayed
+	var replay_state_kill := not cl.sim.players[1].alive
+	check("client: the replay really re-ran the kill", replay_state_kill)
+	check("client: events of replayed ticks are not handed to the view", cl.events.is_empty(), str(cl.events))
+
+
+# ---------------------------------------------------------------- lag tool
+
+func test_lag_tool() -> void:
+	var hub := LoopbackHub.new(1)
+	var clock := [0.0]
+	var raw := hub.connect_client()
+	var lag := LagEndpoint.new(raw, 77)
+	lag.clock = func() -> float: return clock[0]
+	hub.advance(1.0)
+	lag.poll()
+	hub.server.poll()
+	lag.delay_ms = 100.0
+	lag.send(1, PackedByteArray([1, 2, 3]), false)
+	lag.poll()
+	hub.advance(1.0)
+	var got_early := hub.server.poll().size()
+	clock[0] = 99.0
+	lag.poll()
+	hub.advance(1.0)
+	var got_99 := hub.server.poll().size()
+	clock[0] = 100.0
+	lag.poll()
+	hub.advance(1.0)
+	var got_100 := hub.server.poll().size()
+	check("lag tool: outgoing packet is held for exactly the delay", got_early == 0 and got_99 == 0 and got_100 == 1)
+	# incoming
+	hub.server.send(1, PackedByteArray([9]), false)
+	hub.advance(1.0)
+	clock[0] = 150.0
+	var in_early := lag.poll().size()
+	clock[0] = 260.0
+	var in_late := lag.poll().size()
+	check("lag tool: incoming packet is held for the delay as well", in_early == 0 and in_late == 1)
+	# loss: reliable never, unreliable about p
+	lag.delay_ms = 0.0
+	lag.loss_pct = 20.0
+	clock[0] = 300.0
+	for k in 1000:
+		lag.send(1, PackedByteArray([k % 256]), false)
+		lag.send(1, PackedByteArray([k % 256, 1]), true)
+	lag.poll()
+	var unrel := 0
+	var rel := 0
+	var order_ok := true
+	var last_rel := -1
+	for ev: Dictionary in hub.server.poll():
+		if ev["kind"] != NetEndpoint.Kind.PACKET:
+			continue
+		if ev["reliable"]:
+			rel += 1
+		else:
+			unrel += 1
+	hub.advance(1.0)
+	for ev: Dictionary in hub.server.poll():
+		if ev["kind"] != NetEndpoint.Kind.PACKET:
+			continue
+		if ev["reliable"]:
+			rel += 1
+		else:
+			unrel += 1
+	check("lag tool: 20 %% loss drops about a fifth of the unreliable packets (%d of 1000 kept)" % unrel, unrel > 740 and unrel < 860)
+	check("lag tool: reliable packets are never dropped (%d of 1000)" % rel, rel == 1000)
+	# the same for the incoming direction
+	clock[0] = 400.0
+	for k in 1000:
+		hub.server.send(1, PackedByteArray([k % 256]), false)
+		hub.server.send(1, PackedByteArray([k % 256, 1]), true)
+	hub.advance(1.0)
+	var in_unrel := 0
+	var in_rel := 0
+	for ev: Dictionary in lag.poll():
+		if ev["kind"] == NetEndpoint.Kind.PACKET:
+			if ev["reliable"]:
+				in_rel += 1
+			else:
+				in_unrel += 1
+	check("lag tool: incoming loss hits only unreliable packets (%d of 1000 kept, %d of 1000 reliable)" % [in_unrel, in_rel], in_rel == 1000 and in_unrel > 740 and in_unrel < 860)
+	# order is kept when the delay shrinks while packets are on the way
+	lag.loss_pct = 0.0
+	lag.delay_ms = 100.0
+	clock[0] = 1000.0
+	lag.send(1, PackedByteArray([1]), true)
+	lag.delay_ms = 10.0
+	clock[0] = 1001.0
+	lag.send(1, PackedByteArray([2]), true)
+	clock[0] = 1200.0
+	lag.poll()
+	hub.advance(1.0)
+	var order: Array = []
+	for ev: Dictionary in hub.server.poll():
+		if ev["kind"] == NetEndpoint.Kind.PACKET:
+			order.append(ev["data"][0])
+	order_ok = order == [1, 2]
+	check("lag tool: packets keep their order when the delay is lowered", order_ok, str(order))
+
+
+func test_address_parse() -> void:
+	check("address: host only gets the default port", NetStore.parse_address(" example.org ") == {"host": "example.org", "port": NetProto.DEFAULT_PORT})
+	check("address: host and port", NetStore.parse_address("10.0.0.5:30000") == {"host": "10.0.0.5", "port": 30000})
+	check("address: a bad port is refused", NetStore.parse_address("10.0.0.5:99999")["host"] == "" and NetStore.parse_address("10.0.0.5:abc")["host"] == "")
+	check("address: empty or with spaces is refused", NetStore.parse_address("")["host"] == "" and NetStore.parse_address("a b")["host"] == "")
+
+
+# ---------------------------------------------------------------- real ENet on localhost
+
+func test_enet() -> void:
+	var port := 0
+	var server_ep := ENetEndpoint.new()
+	for p in range(24610, 24650):
+		if server_ep.listen(p, ServerCore.MAX_PENDING) == OK:
+			port = p
+			break
+	check("enet: server socket opens on a free localhost port", port != 0)
+	if port == 0:
+		return
+	var server := ServerCore.new(Config.new(), server_ep, 7, true)
+	for i in 4:
+		server.sim.apply_mods(i, Mods.sanitize({"splitter": 3, "twin": 3, "arc": 3, "shards": 3, "warhead": 3, "tripwire": 3, "bighead": 3, "bounce": 3, "pierce": 3, "elastic": 3, "extradash": 3}))
+	var client_ep := ENetEndpoint.new()
+	check("enet: client socket opens", client_ep.connect_to("127.0.0.1", port) == OK)
+	var cl := ClientCore.new(client_ep)
+	var t0 := Time.get_ticks_msec()
+	var frames := 0
+	var moved := false
+	var start := Vector2.ZERO
+	while Time.get_ticks_msec() - t0 < 2500 and frames < 400:
+		cl.poll(1.0 / 60.0)
+		server.tick()
+		cl.tick(inp(Vector2.RIGHT) if cl.state == ClientCore.State.ONLINE else SimInput.new())
+		if cl.state == ClientCore.State.ONLINE and start == Vector2.ZERO:
+			start = cl.sim.players[cl.slot].pos
+		frames += 1
+		OS.delay_msec(8)
+		if cl.snapshots_applied > 60 and cl.ping_ms > 0.0:
+			break
+	check("enet: the client joins and gets snapshots", cl.state == ClientCore.State.ONLINE and cl.snapshots_applied > 30 and cl.slot == 0, "state=%d applied=%d" % [cl.state, cl.snapshots_applied])
+	check("enet: the server receives and consumes the inputs", server.slots[0].last_consumed > 20, "consumed=%d" % server.slots[0].last_consumed)
+	var me := cl.sim.players[0]
+	check("enet: input moves the player (prediction and server agree on direction)", me.pos.x > start.x + 0.5 and server.sim.players[0].pos.x > start.x, "client x=%.2f server x=%.2f" % [me.pos.x, server.sim.players[0].pos.x])
+	check("enet: ping estimate exists", cl.ping_ms > 0.0, "ping=%.1f" % cl.ping_ms)
+	# an unreliable packet bigger than one MTU must still arrive, and still count as unreliable
+	var big := PackedByteArray()
+	big.resize(3000)
+	for i in big.size():
+		big[i] = (i * 7) % 251
+	server_ep.send(1, big, false)
+	server_ep.flush()
+	var got_big := false
+	var big_reliable := true
+	for _i in 100:
+		for ev: Dictionary in client_ep.poll():
+			if ev["kind"] == NetEndpoint.Kind.PACKET and ev["data"].size() == 3000:
+				got_big = ev["data"] == big
+				big_reliable = ev["reliable"]
+		if got_big:
+			break
+		OS.delay_msec(5)
+	check("enet: a 3000 byte unreliable packet arrives whole and stays unreliable", got_big and not big_reliable)
+	cl.close()
+	for _i in 60:
+		server.tick()
+		OS.delay_msec(5)
+		if server.players_online() == 0:
+			break
+	check("enet: the server notices that the client left", server.players_online() == 0)
+	server_ep.close()
+
+
+func test_menu_online() -> void:   # async: ranges only report changes once the frame after adding them has passed
+	NetStore.path = "user://test_online.json"
+	var menu := TuningMenu.new()
+	root.add_child(menu)
+	menu.setup(Config.new())
+	await process_frame
+	var got: Array = []
+	menu.connect_requested.connect(func(a: String) -> void: got.append(["connect", a]))
+	menu.disconnect_requested.connect(func() -> void: got.append(["disconnect"]))
+	menu.lag_changed.connect(func(ms: float, loss: float) -> void: got.append(["lag", ms, loss]))
+	menu._show_page(2)
+	check("menu online: the Online page can be shown", menu._online_page.visible and not menu._values_page.visible and not menu._mods_page.visible)
+	check("menu online: button states at the start", not menu._connect_btn.disabled and menu._disconnect_btn.disabled)
+	menu._address_edit.text = "example.org:1234"
+	menu._connect_btn.pressed.emit()
+	check("menu online: Verbinden sends the typed address", got == [["connect", "example.org:1234"]], str(got))
+	menu.set_online_status("Verbunden als Spieler 2", true)
+	check("menu online: while connected only Trennen is enabled", menu._connect_btn.disabled and not menu._disconnect_btn.disabled and menu._online_status.text == "Verbunden als Spieler 2")
+	menu._disconnect_btn.pressed.emit()
+	check("menu online: Trennen is announced", got.back() == ["disconnect"])
+	got.clear()
+	menu._lag_slider.value = 100.0
+	menu._loss_slider.value = 7.0
+	check("menu online: sliders report delay and loss", got == [["lag", 100.0, 0.0], ["lag", 100.0, 7.0]], str(got))
+	check("menu online: the label says per direction and what happens to the ping", menu._lag_label.text.contains("pro Richtung") and menu._lag_label.text.contains("200 ms") and menu._loss_label.text.contains("7 %"), menu._lag_label.text)
+	menu._on_reset()
+	check("menu online: reset on this page clears the lag tool", menu._lag_slider.value == 0.0 and menu._loss_slider.value == 0.0)
+	menu.queue_free()
+
+
+## The real main scene (view, HUD, menu, router) against a real ENet server on localhost.
+func test_main_scene() -> void:
+	NetStore.path = "user://test_online.json"
+	var port := 0
+	var server_ep := ENetEndpoint.new()
+	for p in range(24650, 24690):
+		if server_ep.listen(p, ServerCore.MAX_PENDING) == OK:
+			port = p
+			break
+	var server := ServerCore.new(Config.new(), server_ep, 7, false)
+	var main: Node = load("res://main.tscn").instantiate()
+	root.add_child(main)
+	await process_frame
+	check("main: offline at the start", not main._online and main.client == null and main.view.sim == main.sim)
+	main.menu.set_online_status("x", false)
+	main.menu.connect_requested.emit("a b")
+	check("main: an unusable address is refused with a message", main.menu._online_status.text == "Ungültige Adresse" and main.client == null)
+	main.menu.lag_changed.emit(40.0, 0.0)
+	main.menu.connect_requested.emit("127.0.0.1:%d" % port)
+	check("main: connecting shows a status and keeps the offline game", main.client != null and not main._online and main.menu._online_status.text == "Verbinde …" and main.lag.delay_ms == 40.0)
+	for _i in 300:
+		server.tick()
+		OS.delay_msec(10)
+		await process_frame
+		if main._online:
+			break
+	check("main: goes online, view and HUD read the predicted sim", main._online and main.view.sim == main.client.sim and main.hud._sim == main.client.sim and main.hud.online)
+	check("main: status says which player you are", main.menu._online_status.text == "Verbunden als Spieler 1", main.menu._online_status.text)
+	check("main: the address was remembered (in the test location only)", NetStore.load_address() == "127.0.0.1:%d" % port)
+	main.menu.lag_changed.emit(120.0, 5.0)
+	check("main: the lag sliders reach the running connection", main.lag.delay_ms == 120.0 and main.lag.loss_pct == 5.0)
+	main.cfg.mods_you["twin"] = 2
+	for _i in 120:
+		server.tick()
+		OS.delay_msec(10)
+		await process_frame
+	check("main: own modifier choice reaches the server", int(server.sim.players[0].mods.get("twin", 0)) == 2 and int(main.client.sim.players[0].mods.get("twin", 0)) == 2)
+	check("main: the HUD shows ping and correction", main.hud._net_label.visible and main.hud._net_label.text.begins_with("Ping "), main.hud._net_label.text)
+	main.menu.open_menu()
+	var tick_open: int = main.client.sim.tick
+	for _i in 30:
+		server.tick()
+		OS.delay_msec(10)
+		await process_frame
+	check("main: online the sim keeps running while the menu is open", main.client.sim.tick > tick_open + 10)
+	main.menu.close_menu()
+	main.menu.disconnect_requested.emit()
+	check("main: disconnecting falls back to the offline game", not main._online and main.client == null and main.view.sim == main.sim and main.hud._sim == main.sim and not main.hud.online and main.menu._online_status.text == "Getrennt")
+	for _i in 30:
+		server.tick()
+		await process_frame
+	check("main: the server sees the player leave", server.players_online() == 0)
+	# a server that drops the connection: the game falls back as well
+	main.menu.connect_requested.emit("127.0.0.1:%d" % port)
+	for _i in 300:
+		server.tick()
+		OS.delay_msec(10)
+		await process_frame
+		if main._online:
+			break
+	check("main: second connect works", main._online)
+	server_ep.close()   # the server vanishes
+	var ticks_before: int = main.sim.tick
+	for _i in 600:
+		OS.delay_msec(10)
+		await process_frame
+		if not main._online:
+			break
+	check("main: when the server vanishes the game falls back to offline", not main._online and main.view.sim == main.sim and main.menu._online_status.text == "Getrennt", main.menu._online_status.text)
+	for _i in 20:
+		await process_frame
+	check("main: and the offline sim runs again", main.sim.tick > ticks_before)
+	main.queue_free()
+	await process_frame
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online.json"))
+
+
+func _initialize() -> void:
+	test_snapshot()
+	test_prediction()
+	test_two_clients()
+	test_redundancy()
+	test_jitter_buffer()
+	test_robustness()
+	test_join_rules()
+	test_client_rules()
+	test_lag_tool()
+	test_address_parse()
+	test_enet()
+	await test_menu_online()
+	await test_main_scene()
+	quit(fails)

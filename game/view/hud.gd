@@ -9,6 +9,12 @@ var _labels: Array[Label] = []
 var _chip_box: HBoxContainer
 var _chip_key := ""
 var _sim: Sim
+var _local := 0
+var _net_label: Label
+## Network figures shown while online (empty: hidden).
+var net_text := ""
+## True while playing online: the other players are people, not bots.
+var online := false
 
 
 func setup(s: Sim) -> void:
@@ -42,6 +48,15 @@ func setup(s: Sim) -> void:
 	_chip_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_chip_box)
 
+	_net_label = Label.new()
+	_net_label.position = Vector2(16.0, 84.0)
+	_net_label.add_theme_font_size_override("font_size", 16)
+	_net_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	_net_label.add_theme_constant_override("outline_size", 5)
+	_net_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_net_label.visible = false
+	add_child(_net_label)
+
 	gear_btn = Button.new()
 	gear_btn.flat = true
 	gear_btn.custom_minimum_size = Vector2(Config.GEAR_SIZE, Config.GEAR_SIZE)
@@ -52,6 +67,13 @@ func setup(s: Sim) -> void:
 	gear_btn.draw.connect(_draw_gear)
 	gear_btn.pressed.connect(func() -> void: gear_pressed.emit())
 	add_child(gear_btn)
+
+
+## Shows another sim (the predicted one while online) with `local_slot` as "Du".
+func use_sim(s: Sim, local_slot: int) -> void:
+	_sim = s
+	_local = local_slot
+	_chip_key = ""
 
 
 func _draw_gear() -> void:
@@ -72,14 +94,16 @@ func refresh() -> void:
 	for i in _labels.size():
 		var p := _sim.players[i]
 		_labels[i].visible = p.enabled
-		var who := "Du" if i == 0 else "Bot %d" % i
+		var who := "Du" if i == _local else ("Spieler %d" % (i + 1) if online else "Bot %d" % i)
 		_labels[i].text = "%s %d : %d" % [who, p.kills, p.deaths]
 
+	_net_label.visible = net_text != ""
+	_net_label.text = net_text
 	_refresh_chips()
 
 
 func _refresh_chips() -> void:
-	var mods := _sim.players[0].mods
+	var mods := _sim.players[_local].mods
 	var key := ""
 	for id in Mods.ORDER:
 		key += "%s%d," % [id, mods.get(id, 0)]

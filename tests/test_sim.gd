@@ -1155,12 +1155,12 @@ func _menu_tests() -> void:
 	cfgm.player_speed = 9.0; cfgm.mods_you["shards"] = 2; cfgm.mods_you["warhead"] = 1; cfgm.mods_bots["pierce"] = 3
 	menu.setup(cfgm)
 	check("menu: synergy list shows the active combination for Du", menu._syn_label.text.contains("Splitter + Sprengkopf"), menu._syn_label.text)
-	menu._show_page(true)
+	menu._show_page(1)
 	menu._on_reset()
 	check("menu: reset on the modifier page clears the levels (both) but not the values", cfgm.mods_you["shards"] == 0 and cfgm.mods_bots["pierce"] == 0 and cfgm.player_speed == 9.0)
 	check("menu: synergy list is empty again after reset", menu._syn_label.text.begins_with("Keine"))
 	cfgm.mods_you["shards"] = 1
-	menu._show_page(false)
+	menu._show_page(0)
 	menu._on_reset()
 	check("menu: reset on the values page resets the values but not the levels", cfgm.player_speed == Config.DEFAULTS["player_speed"] and cfgm.mods_you["shards"] == 1)
 	menu._on_export()

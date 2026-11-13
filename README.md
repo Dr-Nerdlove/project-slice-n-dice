@@ -36,6 +36,24 @@ Early prototype, milestone 1 (game feel offline). See [docs/PLAN.md](docs/PLAN.m
   `python3 tests/sabotage.py` checks that the tests really catch deliberate breakage. GitHub Actions runs the
   tests on every push and pull request and builds the debug APK (download it from the run's artifacts).
 
+## Playing online (experiment)
+
+The first netcode experiment: a headless server on a PC, 2-4 phones on the same network.
+
+- Start the server (UDP port 24565 by default; `--bots` fills the free slots with bots):
+
+  ```
+  godot --headless --path game -- --server [--port 24565] [--bots]
+  ```
+
+  It prints joins and leaves and a status line every 10 seconds. Allow the port in the PC's firewall.
+- On the phone: open the settings (gear), page **Online**, type the PC's address (`name` or `address:port`),
+  **Verbinden**. The sliders on that page add artificial delay (per direction, so the ping grows by twice that value)
+  and packet loss; the HUD shows ping, correction and open inputs.
+- Check a running server without a display: `godot --headless --path game -s tests/net_probe.gd -- HOST[:PORT]`.
+
+The Android build has the INTERNET permission enabled for this.
+
 ## Licence
 
 GNU AGPL v3, see [LICENSE](LICENSE).
