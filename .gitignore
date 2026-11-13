@@ -1,0 +1,12 @@
+# Claude Code: local settings (allowed commands, paths, possibly tokens) - never commit
+.claude/settings.local.json
+
+# Secrets and local environment
+.env
+.env.*
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
