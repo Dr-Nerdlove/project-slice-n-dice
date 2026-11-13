@@ -42,8 +42,10 @@ Versions before 0.2.1 have to be uninstalled once.
   tests/run.sh
   ```
 
-  `python3 tests/sabotage.py` checks that the tests really catch deliberate breakage (in temporary copies, parallel, a few minutes; your files are never touched). GitHub Actions runs the
-  tests on every push and pull request and builds the debug APK (download it from the run's artifacts).
+  `python3 tests/sabotage.py` checks that the tests really catch deliberate breakage (in temporary copies,
+  parallel, a few minutes; your files are never touched). GitHub Actions runs the tests on every push and pull
+  request and builds the debug APK (download it from the run's artifacts); it also scans the whole git history
+  for secrets (gitleaks).
 
 ## Playing online (experiment)
 
