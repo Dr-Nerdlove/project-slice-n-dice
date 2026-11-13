@@ -8,6 +8,7 @@ signal connect_requested(address: String)
 signal disconnect_requested
 signal lag_changed(delay_ms: float, loss_pct: float)
 signal smoothing_changed(on: bool)
+signal update_requested
 
 # name, German label, min, max, step, unit
 const SLIDERS: Array = [
@@ -65,6 +66,8 @@ var _syn_label: Label
 var _export_panel: Control
 var _export_status: Label
 var _export_text: TextEdit
+var _version_label: Label
+var _update_btn: Button
 
 
 func setup(c: Config) -> void:
@@ -91,8 +94,18 @@ func setup(c: Config) -> void:
 	var title := Label.new()
 	title.text = "Einstellungen"
 	title.add_theme_font_size_override("font_size", 30)
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(title)
+	_version_label = Label.new()
+	_version_label.text = "Version %s" % UpdateCheck.running_version()
+	_version_label.add_theme_font_size_override("font_size", DESC_FONT_SIZE)
+	_version_label.modulate = Color(1, 1, 1, 0.7)
+	_version_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_version_label.size_flags_vertical = Control.SIZE_SHRINK_END
+	top.add_child(_version_label)
+	_update_btn = _button("Herunterladen")
+	_update_btn.visible = false
+	_update_btn.pressed.connect(func() -> void: update_requested.emit())
+	top.add_child(_update_btn)
 	var reset := _button("Zurücksetzen")
 	reset.pressed.connect(_on_reset)
 	top.add_child(reset)
@@ -611,6 +624,13 @@ func _on_export() -> void:
 	_export_text.text = text
 	_export_status.text = "In die Zwischenablage kopiert"
 	_export_panel.visible = true
+
+
+## Shows the update button and the new version next to the running one; "" hides them.
+func set_update(version: String) -> void:
+	_update_btn.visible = version != ""
+	var text := "Version %s" % UpdateCheck.running_version()
+	_version_label.text = text + ("  (neu: %s)" % version if version != "" else "")
 
 
 func open_menu() -> void:

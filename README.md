@@ -10,6 +10,15 @@ The picture is the original German vision sketch.
 
 Early prototype, milestone 1 (game feel offline). See [docs/PLAN.md](docs/PLAN.md) for the full plan.
 
+## Install and update (testers)
+
+Test versions are published in the public repository
+[Joni9993/slice-n-dice-releases](https://github.com/Joni9993/slice-n-dice-releases/releases). On an Android phone:
+download the `.apk` of the newest release, open it and allow installing from this source. From version 0.3.0 on
+the app tells you by itself ("Neue Version ... verfügbar", with a download button; also in the settings) when a
+newer version exists; installing it over the old one keeps your settings. The check sends nothing about you.
+Versions before 0.2.1 have to be uninstalled once.
+
 ## Working on it
 
 - Engine: Godot 4.7.2. The Godot project is in `game/`.
@@ -54,6 +63,12 @@ The first netcode experiment: a headless server on a PC, 2-4 phones on the same 
 - Check a running server without a display: `godot --headless --path game -s tests/net_probe.gd -- HOST[:PORT]`.
 
 The Android build has the INTERNET permission enabled for this.
+
+## Releases
+
+Add a section `## X.Y.Z` to `CHANGELOG.md`, then push the tag `vX.Y.Z`: the workflow
+`.github/workflows/release.yml` tests, builds and publishes the APK to the releases repository above (details in
+`AGENTS.md`, "Release"). `tools/set-version.sh X.Y.Z` sets the version number in the project files.
 
 ## Licence
 

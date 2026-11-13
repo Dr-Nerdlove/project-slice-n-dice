@@ -221,10 +221,26 @@ missing, with a recommendation, and let the people choose.
   `godot --headless --path game -s tests/net_probe.gd -- HOST[:PORT] [--lag MS] [--loss PCT]`. Decisions and what is
   not done yet: `docs/PLAN.md` (M2).
 - **Modifiers:** Modifier definitions, German texts and all their numbers live in `game/sim/mods.gd`.
-- **Release:** Pre-releases for testers so far: `v0.1.0` (built by hand, signed with the local debug key) and
-  `v0.2.0` (the CI artifact of the netcode branch, attached by hand with `gh release create --prerelease`). No
-  release workflow yet. Version scheme `vMAJOR.MINOR.PATCH` (see "Releases" above). The version inside the APK
-  (`version/name` and `version/code` in `game/export_presets.cfg`) is still 0.1.0 / 1 and has to be raised by hand.
+- **Release:** Testers get APKs from the PUBLIC repository `Joni9993/slice-n-dice-releases` (this one is private).
+  How a release is made: (1) add a section `## MAJOR.MINOR.PATCH` to `CHANGELOG.md` (the workflow fails without it;
+  it becomes the release notes); (2) merge to `main`, or tag the branch you want to release; (3) push the tag
+  `vMAJOR.MINOR.PATCH`. `.github/workflows/release.yml` then runs `tests/run.sh`, sets the version from the tag
+  (`tools/set-version.sh`), builds the APK signed with the fixed test key (it fails if the key secrets are missing),
+  and publishes a normal (not pre-)release `slice-n-dice-vX.Y.Z.apk` there with `gh release create` using the secret
+  `RELEASES_TOKEN` (fine-grained token, contents read/write on that repository only). A retry (Actions > Release >
+  Run workflow with the tag; the workflow file must be on `main` for that button) replaces the APK of an existing
+  release. The workflow cannot be tested locally; the first real run is its test. Older pre-releases (`v0.1.0`,
+  `v0.2.0`, `v0.2.1`) were made by hand and live in the private repository. Version rule: one number
+  `MAJOR.MINOR.PATCH`; `tools/set-version.sh` writes it to `application/config/version` in `game/project.godot` (what
+  the game shows and compares), and `version/name` and `version/code` (= MAJOR*10000 + MINOR*100 + PATCH, so MINOR
+  and PATCH stay below 100) in `game/export_presets.cfg`. The committed files hold the version of the NEXT release
+  (now 0.3.0); a test checks that they agree. CI builds of branches use the committed version plus the suffix
+  `-dev+<commit>` in `application/config/version` only (set by the `apk` job), so the game shows it is a dev build and
+  never offers an update for the same version. How the app finds updates: `game/update/update_check.gd` (pure logic)
+  and `main.gd` ask `https://api.github.com/repos/Joni9993/slice-n-dice-releases/releases/latest` once, 3 s after the
+  start (not headless, not in server mode, silent on any failure), compare versions and show a banner and a button
+  in the settings; the download link is accepted only below `https://github.com/Joni9993/slice-n-dice-releases/` and
+  is opened with `OS.shell_open`. Android installs the APK over the old one only if the signing key is the same (trap 7).
 - **Traps:** (1) ENet turns an unreliable packet bigger than one MTU into a reliable one unless it is sent with
   `FLAG_UNRELIABLE_FRAGMENT` (`ENetEndpoint` does; from ENet's source, not provable from GDScript). (2)
   `PackedByteArray.decompress_dynamic` works only for gzip, deflate and brotli, not zstd: the snapshot stores its raw

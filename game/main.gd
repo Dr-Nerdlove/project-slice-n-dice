@@ -5,6 +5,8 @@ extends Node
 ## Started with "-- --server" it becomes a headless dedicated server and builds none of this.
 
 const SIM_SEED := 20260101
+const UPDATE_CHECK_DELAY := 3.0
+const UPDATE_TIMEOUT := 10.0
 
 var cfg: Config
 var sim: Sim
@@ -24,6 +26,11 @@ var _smooth := true            # draw the other players interpolated (menu switc
 var _acc := 0.0
 var _hitstop := 0.0
 var _applied_bot_mode := -1
+var _update: Dictionary = {}   # {"version", "url"} of a newer release; empty: none known
+var _update_dismissed := false
+var _update_http: HTTPRequest
+var update_url := UpdateCheck.API_URL   # a test points this at a local server
+var open_url: Callable = OS.shell_open    # a test replaces this so no browser starts
 
 
 func _ready() -> void:
@@ -53,10 +60,13 @@ func _ready() -> void:
 	add_child(hud)
 	hud.setup(sim)
 	hud.gear_pressed.connect(_toggle_menu)
+	hud.update_download_pressed.connect(_download_update)
+	hud.update_dismissed.connect(func() -> void: _update_dismissed = true)
 
 	menu = TuningMenu.new()
 	add_child(menu)
 	menu.setup(cfg)
+	menu.update_requested.connect(_download_update)
 	menu.closed.connect(func() -> void: router.blocked = false)
 	menu.connect_requested.connect(_connect)
 	menu.disconnect_requested.connect(func() -> void: _leave_online("closed"))
@@ -75,6 +85,9 @@ func _ready() -> void:
 	for i in range(1, Config.NUM_PLAYERS):
 		bots.append(Bot.new(i, cfg, SIM_SEED + i))
 	_apply_bot_mode()
+	# Headless runs (tests) never go to the network; they feed `offer_update` directly.
+	if DisplayServer.get_name() != "headless":
+		get_tree().create_timer(UPDATE_CHECK_DELAY).timeout.connect(_start_update_check)
 
 
 func _toggle_menu() -> void:
@@ -139,7 +152,7 @@ func _process(delta: float) -> void:
 	router.dash_ready_ratio = 1.0 - clampf(me.dash_cd / maxf(shown.dash_cooldown_of(me), 0.001), 0.0, 1.0)
 	hud.net_text = _net_text() if _online else ""
 	hud.refresh()
-	router.exclude_rects = [hud.gear_rect()]
+	router.exclude_rects = hud.blocked_rects()
 	var frac := clampf(_acc / dt, 0.0, 1.0)
 	if _online:
 		client.prepare_display(frac)
@@ -162,6 +175,43 @@ func _tick(dt: float) -> void:
 			_hitstop = Config.HITSTOP_TIME
 			if e["victim"] == 0 or e["killer"] == 0:
 				Input.vibrate_handheld(Config.VIBRATE_MS)
+
+
+# ---------------------------------------------------------------- update notice
+
+## One request for the newest release in the public releases repository. Sends nothing about the user
+## (no identifiers, no version); every failure is silent.
+func _start_update_check() -> void:
+	if _update_http != null:
+		return
+	_update_http = HTTPRequest.new()
+	_update_http.timeout = UPDATE_TIMEOUT
+	_update_http.body_size_limit = UpdateCheck.MAX_BODY_BYTES
+	add_child(_update_http)
+	_update_http.request_completed.connect(_on_update_response)
+	var headers := PackedStringArray(["User-Agent: slice-n-dice", "Accept: application/vnd.github+json"])
+	if _update_http.request(update_url, headers) != OK:
+		_update_http.queue_free()
+
+
+func _on_update_response(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if result == HTTPRequest.RESULT_SUCCESS and code == 200:
+		offer_update(UpdateCheck.parse_release(body, UpdateCheck.running_version()))
+	_update_http.queue_free()
+
+
+## Shows the notice for a release found by `UpdateCheck.parse_release` ({} = nothing newer).
+func offer_update(info: Dictionary) -> void:
+	_update = info
+	menu.set_update(info.get("version", ""))
+	if not info.is_empty() and not _update_dismissed:
+		hud.show_update(info["version"])
+
+
+func _download_update() -> void:
+	# The browser/Android download manager takes over; the link was checked by UpdateCheck.
+	if not _update.is_empty() and UpdateCheck.is_allowed_url(_update["url"]):
+		open_url.call(_update["url"])
 
 
 # ---------------------------------------------------------------- online
