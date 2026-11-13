@@ -3,6 +3,8 @@ extends SceneTree
 ## wiring in main.gd, and one real HTTP round trip against a tiny local server. Run through tests/run.sh.
 
 var fails := 0
+## Moves the localhost ports (and the user:// file) so several test runs can go on at once (tests/run.sh).
+var PORT_OFFSET := int(OS.get_environment("TEST_PORT_OFFSET"))
 
 
 func check(name: String, ok: bool, info := "") -> void:
@@ -170,7 +172,7 @@ func _wiring_tests() -> void:
 func _http_tests() -> void:
 	var srv := TCPServer.new()
 	var port := 0
-	for p in range(24700, 24740):
+	for p in range(24700 + PORT_OFFSET, 24740 + PORT_OFFSET):
 		if srv.listen(p, "127.0.0.1") == OK:
 			port = p
 			break

@@ -36,13 +36,13 @@ Versions before 0.2.1 have to be uninstalled once.
 
   This needs the Godot export templates, JDK 17 and the Android SDK, configured in Godot's editor settings.
 
-- Run the automated tests (needs `godot` on the PATH; a few seconds):
+- Run the automated tests (needs `godot` on the PATH; about a minute):
 
   ```
   tests/run.sh
   ```
 
-  `python3 tests/sabotage.py` checks that the tests really catch deliberate breakage. GitHub Actions runs the
+  `python3 tests/sabotage.py` checks that the tests really catch deliberate breakage (in temporary copies, parallel, a few minutes; your files are never touched). GitHub Actions runs the
   tests on every push and pull request and builds the debug APK (download it from the run's artifacts).
 
 ## Playing online (experiment)

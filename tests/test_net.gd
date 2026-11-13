@@ -3,6 +3,8 @@ extends SceneTree
 ## in-memory loopback with a fake clock, so it is fast and fully deterministic.
 
 var fails := 0
+## Moves the localhost ports (and the user:// file) so several test runs can go on at once (tests/run.sh).
+var PORT_OFFSET := int(OS.get_environment("TEST_PORT_OFFSET"))
 const Y := SimPlayer.Yo
 const DT_MS := 1000.0 / 60.0
 
@@ -1662,7 +1664,7 @@ func test_address_parse() -> void:
 func test_enet() -> void:
 	var port := 0
 	var server_ep := ENetEndpoint.new()
-	for p in range(24610, 24650):
+	for p in range(24610 + PORT_OFFSET, 24650 + PORT_OFFSET):
 		if server_ep.listen(p, ServerCore.MAX_PENDING) == OK:
 			port = p
 			break
@@ -1723,7 +1725,7 @@ func test_enet() -> void:
 
 
 func test_menu_online() -> void:   # async: ranges only report changes once the frame after adding them has passed
-	NetStore.path = "user://test_online.json"
+	NetStore.path = "user://test_online%d.json" % PORT_OFFSET
 	var menu := TuningMenu.new()
 	root.add_child(menu)
 	menu.setup(Config.new())
@@ -1761,7 +1763,7 @@ func test_menu_online() -> void:   # async: ranges only report changes once the 
 
 ## The real main scene (view, HUD, menu, router) against a real ENet server on localhost.
 func test_main_scene() -> void:
-	NetStore.path = "user://test_online.json"
+	NetStore.path = "user://test_online%d.json" % PORT_OFFSET
 	var port := 0
 	var server_ep := ENetEndpoint.new()
 	for p in range(24650, 24690):
@@ -1849,28 +1851,20 @@ func test_main_scene() -> void:
 	check("main: and the offline sim runs again", main.sim.tick > ticks_before)
 	main.queue_free()
 	await process_frame
-	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online.json"))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online%d.json" % PORT_OFFSET))
 
 
 func _initialize() -> void:
-	test_snapshot()
-	test_prediction()
-	test_one_shot_inputs()
-	test_interpolation()
-	test_view_others()
-	test_other_display()
-	test_victim_sees_arrival()
-	test_predicted_heads()
-	test_input_buffer()
-	test_two_clients()
-	test_redundancy()
-	test_jitter_buffer()
-	test_robustness()
-	test_join_rules()
-	test_client_rules()
-	test_lag_tool()
-	test_address_parse()
-	test_enet()
-	await test_menu_online()
-	await test_main_scene()
+	# TEST_STOP_ON_FAIL=1 (set by tests/sabotage.py): stop after the first test group that fails.
+	var stop_early := OS.get_environment("TEST_STOP_ON_FAIL") == "1"
+	var groups: Array[Callable] = [
+		test_snapshot, test_prediction, test_one_shot_inputs, test_interpolation, test_view_others,
+		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
+		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_client_rules, test_lag_tool,
+		test_address_parse, test_enet, test_menu_online, test_main_scene,
+	]
+	for g in groups:
+		if stop_early and fails > 0:
+			break
+		await g.call()
 	quit(fails)
