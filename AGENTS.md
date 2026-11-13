@@ -213,7 +213,10 @@ missing, with a recommendation, and let the people choose.
   `godot --headless --path game -s tests/net_probe.gd -- HOST[:PORT] [--lag MS] [--loss PCT]`. Decisions and what is
   not done yet: `docs/PLAN.md` (M2).
 - **Modifiers:** Modifier definitions, German texts and all their numbers live in `game/sim/mods.gd`.
-- **Release:** No releases yet. Version scheme `vMAJOR.MINOR.PATCH` (see "Releases" above).
+- **Release:** Pre-releases for testers so far: `v0.1.0` (built by hand, signed with the local debug key) and
+  `v0.2.0` (the CI artifact of the netcode branch, attached by hand with `gh release create --prerelease`). No
+  release workflow yet. Version scheme `vMAJOR.MINOR.PATCH` (see "Releases" above). The version inside the APK
+  (`version/name` and `version/code` in `game/export_presets.cfg`) is still 0.1.0 / 1 and has to be raised by hand.
 - **Traps:** (1) ENet turns an unreliable packet bigger than one MTU into a reliable one unless it is sent with
   `FLAG_UNRELIABLE_FRAGMENT` (`ENetEndpoint` does; from ENet's source, not provable from GDScript). (2)
   `PackedByteArray.decompress_dynamic` works only for gzip, deflate and brotli, not zstd: the snapshot stores its raw
@@ -223,7 +226,10 @@ missing, with a recommendation, and let the people choose.
   `value_changed` after the frame that follows `add_child`. (5) Two RefCounted objects that reference each other leak
   and make Godot print "resources still in use" at exit, which run.sh counts as an error: see the weak reference in
   `LoopbackEndpoint`. (6) Client and server clocks are not synchronised: a client that ticks slower or faster than
-  60 Hz makes the server's input buffer run dry or drop inputs (corrections, never a crash).
+  60 Hz makes the server's input buffer run dry or drop inputs (corrections, never a crash). (7) CI generates a new
+  debug keystore in every run, so every CI-built APK has a different signature: it cannot be installed over an
+  earlier build (uninstall first, which deletes the tuned values on the phone). A fixed keystore kept as a CI secret
+  would fix this; not set up yet, the owner has to choose it.
 - **Repository:** Private, owned by Dr-Nerdlove. Licence: GNU AGPL v3 (`LICENSE`). Default branch `main`. CI:
   `.github/workflows/ci.yml` runs on every push and pull request: job `test` runs `tests/run.sh`; job `apk`
   (after `test`) exports the debug APK and uploads it as an artifact (14 days). Godot and the Android export
