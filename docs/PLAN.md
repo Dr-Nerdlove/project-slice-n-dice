@@ -84,7 +84,7 @@ First batch of ten modifiers. All definitions, German texts and every number liv
 3. **Elastic** (Gummiband): faster pull, and the player is flung onward after catching the head; from level 2 the body is lethal while pulling and flung.
 4. **Extra dash** (Extra-Dash): more dash charges, shorter cooldown, longer dash at level 3.
 5. **Bounce** (Abpraller): the flying head reflects off walls and obstacles (1 / 3 / 5 times), gaining flight distance with every bounce (+1.5 / +3 / +5 m).
-6. **Arc** (Bogenwurf): the throw and the retract fly on a curve (side chosen with the move stick, default left; a throw still lands at the aimed point and the aim line shows the curve); level 3 circles the player first, passing through blocks and sliding along the outer walls so the full turn always completes.
+6. **Arc** (Bogenwurf): the throw flies on a curve (side chosen with the move stick, default left; a throw still lands at the aimed point and the aim line shows the curve) and the string lies on that curve; level 2 bulges more and retracts 1.3x faster; level 3 adds one lethal circle around the player on the way back (see below).
 7. **Pierce** (Durchschlag): the head passes through obstacle blocks (retract and crate from level 2); level 3 knocks enemy heads away in duels.
 8. **Shards** (Splitter): lethal shards fly out from the head when a retract starts; at level 3 they bounce once.
 9. **Warhead** (Sprengkopf): the head explodes where it lands; from level 2 also where a retract starts.
@@ -101,14 +101,19 @@ Modifiers influence each other. A synergy is a pair of modifiers that are both o
 - Big head + Warhead: explosion radius x1.15 / x1.3 / x1.5 by big-head level (also for shard explosions).
 - Big head + Tripwire: the wire is wider (trigger half-width scales with the big-head factor).
 
-### String follows the bounce path
+### The string is the flight path
 
-With bounces the string is a polyline: player, the bounce points ("pins", in order from the player outwards), head. The path is real:
+Rule: **the string always lies exactly on the path the yo-yo flew, and on a retract the yo-yo (and on a pull the player) always follows the string.** The string is a polyline: player, the path points ("pins", in order from the player outwards), head. Pins are the bounce points and, for a curved throw (Bogenwurf), a point about every 0.7 m flown along the curve. The path is real:
 
 - Retract: the head travels back through the pins (each is removed as it passes), then to the player; lethal all the way. Pull: the player travels along the path through the pins to the head.
 - String length is the path length. A head that is out: variant A (drag) drags the head along the path towards its nearest pin when the path gets too long; B (leash) limits how far the player may move away from the first pin; C (rigid) drops the pins as soon as the player moves.
-- Pins are never removed because of a free line of sight (no rope physics). Pierce creates no pins. Arc throws have no pins; the arc return and the Kreuzfeuer meeting flight ignore the pins (they are dropped when the retract starts).
+- A step that reaches a pin carries its remaining distance on to the next segment in the same tick, so the speed along the path is constant.
+- Pins are never removed because of a free line of sight (no rope physics). Pierce creates no pins. The Kreuzfeuer meeting flight is the one deliberate exception: the heads leave the string (dropped when the retract starts), meet at the midpoint and then return straight to the player.
 - The tripwire follows the same polyline; trigger tests run against every segment.
+
+### Bogenwurf level 3: the circle
+
+On a retract the head first returns along the string until its straight distance to the player is at most the circle radius (at once if it already is), then flies one full 360 degree circle (about 1.1 s) around the player's current position (the centre follows the player), lethal and passing through blocks and the crate, then continues home along what is left of the string (pins passed before the circle are consumed). Radius: at most 4 m and at most the player's distance to the nearest outer wall minus the head radius, never below 1.5 m (only in that floor case the head may be clamped to the arena and slide along the wall). All numbers are in `game/sim/mods.gd`.
 
 ### Value export
 

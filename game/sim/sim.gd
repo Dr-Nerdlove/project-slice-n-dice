@@ -479,6 +479,7 @@ func _throw(p: SimPlayer, h: SimHead) -> void:
 	h.speed_mult = 1.0
 	h.queued_retract = false
 	h.pins.clear()
+	h.pin_acc = 0.0
 	h.meet_on = false
 	h.pos = p.pos
 	h.prev_pos = p.pos
@@ -588,8 +589,8 @@ func _step_pull(p: SimPlayer, held: bool, dt: float) -> void:
 	var speed := cfg.pull_speed * mv(p, "elastic", "pull_mult", 1.0)
 	var budget := speed * dt
 	# The player follows the string: through the pins (each is dropped when passed), then to the head.
-	for _i in 2 + h.pins.size():
-		if budget <= 0.0:
+	for _i in 2 * h.pins.size() + 2:
+		if budget <= 0.00001:
 			break
 		var has_pin := not h.pins.is_empty()
 		var goal := h.pins[0] if has_pin else h.pos
@@ -609,8 +610,8 @@ func _step_pull(p: SimPlayer, held: bool, dt: float) -> void:
 		var before := p.pos
 		_slide_player(p, to_goal / d * move)
 		if has_pin:
-			if (p.pos - before).dot(to_goal / d) < move * Mods.PIN_STUCK_PROGRESS \
-					or p.pos.distance_to(goal) <= Mods.PIN_REACH:
+			var stuck := move > Mods.PIN_STUCK_MIN_MOVE and (p.pos - before).dot(to_goal / d) < move * Mods.PIN_STUCK_PROGRESS
+			if stuck or p.pos.distance_to(goal) <= Mods.PIN_REACH:
 				h.pins.remove_at(0)  # reached it, or it cannot be reached (blocked): give the pin up
 		else:
 			break
@@ -648,8 +649,9 @@ func _step_fling(p: SimPlayer, dt: float) -> void:
 func _set_out(h: SimHead) -> void:
 	h.state = HS.OUT
 	h.limit = 1e9
-	h.arc_on = false
+	h.circ_pending = false
 	h.circ_left = 0.0
+	h.circ_free = false
 	h.meet_on = false
 	h.throw_curved = false
 
@@ -688,6 +690,7 @@ func _step_flight(p: SimPlayer, h: SimHead, dt: float) -> void:
 			start = h.pos + h.throw_dir * step
 		var res := _resolve_head(start, r, true, pass_level)
 		h.flown += step
+		var moved := res.distance_to(h.pos)
 		h.pos = res
 		if (res - start).length_squared() > 1e-10:
 			if h.bounces < max_bounces:
@@ -697,6 +700,7 @@ func _step_flight(p: SimPlayer, h: SimHead, dt: float) -> void:
 				h.throw_curved = false  # after a bounce it flies straight on
 				h.bounces += 1
 				h.pins.append(res)  # the string now bends here
+				h.pin_acc = 0.0
 				h.flight_dist += Mods.n("bounce", "bonus_dist", bounce_l)
 				if h.bounces == 1:
 					h.speed_mult = 1.0 + Mods.n("bounce", "speed_pct", bounce_l) / 100.0
@@ -704,7 +708,15 @@ func _step_flight(p: SimPlayer, h: SimHead, dt: float) -> void:
 			else:
 				landed = true
 				break
+		elif h.throw_curved:
+			# The curve is recorded: the string lies on the flown path.
+			h.pin_acc += moved
+			if h.pin_acc >= Mods.PATH_PIN_SPACING:
+				h.pins.append(res)
+				h.pin_acc = 0.0
 	if landed or h.flown >= h.flight_dist - 0.00001:
+		if not h.pins.is_empty() and h.pins[h.pins.size() - 1].distance_to(h.pos) < Mods.PIN_REACH:
+			h.pins.resize(h.pins.size() - 1)  # a pin right at the head adds nothing
 		if pass_level >= 1:
 			_pierce_exit(h, r, pass_level)
 		_land(p, h)
@@ -732,8 +744,9 @@ func _pierce_exit(h: SimHead, r: float, pass_level: int) -> void:
 func _start_retract(p: SimPlayer, h: SimHead, meet := Vector2.INF) -> void:
 	h.state = HS.RETRACT
 	h.limit = 1e9
-	h.arc_on = false
+	h.circ_pending = false
 	h.circ_left = 0.0
+	h.circ_free = false
 	h.meet_on = false
 	# --- Stolperdraht ---
 	if lv(p, "tripwire") > 0:
@@ -751,38 +764,18 @@ func _start_retract(p: SimPlayer, h: SimHead, meet := Vector2.INF) -> void:
 		h.meet_on = true
 		h.meet = meet
 		return
-	_begin_return(p, h)
+	# Bogenwurf III: the circle starts once the head is close enough on its way home along the string.
+	var al := lv(p, "arc")
+	h.circ_pending = al > 0 and Mods.n("arc", "circle", al) > 0.0
 
 
-## The run home itself: straight (along the pins), or on an arc / circle (Bogenwurf).
-func _begin_return(p: SimPlayer, h: SimHead) -> void:
+## Radius of the Bogenwurf III circle around the player: at most circle_max_r and at most the distance to the
+## nearest outer wall minus the head radius, but never below circle_min_r (only then the head may slide along a wall).
+func circle_radius(p: SimPlayer, r: float) -> float:
 	var l := lv(p, "arc")
-	if l <= 0:
-		return
-	h.pins.clear()  # the arc return ignores the bounce points
-	var chord := h.pos - p.pos
-	var travel := (-chord).normalized() if chord.length() > 0.001 else p.facing
-	h.arc_side = arc_side_for(p, travel)
-	h.arc_bulge = Mods.n("arc", "bulge", l)
-	if Mods.n("arc", "circle", l) > 0.0 and chord.length() >= Mods.ARC_MIN_CHORD:
-		h.circ_left = TAU
-		h.circ_angle = chord.angle()
-		h.circ_r = chord.length()
-	else:
-		_init_arc(p, h)
-
-
-func _init_arc(p: SimPlayer, h: SimHead) -> void:
-	var chord := h.pos.distance_to(p.pos)
-	if chord < Mods.ARC_MIN_CHORD:
-		h.arc_on = false
-		return
-	var b := minf(h.arc_bulge, chord * Mods.ARC_MAX_BULGE_RATIO)
-	h.arc_on = true
-	h.arc_start = h.pos
-	h.arc_t = 0.0
-	h.arc_len = chord + 8.0 / 3.0 * b * b / chord
-	h.arc_bulge = b
+	var a := Config.ARENA_SIZE
+	var wall := minf(minf(p.pos.x, a.x - p.pos.x), minf(p.pos.y, a.y - p.pos.y))
+	return maxf(minf(Mods.n("arc", "circle_max_r", l), wall - r), Mods.n("arc", "circle_min_r", l))
 
 
 func _step_retract(p: SimPlayer, h: SimHead, dt: float) -> void:
@@ -792,44 +785,32 @@ func _step_retract(p: SimPlayer, h: SimHead, dt: float) -> void:
 	if h.meet_on:
 		_step_meet(p, h, r, pass_level, step)
 		return
+	if h.circ_pending and h.pos.distance_to(p.pos) <= circle_radius(p, r):
+		h.circ_pending = false
+		var d := h.pos.distance_to(p.pos)
+		if d >= Mods.ARC_MIN_CHORD:
+			h.circ_left = TAU
+			h.circ_angle = (h.pos - p.pos).angle()
+			h.circ_r = d
+			h.circ_side = arc_side_for(p, (p.pos - h.pos) / d)
 	if h.circ_left > 0.0:
 		_step_circle(p, h, r, dt)
 		return
-	if not h.pins.is_empty():
-		_step_retract_pins(p, h, r, pass_level, step)
-		return
-	var to_p := p.pos - h.pos
-	var d := to_p.length()
-	if d <= step:
-		_to_hand(p, h)
-		p.press_active = false
-		return
-	var start := h.pos
-	if h.arc_on:
-		var tn := h.arc_t + step / h.arc_len
-		if tn < 1.0:
-			var chord := p.pos - h.arc_start
-			var dirv := chord.normalized() if chord.length() > 0.001 else Vector2.RIGHT
-			var left := Vector2(dirv.y, -dirv.x)
-			var target := h.arc_start.lerp(p.pos, tn) + left * h.arc_side * h.arc_bulge * 4.0 * tn * (1.0 - tn)
-			var delta := target - start
-			h.pos = _sweep_retract(start, delta, r, pass_level)
-			h.arc_t = tn
-			if delta.length() > 0.001 and (h.pos - start).dot(delta.normalized()) < delta.length() * Config.RETRACT_MIN_PROGRESS:
-				_set_out(h)
-			return
-		h.arc_on = false  # the arc is over: the rest is a straight run home
-	var dir := to_p / d
-	h.pos = _sweep_retract(start, dir * step, r, pass_level)
-	# Blocked by a wall / obstacle / jammed crate: lie there again instead of jittering in place.
-	if (h.pos - start).dot(dir) < step * Config.RETRACT_MIN_PROGRESS:
-		_set_out(h)
+	if h.circ_free:
+		if _inside_pierced(h.pos, r, 2):
+			pass_level = 2  # the circle ended inside a block: leave it first
+		else:
+			h.circ_free = false
+	_step_retract_pins(p, h, r, pass_level, step)
 
 
-## Retract along the bent string: back through the pins (each is dropped when passed), then to the player.
+## Retract along the string: back through the pins (each is dropped when passed, its remaining distance carries
+## on to the next segment in the same tick), then to the player.
 func _step_retract_pins(p: SimPlayer, h: SimHead, r: float, pass_level: int, step: float) -> void:
 	var budget := step
 	for _i in h.pins.size() + 1:
+		if budget <= 0.00001:
+			return
 		var has_pin := not h.pins.is_empty()
 		var goal := h.pins[h.pins.size() - 1] if has_pin else p.pos
 		var to := goal - h.pos
@@ -855,7 +836,7 @@ func _step_retract_pins(p: SimPlayer, h: SimHead, r: float, pass_level: int, ste
 		return
 
 
-## Kreuzfeuer: fly to the meeting point; there the normal return starts.
+## Kreuzfeuer: fly to the meeting point; from there the head returns straight to the player.
 func _step_meet(p: SimPlayer, h: SimHead, r: float, pass_level: int, step: float) -> void:
 	var to := h.meet - h.pos
 	var d := to.length()
@@ -866,8 +847,7 @@ func _step_meet(p: SimPlayer, h: SimHead, r: float, pass_level: int, step: float
 			_set_out(h)
 			return
 		h.pos = h.meet
-		h.meet_on = false
-		_begin_return(p, h)
+		h.meet_on = false  # from here the heads return straight to the player
 		return
 	var dir := to / d
 	h.pos = _sweep_retract(start, dir * step, r, pass_level)
@@ -875,20 +855,21 @@ func _step_meet(p: SimPlayer, h: SimHead, r: float, pass_level: int, step: float
 		_set_out(h)
 
 
-## Bogenwurf level 3: one full circle around the player at the current distance, then home on the arc.
-## The head passes through blocks and the crate; at the outer walls it slides along them (its radius
-## is clamped to stay inside the arena), so the full turn always completes.
+## Bogenwurf level 3: one full circle around the player's current position, then home along what is left of
+## the string. The head passes through blocks and the crate. The radius shrinks when the player is near an outer
+## wall; only in the floor case the head is clamped to the arena and slides along the wall.
 func _step_circle(p: SimPlayer, h: SimHead, r: float, dt: float) -> void:
-	var da := minf(TAU / mv(p, "arc", "circle_time", 0.6) * dt, h.circ_left)
+	var da := minf(TAU / mv(p, "arc", "circle_time", 1.1) * dt, h.circ_left)
 	h.circ_left -= da
-	h.circ_angle += h.arc_side * da
+	h.circ_angle += h.circ_side * da
+	h.circ_r = move_toward(h.circ_r, minf(h.circ_r, circle_radius(p, r)), Mods.CIRCLE_R_RATE * dt)
 	var target := p.pos + Vector2.from_angle(h.circ_angle) * h.circ_r
 	var a := Config.ARENA_SIZE
 	target = Vector2(clampf(target.x, r, a.x - r), clampf(target.y, r, a.y - r))
 	h.pos = _sweep_retract(h.pos, target - h.pos, r, 2)
 	if h.circ_left <= 0.0:
 		h.circ_left = 0.0
-		_init_arc(p, h)
+		h.circ_free = true
 
 
 ## Moves a retracting head: stopped by walls and obstacles (unless pierced), drags the crate,
@@ -1253,8 +1234,9 @@ func _reset_yoyo(p: SimPlayer) -> void:
 		h.pos = p.pos
 		h.prev_pos = p.pos
 		h.queued_retract = false
-		h.arc_on = false
+		h.circ_pending = false
 		h.circ_left = 0.0
+		h.circ_free = false
 		h.pins.clear()
 		h.meet_on = false
 		h.throw_curved = false

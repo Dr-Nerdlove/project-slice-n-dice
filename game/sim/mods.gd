@@ -20,11 +20,13 @@ const BODY_LETHAL_MARGIN := 0.15    # lethal body reach beyond touching (players
 const FLING_MIN_PROGRESS := 0.3      # a fling step that gains less than this share ends the fling
 const PIERCE_EXIT_STEP := 0.1        # step used to leave a block a pierced head landed in
 const PIERCE_EXIT_MAX_STEPS := 400
-const ARC_MAX_BULGE_RATIO := 1.0     # the arc never bulges more than this times the string length
-const ARC_MIN_CHORD := 0.6           # shorter strings come home / fly straight
+const ARC_MIN_CHORD := 0.6           # shorter throws fly straight; a shorter distance gets no circle
 const ARC_THROW_MAX_RATIO := 0.6     # an arced throw never bulges more than this share of its distance
-const PIN_REACH := 0.3               # a head / player counts as having reached a pin within this distance
+const PATH_PIN_SPACING := 0.7        # a curved throw leaves a path point (pin) every this many metres flown
+const PIN_REACH := 0.15              # a head / player counts as having reached a pin within this distance
 const PIN_STUCK_PROGRESS := 0.1      # a player step along the string that gains less than this share gives up the pin
+const PIN_STUCK_MIN_MOVE := 0.02      # shorter player steps are too small to judge whether a pin is blocked
+const CIRCLE_R_RATE := 12.0           # m/s the circle radius may change while it runs (player nears a wall)
 const CROSS_MIN_GAP := 0.6           # Kreuzfeuer: heads closer together than this just return normally
 const ARC_THROW_SAMPLES := 32        # points used to preview an arced throw (aim line)
 const EXPLOSION_VIEW_TIME := 0.35    # presentation only
@@ -95,13 +97,14 @@ const TABLE := {
 	"arc": {
 		"name": "Bogenwurf", "tier": Tier.MEDIUM,
 		"desc": [
-			"Wurf und Rückkehr im Bogen ({bulge} m seitlich). Die Seite bestimmst du mit dem Laufstick. Beim Einholen im Bogen entfallen die Abprallpunkte der Schnur.",
-			"Größerer Bogen ({bulge} m) bei Wurf und Rückkehr, Rückkehr {retract_mult}-mal schneller.",
-			"Erst kreist der Jojo sicher einmal um dich (auch durch Blöcke, an der Wand entlang), dann kommt er im Bogen heim. Schnell und weit.",
+			"Der Wurf fliegt im Bogen ({bulge} m seitlich), die Schnur liegt auf dem Bogen. Die Seite bestimmst du mit dem Laufstick.",
+			"Stärkerer Bogen ({bulge} m), der Jojo kommt {retract_mult}-mal schneller zurück.",
+			"Auf dem Rückweg kreist der Jojo einmal in einem weiten Kreis um dich (tödlich, auch durch Blöcke), dann kommt er heim.",
 		],
 		"n": {
 			"bulge": [2.5, 4.5, 4.5], "retract_mult": [1.0, 1.3, 1.3],
-			"circle": [0, 0, 1], "circle_time": [0.6, 0.6, 0.6],
+			"circle": [0, 0, 1], "circle_time": [1.1, 1.1, 1.1],
+			"circle_max_r": [4.0, 4.0, 4.0], "circle_min_r": [1.5, 1.5, 1.5],
 		},
 	},
 	"pierce": {
