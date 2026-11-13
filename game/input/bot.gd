@@ -48,7 +48,7 @@ func think(sim: Sim, dt: float) -> SimInput:
 			attack_wait -= dt
 			if rng.randf() < Config.BOT_DASH_CHANCE:
 				inp.dash = true
-			if attack_wait <= 0.0 and me.ystate == SimPlayer.Yo.READY and target != null \
+			if attack_wait <= 0.0 and me.hand_index() >= 0 and not me.pulling and target != null \
 					and dist < cfg.effective_max_range() * Config.BOT_ATTACK_RANGE_FACTOR:
 				var ratio := clampf((dist - cfg.effective_min_range()) \
 						/ maxf(0.01, cfg.effective_max_range() - cfg.effective_min_range()), 0.0, 1.0)
@@ -70,7 +70,23 @@ func think(sim: Sim, dt: float) -> SimInput:
 				phase_t = 0.0
 				goal_t = rng.randf_range(Config.BOT_RETRACT_WAIT.x, Config.BOT_RETRACT_WAIT.y)
 		Phase.WAIT_OUT:
-			if me.ystate == SimPlayer.Yo.OUT:
+			var outs := me.heads.size() - me.count_state(SimHead.S.HAND)
+			if outs == 0:
+				_to_idle()
+			elif me.hand_index() >= 0:
+				# Extra yo-yos (Zwilling): throw the next one soon, or call them all back after a moment.
+				phase_t += dt
+				if phase_t >= goal_t:
+					phase_t = 0.0
+					if rng.randf() < Config.BOT_THROW_MORE_CHANCE:
+						phase = Phase.IDLE
+						attack_wait = Config.BOT_NEXT_THROW_WAIT
+					elif Mods.n("twin", "pull_free", sim.lv(me, "twin")) > 0.0 and me.count_state(SimHead.S.OUT) > 0 \
+							and rng.randf() < Config.BOT_PULL_CHANCE:
+						phase = Phase.HOLD  # Zwilling III: pull to the lying yo-yo with one still in hand
+					else:
+						phase = Phase.TAP
+			elif me.count_state(SimHead.S.OUT) == me.heads.size():
 				phase_t += dt
 				if phase_t >= goal_t:
 					phase_t = 0.0
@@ -78,8 +94,6 @@ func think(sim: Sim, dt: float) -> SimInput:
 						phase = Phase.HOLD
 					else:
 						phase = Phase.TAP
-			elif me.ystate == SimPlayer.Yo.READY:
-				_to_idle()
 		Phase.TAP:
 			inp.aim_held = true
 			phase_t += dt
@@ -89,7 +103,8 @@ func think(sim: Sim, dt: float) -> SimInput:
 		Phase.HOLD:
 			inp.aim_held = true
 			phase_t += dt
-			if me.ystate == SimPlayer.Yo.READY or phase_t >= cfg.tap_threshold + Config.BOT_PULL_HOLD_EXTRA * 3.0:
+			var pull_over := phase_t >= cfg.tap_threshold + 0.15 and not me.pulling
+			if pull_over or phase_t >= cfg.tap_threshold + Config.BOT_PULL_HOLD_EXTRA * 3.0:
 				inp.aim_held = false
 				_to_idle()
 	return inp

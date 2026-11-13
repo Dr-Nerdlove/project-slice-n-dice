@@ -1,6 +1,7 @@
 class_name TuningMenu
 extends CanvasLayer
-## Overlay with sliders for the main tuning values. German labels, big touch targets.
+## Overlay with two pages: "Werte" (sliders for the main tuning values) and "Modifikatoren"
+## (sandbox: modifier levels for the player and the bots). German labels, big touch targets.
 
 signal closed
 
@@ -29,6 +30,8 @@ const VARIANT_NAMES: Array[String] = [
 const BOT_NAMES: Array[String] = ["Aus", "Übungspuppen", "Aktiv"]
 const SLIDER_HEIGHT := 56.0
 const FONT_SIZE := 22
+const LEVEL_BUTTON_SIZE := Vector2(76, 56)
+const DESC_FONT_SIZE := 18
 
 var cfg: Config
 var _rows := {}  # name -> {slider, label}
@@ -37,6 +40,16 @@ var _bot_opt: OptionButton
 var _save_timer: Timer
 var _grabber: ImageTexture
 var _suppress := false
+var _values_page: ScrollContainer
+var _mods_page: ScrollContainer
+var _tab_values: Button
+var _tab_mods: Button
+var _level_buttons := {}   # "you:<id>" / "bots:<id>" -> Array[Button]
+var _desc_labels := {}     # id -> Label
+var _syn_label: Label
+var _export_panel: Control
+var _export_status: Label
+var _export_text: TextEdit
 
 
 func setup(c: Config) -> void:
@@ -68,17 +81,32 @@ func setup(c: Config) -> void:
 	var reset := _button("Zurücksetzen")
 	reset.pressed.connect(_on_reset)
 	top.add_child(reset)
+	var export_btn := _button("Werte kopieren")
+	export_btn.pressed.connect(_on_export)
+	top.add_child(export_btn)
 	var close := _button("Schließen")
 	close.pressed.connect(close_menu)
 	top.add_child(close)
 
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
-	scroll.scroll_deadzone = 10
-	scroll.get_v_scroll_bar().custom_minimum_size.x = 26.0  # wide, always visible: also a scroll handle for thumbs
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 8)
+	root.add_child(tabs)
+	_tab_values = _button("Werte")
+	_tab_values.toggle_mode = true
+	_tab_values.pressed.connect(func() -> void: _show_page(false))
+	tabs.add_child(_tab_values)
+	_tab_mods = _button("Modifikatoren")
+	_tab_mods.toggle_mode = true
+	_tab_mods.custom_minimum_size = Vector2(260, 56)
+	_tab_mods.pressed.connect(func() -> void: _show_page(true))
+	tabs.add_child(_tab_mods)
+
+	var scroll := _make_scroll()
+	_values_page = scroll
 	root.add_child(scroll)
+	_mods_page = _make_scroll()
+	root.add_child(_mods_page)
+	_build_mods_page(_mods_page)
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -98,12 +126,190 @@ func setup(c: Config) -> void:
 		pad.mouse_filter = Control.MOUSE_FILTER_PASS
 		grid.add_child(pad)
 
+	_build_export_panel()
+	_show_page(false)
 	_save_timer = Timer.new()
 	_save_timer.one_shot = true
 	_save_timer.wait_time = 0.5
 	_save_timer.timeout.connect(func() -> void: TuningStore.save(cfg))
 	add_child(_save_timer)
 	refresh()
+
+
+func _make_scroll() -> ScrollContainer:
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
+	scroll.scroll_deadzone = 10
+	scroll.get_v_scroll_bar().custom_minimum_size.x = 26.0  # wide, always visible: also a scroll handle for thumbs
+	return scroll
+
+
+func _show_page(mods: bool) -> void:
+	_values_page.visible = not mods
+	_mods_page.visible = mods
+	_tab_values.set_pressed_no_signal(not mods)
+	_tab_mods.set_pressed_no_signal(mods)
+
+
+func _build_mods_page(scroll: ScrollContainer) -> void:
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 14)
+	scroll.add_child(col)
+	# Column buttons: all off / all level 3, for "Du" and for "Bots".
+	for who in ["you", "bots"]:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		col.add_child(row)
+		var cap := Label.new()
+		cap.text = "Du:" if who == "you" else "Bots:"
+		cap.custom_minimum_size = Vector2(90, 0)
+		cap.add_theme_font_size_override("font_size", FONT_SIZE)
+		cap.mouse_filter = Control.MOUSE_FILTER_PASS
+		row.add_child(cap)
+		var off := _button("Alle aus")
+		off.pressed.connect(func() -> void: _set_all(who, 0))
+		row.add_child(off)
+		var max3 := _button("Alle Stufe 3")
+		max3.pressed.connect(func() -> void: _set_all(who, Mods.MAX_LEVEL))
+		row.add_child(max3)
+	col.add_child(_synergy_panel())
+	for id in Mods.ORDER:
+		col.add_child(_mod_row(id))
+	var pad := Control.new()
+	pad.custom_minimum_size = Vector2(0, 80)
+	pad.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(pad)
+
+
+## "Aktive Kombinationen": the synergies that are active for "Du".
+func _synergy_panel() -> Control:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.mouse_filter = Control.MOUSE_FILTER_PASS
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.2, 0.16, 0.08, 0.9)
+	sb.set_corner_radius_all(10)
+	sb.set_content_margin_all(12.0)
+	panel.add_theme_stylebox_override("panel", sb)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	box.mouse_filter = Control.MOUSE_FILTER_PASS
+	panel.add_child(box)
+	var head := Label.new()
+	head.text = "Aktive Kombinationen"
+	head.add_theme_font_size_override("font_size", 26)
+	head.mouse_filter = Control.MOUSE_FILTER_PASS
+	box.add_child(head)
+	_syn_label = Label.new()
+	_syn_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_syn_label.add_theme_font_size_override("font_size", DESC_FONT_SIZE)
+	_syn_label.modulate = Color(1, 1, 1, 0.9)
+	_syn_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	box.add_child(_syn_label)
+	return panel
+
+
+func _mod_row(id: String) -> Control:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.mouse_filter = Control.MOUSE_FILTER_PASS
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.12, 0.14, 0.2, 0.9)
+	sb.set_corner_radius_all(10)
+	sb.set_content_margin_all(12.0)
+	panel.add_theme_stylebox_override("panel", sb)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	box.mouse_filter = Control.MOUSE_FILTER_PASS
+	panel.add_child(box)
+	var name_l := Label.new()
+	name_l.text = Mods.mod_name(id)
+	name_l.add_theme_font_size_override("font_size", 26)
+	name_l.mouse_filter = Control.MOUSE_FILTER_PASS
+	box.add_child(name_l)
+	var desc := Label.new()
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.add_theme_font_size_override("font_size", DESC_FONT_SIZE)
+	desc.modulate = Color(1, 1, 1, 0.85)
+	desc.mouse_filter = Control.MOUSE_FILTER_PASS
+	box.add_child(desc)
+	_desc_labels[id] = desc
+	var sel := HBoxContainer.new()
+	sel.add_theme_constant_override("separation", 30)
+	sel.mouse_filter = Control.MOUSE_FILTER_PASS
+	box.add_child(sel)
+	for who in ["you", "bots"]:
+		var grp := ButtonGroup.new()
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 6)
+		h.mouse_filter = Control.MOUSE_FILTER_PASS
+		var l := Label.new()
+		l.text = "Du" if who == "you" else "Bots"
+		l.custom_minimum_size = Vector2(70, 0)
+		l.add_theme_font_size_override("font_size", FONT_SIZE)
+		l.mouse_filter = Control.MOUSE_FILTER_PASS
+		h.add_child(l)
+		var btns: Array[Button] = []
+		for level in Mods.MAX_LEVEL + 1:
+			var b := Button.new()
+			b.text = "aus" if level == 0 else Mods.ROMAN[level]
+			b.toggle_mode = true
+			b.button_group = grp
+			b.custom_minimum_size = LEVEL_BUTTON_SIZE
+			b.add_theme_font_size_override("font_size", FONT_SIZE)
+			b.pressed.connect(func() -> void: _set_level(who, id, level))
+			h.add_child(b)
+			btns.append(b)
+		_level_buttons["%s:%s" % [who, id]] = btns
+		sel.add_child(h)
+	return panel
+
+
+func _levels_of(who: String) -> Dictionary:
+	return cfg.mods_you if who == "you" else cfg.mods_bots
+
+
+func _set_level(who: String, id: String, level: int) -> void:
+	if _suppress:
+		return
+	_levels_of(who)[id] = level
+	_refresh_mods()
+	_queue_save()
+
+
+func _set_all(who: String, level: int) -> void:
+	for id in Mods.ORDER:
+		_levels_of(who)[id] = level
+	_refresh_mods()
+	_queue_save()
+
+
+func _refresh_mods() -> void:
+	_suppress = true
+	var combos: Array[String] = []
+	for key in Mods.active_synergies(cfg.mods_you):
+		combos.append("• " + Mods.describe_synergy(key, cfg.mods_you))
+	_syn_label.text = "\n".join(combos) if not combos.is_empty() \
+			else "Keine. Kombiniere z. B. Splitter mit Sprengkopf, Dicker Brocken mit Stolperdraht."
+	for id in Mods.ORDER:
+		var lv_you: int = cfg.mods_you.get(id, 0)
+		var lv_bots: int = cfg.mods_bots.get(id, 0)
+		(_level_buttons["you:" + id] as Array)[lv_you].set_pressed_no_signal(true)
+		(_level_buttons["bots:" + id] as Array)[lv_bots].set_pressed_no_signal(true)
+		var text := ""
+		if lv_you > 0:
+			text += "Du (%s): %s" % [Mods.ROMAN[lv_you], Mods.describe(id, lv_you)]
+		if lv_bots > 0:
+			if text != "":
+				text += "\n"
+			text += "Bots (%s): %s" % [Mods.ROMAN[lv_bots], Mods.describe(id, lv_bots)]
+		if text == "":
+			text = "Stufe I: %s" % Mods.describe(id, 1)
+		(_desc_labels[id] as Label).text = text
+	_suppress = false
 
 
 func _make_grabber() -> ImageTexture:
@@ -200,6 +406,7 @@ func refresh() -> void:
 	for key: String in _rows:
 		(_rows[key]["slider"] as HSlider).value = cfg.get(key)
 		_update_label(key)
+	_refresh_mods()
 	_variant_opt.select(cfg.out_variant)
 	_bot_opt.select(cfg.bot_mode)
 	_suppress = false
@@ -209,10 +416,54 @@ func _queue_save() -> void:
 	_save_timer.start()
 
 
+## Each page resets its own content: the values page the tuning values, the modifier page the levels.
 func _on_reset() -> void:
-	cfg.reset()
+	if _mods_page.visible:
+		_set_all("you", 0)
+		_set_all("bots", 0)
+	else:
+		cfg.reset()
 	refresh()
 	TuningStore.save(cfg)
+
+
+## Overlay with the settings as plain text, selectable, plus a short confirmation.
+func _build_export_panel() -> void:
+	_export_panel = Control.new()
+	_export_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_export_panel.visible = false
+	add_child(_export_panel)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.8)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_export_panel.add_child(dim)
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for side in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 30)
+	_export_panel.add_child(margin)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	margin.add_child(box)
+	_export_status = Label.new()
+	_export_status.add_theme_font_size_override("font_size", 26)
+	box.add_child(_export_status)
+	_export_text = TextEdit.new()
+	_export_text.editable = false
+	_export_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_export_text.add_theme_font_size_override("font_size", 20)
+	box.add_child(_export_text)
+	var done := _button("Fertig")
+	done.pressed.connect(func() -> void: _export_panel.visible = false)
+	box.add_child(done)
+
+
+func _on_export() -> void:
+	var text := cfg.export_text()
+	DisplayServer.clipboard_set(text)
+	_export_text.text = text
+	_export_status.text = "In die Zwischenablage kopiert"
+	_export_panel.visible = true
 
 
 func open_menu() -> void:
@@ -222,5 +473,6 @@ func open_menu() -> void:
 
 func close_menu() -> void:
 	visible = false
+	_export_panel.visible = false
 	TuningStore.save(cfg)
 	closed.emit()

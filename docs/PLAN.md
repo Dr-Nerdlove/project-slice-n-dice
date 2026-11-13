@@ -32,14 +32,23 @@ This document is the binding basis for implementation. It collects all decisions
 | Charging | Right stick held. The aim line shows direction and landing distance; the longer the hold, the further the throw. |
 | Flight | After release, flies in the aimed direction to the charged distance. Lethal. A yo-yo that hits a wall simply stops and lies there. |
 | Out | Stays where it landed and keeps spinning. Lethal, blocks space. No new throw is possible while it is out. |
-| Retract | A short tap on the right stick pulls it back. Lethal on the way back, interacts with the environment (dragging objects along, triggering switches, hitting destructibles). |
+| Retract | A short tap on the right stick pulls it back. Lethal on the way back, interacts with the environment (dragging objects along, triggering switches, hitting destructibles). Walls and obstacles stop it: the head then lies there again (Out) and can be tapped or pulled to again. |
 | Pull | Holding the right stick while the yo-yo is out pulls the character to the yo-yo. This works wherever the yo-yo lies, not only when it is anchored in terrain. |
 
 ### Proposals by the planner, not yet explicitly confirmed by the owner
 
 - **Defence:** When two yo-yos meet, they bounce off each other.
 - **String:** Harmless in the base state; only modifiers make it dangerous.
-- **Dash:** A short evasive step with a cooldown as a second movement option.
+- **Dash:** A short evasive step with a cooldown as a second movement option. The player has dash charges (tuning menu value, modifiers can add more); charges refill one at a time, each taking the cooldown.
+
+### Several yo-yos (twin modifier)
+
+A player has a list of yo-yos; each has its own state, charging and pulling belong to the player. Controls (decided by the owner on 2026-11-13):
+
+- While at least one yo-yo is in hand: holding the right stick charges, releasing throws the next one, as with one yo-yo.
+- A short tap (shorter than the tap threshold and without stick deflection) while at least one yo-yo is out retracts all yo-yos that are out, also when another one is still in hand. With a yo-yo in hand, an aimed quick flick still throws.
+- When all yo-yos are out, holding pulls the player to the yo-yo that lies most in the direction the player is moving (without move input: the nearest). The target is fixed when the pull starts; catching it puts that yo-yo back in hand and ends the pull.
+- With a single yo-yo the behaviour is exactly as described in the table above.
 
 Make these three points playable in milestone 1 and have the owner confirm them.
 
@@ -55,10 +64,60 @@ Modifiers change how the game is played, not just numbers. They act on three are
 
 Rules:
 
-- One hit always kills, even fully upgraded players.
+- One hit always kills, even fully upgraded players. A player's own effects never hurt themselves.
 - Fixed number of slots per player (proposal: five). This caps maximum strength and lets trailing players catch up.
 - Modifiers must be visible on the yo-yo or the string so that opponents can read them.
 - Goal for the MVP: 10-15 modifiers.
+
+Decisions of 2026-11-13:
+
+- **Modifiers are pure upsides**, there are no drawbacks.
+- **Levels by copies:** buying the same modifier 3 times makes it level 2, 6 times level 3 (very hard to reach). One modifier occupies one slot regardless of its copies.
+- **Higher levels must be dramatically stronger**, so that a player really feels that collecting was worth it.
+- **The shop will have rerolls for coins**, so skilled players reach their builds more often.
+- **Sandbox:** the prototype has a menu page "Modifikatoren" where the owner sets the level (0-3) of every modifier for the player and, separately, for all bots. Prices (three tiers, placeholder values) exist in the data but are not used yet.
+
+First batch of ten modifiers. All definitions, German texts and every number live in `game/sim/mods.gd`.
+
+1. **Tripwire** (Stolperdraht): the string stays on the ground as a wire when a retract or a pull starts, along the current string path; enemies touching it stumble (level 3: the wire is lethal).
+2. **Big head** (Dicker Brocken): the yo-yo head is much bigger, without slowdown.
+3. **Elastic** (Gummiband): faster pull, and the player is flung onward after catching the head; from level 2 the body is lethal while pulling and flung.
+4. **Extra dash** (Extra-Dash): more dash charges, shorter cooldown, longer dash at level 3.
+5. **Bounce** (Abpraller): the flying head reflects off walls and obstacles (1 / 3 / 5 times), gaining flight distance with every bounce (+1.5 / +3 / +5 m).
+6. **Arc** (Bogenwurf): the throw flies on a curve (side chosen with the move stick, default left; a throw still lands at the aimed point and the aim line shows the curve) and the string lies on that curve; level 2 bulges more and retracts 1.3x faster; level 3 adds one lethal circle around the player on the way back (see below).
+7. **Pierce** (Durchschlag): the head passes through obstacle blocks (retract and crate from level 2); level 3 knocks enemy heads away in duels.
+8. **Shards** (Splitter): lethal shards fly out from the head when a retract starts; at level 3 they bounce once.
+9. **Warhead** (Sprengkopf): the head explodes where it lands; from level 2 also where a retract starts.
+10. **Twin** (Zwilling): always exactly 2 yo-yos, controls see section 3. Level 2 ("Kreuzfeuer"): when retracting with both out, the heads first fly to the midpoint between them (lethal) and return together. Level 3: retract 1.5x faster, and an undeflected hold pulls to a lying yo-yo even while the other one is still in hand.
+
+### Synergies
+
+Modifiers influence each other. A synergy is a pair of modifiers that are both on; it is defined in the `SYNERGIES` table in `game/sim/mods.gd` (ids, German one-line text, numbers) and shown in the menu under "Aktive Kombinationen". Everything else combines per head without special rules (e.g. Bogenwurf + Splitter).
+
+- Shards + Warhead: every shard explodes where it ends (radius 0.8 / 1.2 / 1.6 by warhead level).
+- Shards + Pierce: shards pass through obstacle blocks (and the crate from pierce level 2).
+- Shards + Bounce: shards bounce as often as the bounce level allows, in addition to the single bounce of Shards level 3.
+- Shards + Big head: shard radius scales with the big-head factor.
+- Big head + Warhead: explosion radius x1.15 / x1.3 / x1.5 by big-head level (also for shard explosions).
+- Big head + Tripwire: the wire is wider (trigger half-width scales with the big-head factor).
+
+### The string is the flight path
+
+Rule: **the string always lies exactly on the path the yo-yo flew, and on a retract the yo-yo (and on a pull the player) always follows the string.** The string is a polyline: player, the path points ("pins", in order from the player outwards), head. Pins are the bounce points and, for a curved throw (Bogenwurf), a point about every 0.7 m flown along the curve. The path is real:
+
+- Retract: the head travels back through the pins (each is removed as it passes), then to the player; lethal all the way. Pull: the player travels along the path through the pins to the head.
+- String length is the path length. A head that is out: variant A (drag) drags the head along the path towards its nearest pin when the path gets too long; B (leash) limits how far the player may move away from the first pin; C (rigid) drops the pins as soon as the player moves.
+- A step that reaches a pin carries its remaining distance on to the next segment in the same tick, so the speed along the path is constant.
+- Pins are never removed because of a free line of sight (no rope physics). Pierce creates no pins. The Kreuzfeuer meeting flight is the one deliberate exception: the heads leave the string (dropped when the retract starts), meet at the midpoint and then return straight to the player.
+- The tripwire follows the same polyline; trigger tests run against every segment.
+
+### Bogenwurf level 3: the circle
+
+On a retract the head first returns along the string until its straight distance to the player is at most the circle radius (at once if it already is), then flies one full 360 degree circle (about 1.1 s) around the player's current position (the centre follows the player), lethal and passing through blocks and the crate, then continues home along what is left of the string (pins passed before the circle are consumed). Radius: at most 4 m and at most the player's distance to the nearest outer wall minus the head radius, never below 1.5 m (only in that floor case the head may be clamped to the arena and slide along the wall). All numbers are in `game/sim/mods.gd`.
+
+### Value export
+
+The tuning menu has a "Werte kopieren" button. It copies one compact text block with every tuning value (config keys, values changed from the default marked with `*`), the out variant, the bot mode and the modifier levels for the player and the bots to the clipboard and shows it in a read-only text box, so it can be pasted to a developer. "Zurücksetzen" resets only the page it is on (values or modifier levels).
 
 ## 5. Shop, coins and catching up
 
