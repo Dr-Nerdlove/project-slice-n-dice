@@ -47,6 +47,8 @@ const BOT_ATTACK_WAIT := Vector2(1.2, 3.0)
 const BOT_AIM_ERROR := 0.3          # radians
 const BOT_RETRACT_WAIT := Vector2(0.4, 1.2)
 const BOT_PULL_CHANCE := 0.2
+const BOT_THROW_MORE_CHANCE := 0.6  # with extra yo-yos in hand: throw another instead of calling them back
+const BOT_NEXT_THROW_WAIT := 0.25
 const BOT_PULL_HOLD_EXTRA := 0.6
 const BOT_DASH_CHANCE := 0.004      # per tick while idle
 const BOT_ATTACK_RANGE_FACTOR := 1.2
@@ -95,6 +97,9 @@ var aim_deadzone: float
 var accidental_hold_time: float
 var out_variant: int
 var bot_mode: int
+## Sandbox modifier levels (modifier id -> 0..3): one set for the human player, one shared by all bots.
+var mods_you: Dictionary = Mods.empty_levels()
+var mods_bots: Dictionary = Mods.empty_levels()
 
 const DEFAULTS := {
 	"player_radius": 0.5,
@@ -134,10 +139,14 @@ func to_dict() -> Dictionary:
 	var d := {}
 	for k: String in DEFAULTS:
 		d[k] = get(k)
+	d["mods_you"] = mods_you.duplicate()
+	d["mods_bots"] = mods_bots.duplicate()
 	return d
 
 
 func from_dict(d: Dictionary) -> void:
+	mods_you = Mods.sanitize(d.get("mods_you"))
+	mods_bots = Mods.sanitize(d.get("mods_bots"))
 	for k: String in DEFAULTS:
 		if not d.has(k):
 			continue

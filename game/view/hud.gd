@@ -6,6 +6,8 @@ signal gear_pressed
 
 var gear_btn: Button
 var _labels: Array[Label] = []
+var _chip_box: HBoxContainer
+var _chip_key := ""
 var _sim: Sim
 
 
@@ -32,6 +34,13 @@ func setup(s: Sim) -> void:
 		l.add_theme_constant_override("outline_size", 6)
 		box.add_child(l)
 		_labels.append(l)
+
+	# Chips with the human player's active modifiers, e.g. "Splitter II".
+	_chip_box = HBoxContainer.new()
+	_chip_box.position = Vector2(16.0, 44.0)
+	_chip_box.add_theme_constant_override("separation", 8)
+	_chip_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_chip_box)
 
 	gear_btn = Button.new()
 	gear_btn.flat = true
@@ -65,3 +74,35 @@ func refresh() -> void:
 		_labels[i].visible = p.enabled
 		var who := "Du" if i == 0 else "Bot %d" % i
 		_labels[i].text = "%s %d : %d" % [who, p.kills, p.deaths]
+
+	_refresh_chips()
+
+
+func _refresh_chips() -> void:
+	var mods := _sim.players[0].mods
+	var key := ""
+	for id in Mods.ORDER:
+		key += "%s%d," % [id, mods.get(id, 0)]
+	if key == _chip_key:
+		return
+	_chip_key = key
+	for c in _chip_box.get_children():
+		c.queue_free()
+	for id in Mods.ORDER:
+		var level: int = mods.get(id, 0)
+		if level <= 0:
+			continue
+		var l := Label.new()
+		l.text = "%s %s" % [Mods.mod_name(id), Mods.ROMAN[level]]
+		l.add_theme_font_size_override("font_size", 16)
+		l.add_theme_color_override("font_color", Color(1, 1, 1, 0.95))
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.1, 0.12, 0.18, 0.75).lerp(Color(0.9, 0.7, 0.2, 0.75), (level - 1) / 2.0 * 0.6)
+		sb.set_corner_radius_all(8)
+		sb.content_margin_left = 8.0
+		sb.content_margin_right = 8.0
+		sb.content_margin_top = 2.0
+		sb.content_margin_bottom = 2.0
+		l.add_theme_stylebox_override("normal", sb)
+		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_chip_box.add_child(l)

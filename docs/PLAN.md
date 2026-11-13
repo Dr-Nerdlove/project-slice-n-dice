@@ -32,14 +32,23 @@ This document is the binding basis for implementation. It collects all decisions
 | Charging | Right stick held. The aim line shows direction and landing distance; the longer the hold, the further the throw. |
 | Flight | After release, flies in the aimed direction to the charged distance. Lethal. A yo-yo that hits a wall simply stops and lies there. |
 | Out | Stays where it landed and keeps spinning. Lethal, blocks space. No new throw is possible while it is out. |
-| Retract | A short tap on the right stick pulls it back. Lethal on the way back, interacts with the environment (dragging objects along, triggering switches, hitting destructibles). |
+| Retract | A short tap on the right stick pulls it back. Lethal on the way back, interacts with the environment (dragging objects along, triggering switches, hitting destructibles). Walls and obstacles stop it: the head then lies there again (Out) and can be tapped or pulled to again. |
 | Pull | Holding the right stick while the yo-yo is out pulls the character to the yo-yo. This works wherever the yo-yo lies, not only when it is anchored in terrain. |
 
 ### Proposals by the planner, not yet explicitly confirmed by the owner
 
 - **Defence:** When two yo-yos meet, they bounce off each other.
 - **String:** Harmless in the base state; only modifiers make it dangerous.
-- **Dash:** A short evasive step with a cooldown as a second movement option.
+- **Dash:** A short evasive step with a cooldown as a second movement option. The player has dash charges (tuning menu value, modifiers can add more); charges refill one at a time, each taking the cooldown.
+
+### Several yo-yos (twin modifier)
+
+A player has a list of yo-yos; each has its own state, charging and pulling belong to the player. Controls (decided by the owner on 2026-11-13):
+
+- While at least one yo-yo is in hand: holding the right stick charges, releasing throws the next one, as with one yo-yo.
+- A short tap (shorter than the tap threshold and without stick deflection) while at least one yo-yo is out retracts all yo-yos that are out, also when another one is still in hand. With a yo-yo in hand, an aimed quick flick still throws.
+- When all yo-yos are out, holding pulls the player to the yo-yo that lies most in the direction the player is moving (without move input: the nearest). The target is fixed when the pull starts; catching it puts that yo-yo back in hand and ends the pull.
+- With a single yo-yo the behaviour is exactly as described in the table above.
 
 Make these three points playable in milestone 1 and have the owner confirm them.
 
@@ -55,10 +64,31 @@ Modifiers change how the game is played, not just numbers. They act on three are
 
 Rules:
 
-- One hit always kills, even fully upgraded players.
+- One hit always kills, even fully upgraded players. A player's own effects never hurt themselves.
 - Fixed number of slots per player (proposal: five). This caps maximum strength and lets trailing players catch up.
 - Modifiers must be visible on the yo-yo or the string so that opponents can read them.
 - Goal for the MVP: 10-15 modifiers.
+
+Decisions of 2026-11-13:
+
+- **Modifiers are pure upsides**, there are no drawbacks.
+- **Levels by copies:** buying the same modifier 3 times makes it level 2, 6 times level 3 (very hard to reach). One modifier occupies one slot regardless of its copies.
+- **Higher levels must be dramatically stronger**, so that a player really feels that collecting was worth it.
+- **The shop will have rerolls for coins**, so skilled players reach their builds more often.
+- **Sandbox:** the prototype has a menu page "Modifikatoren" where the owner sets the level (0-3) of every modifier for the player and, separately, for all bots. Prices (three tiers, placeholder values) exist in the data but are not used yet.
+
+First batch of ten modifiers. All definitions, German texts and every number live in `game/sim/mods.gd`.
+
+1. **Tripwire** (Stolperdraht): the string stays on the ground as a wire when a retract starts; enemies touching it stumble (level 3: the wire is lethal).
+2. **Big head** (Dicker Brocken): the yo-yo head is much bigger, without slowdown.
+3. **Elastic** (Gummiband): faster pull, and the player is flung onward after catching the head; from level 2 the body is lethal while pulling and flung.
+4. **Extra dash** (Extra-Dash): more dash charges, shorter cooldown, longer dash at level 3.
+5. **Bounce** (Abpraller): the flying head reflects off walls and obstacles, gaining distance with every bounce.
+6. **Arc return** (Bogenwurf): the retract comes home on a curve (side chosen with the move stick); level 3 circles the player first.
+7. **Pierce** (Durchschlag): the head passes through obstacle blocks (retract and crate from level 2); level 3 knocks enemy heads away in duels.
+8. **Shards** (Splitter): lethal shards fly out from the head when a retract starts; at level 3 they bounce once.
+9. **Warhead** (Sprengkopf): the head explodes where it lands; from level 2 also where a retract starts.
+10. **Twin** (Zwilling): 2 / 3 / 5 yo-yos, controls see section 3.
 
 ## 5. Shop, coins and catching up
 

@@ -193,6 +193,7 @@ missing, with a recommendation, and let the people choose.
   simulation in `game/sim` is pure code and would be testable - offer tests when it becomes risky.
 - **Architecture rule:** `game/sim` is a pure fixed-tick simulation without nodes, physics or Input;
   `game/view` only reads it.
+- **Modifiers:** Modifier definitions, German texts and all their numbers live in `game/sim/mods.gd`.
 - **Release:** No releases yet. Version scheme `vMAJOR.MINOR.PATCH` (see "Releases" above).
 - **Traps:** None known yet.
 - **Repository:** Private, owned by Dr-Nerdlove. Licence: GNU AGPL v3 (`LICENSE`). Default branch `main`. No CI
