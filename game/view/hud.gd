@@ -3,6 +3,8 @@ extends CanvasLayer
 ## Scoreboard and the gear button. German on-screen text.
 
 signal gear_pressed
+signal update_download_pressed
+signal update_dismissed
 
 var gear_btn: Button
 var _labels: Array[Label] = []
@@ -15,6 +17,8 @@ var _net_label: Label
 var net_text := ""
 ## True while playing online: the other players are people, not bots.
 var online := false
+var update_banner: PanelContainer
+var _update_label: Label
 
 
 func setup(s: Sim) -> void:
@@ -67,6 +71,7 @@ func setup(s: Sim) -> void:
 	gear_btn.draw.connect(_draw_gear)
 	gear_btn.pressed.connect(func() -> void: gear_pressed.emit())
 	add_child(gear_btn)
+	_build_update_banner()
 
 
 ## Shows another sim (the predicted one while online) with `local_slot` as "Du".
@@ -84,6 +89,57 @@ func _draw_gear() -> void:
 	for k in 8:
 		var dir := Vector2.from_angle(TAU * k / 8.0)
 		gear_btn.draw_line(c + dir * 12.0, c + dir * 19.0, col, 5.0)
+
+
+## Small notice at the bottom centre: a newer version exists. Does not block play.
+func _build_update_banner() -> void:
+	update_banner = PanelContainer.new()
+	update_banner.visible = false
+	update_banner.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	update_banner.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	update_banner.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	update_banner.position.y = -12.0
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.1, 0.12, 0.18, 0.85)
+	sb.set_corner_radius_all(10)
+	sb.set_content_margin_all(8.0)
+	update_banner.add_theme_stylebox_override("panel", sb)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	update_banner.add_child(row)
+	_update_label = Label.new()
+	_update_label.add_theme_font_size_override("font_size", 20)
+	_update_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(_update_label)
+	var get_btn := Button.new()
+	get_btn.text = "Herunterladen"
+	get_btn.custom_minimum_size = Vector2(0, 48)
+	get_btn.focus_mode = Control.FOCUS_NONE
+	get_btn.pressed.connect(func() -> void: update_download_pressed.emit())
+	row.add_child(get_btn)
+	var later_btn := Button.new()
+	later_btn.text = "Später"
+	later_btn.custom_minimum_size = Vector2(0, 48)
+	later_btn.focus_mode = Control.FOCUS_NONE
+	later_btn.pressed.connect(func() -> void:
+		update_banner.visible = false
+		update_dismissed.emit())
+	row.add_child(later_btn)
+	add_child(update_banner)
+
+
+func show_update(version: String) -> void:
+	_update_label.text = "Neue Version %s verfügbar" % version
+	update_banner.visible = true
+	update_banner.reset_size()
+
+
+## Screen areas of the HUD that must not steer the player.
+func blocked_rects() -> Array[Rect2]:
+	var rects: Array[Rect2] = [gear_rect()]
+	if update_banner.visible:
+		rects.append(update_banner.get_global_rect())
+	return rects
 
 
 func gear_rect() -> Rect2:

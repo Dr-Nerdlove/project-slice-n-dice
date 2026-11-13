@@ -146,6 +146,14 @@ jobs:
           export/android/debug_keystore_pass = "$ks_pass"
           TRES
 
+      # The game shows (and the update check compares) this: a CI build of a branch is a dev build of the
+      # version committed in the project files, never a release.
+      - name: Mark as dev build
+        run: |
+          set -eu
+          v=$(sed -n 's/^version\/name="\(.*\)"/\1/p' game/export_presets.cfg)
+          tools/set-version.sh "$v" "-dev+$(git rev-parse --short HEAD)"
+
       - name: Export debug APK
         run: |
           set -eu

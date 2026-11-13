@@ -1,0 +1,193 @@
+name: Release
+
+# Pushing a tag vMAJOR.MINOR.PATCH builds the APK and publishes it to the PUBLIC repository
+# Joni9993/slice-n-dice-releases (this repository is private; the app looks there for updates).
+# "Run workflow" with a tag name retries a release (an existing release gets its APK replaced).
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release, e.g. v0.3.0 (must exist in this repository)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: 4.7.2
+  GODOT_RELEASE: https://github.com/godotengine/godot/releases/download/4.7.2-stable
+  RELEASES_REPO: Joni9993/slice-n-dice-releases
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+# Same setup as the jobs "test" and "apk" in ci.yml, repeated here on purpose (a shared workflow would change
+# the CI that already works). Differences: the version comes from the tag, the fixed key is required, and the
+# result is published instead of uploaded as an artifact.
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check the tag
+        run: |
+          set -eu
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Tag '$TAG' is not vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Release notes from CHANGELOG.md
+        run: |
+          set -eu
+          version=${TAG#v}
+          # The lines between "## <version>" and the next "## " heading.
+          awk -v v="$version" '
+            $0 == "## " v { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/changes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/changes.md"; then
+            echo "CHANGELOG.md has no section '## $version' (or it is empty)" >&2
+            exit 1
+          fi
+          {
+            cat "$RUNNER_TEMP/changes.md"
+            cat <<'NOTES'
+
+          ## How to install / update
+
+          1. Download the `.apk` file below on an Android phone.
+          2. Open it and allow installing from this source when Android asks. Android may warn about an unknown developer; this is a test build.
+          3. Already installed? The app shows "Neue Version ... verfügbar" when a newer version exists. Installing over the old version keeps your settings. Versions before 0.2.1 have to be uninstalled once.
+          NOTES
+          } > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Godot editor
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-bin
+          key: godot-editor-${{ env.GODOT_VERSION }}-linux-x86_64
+
+      - name: Cache Android export templates
+        id: cache-templates
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/godot/export_templates/${{ env.GODOT_VERSION }}.stable
+          key: godot-android-templates-${{ env.GODOT_VERSION }}
+
+      - name: Download Godot editor
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          set -eu
+          mkdir -p ~/godot-bin ~/godot-dl
+          cd ~/godot-dl
+          zip=Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          curl -fsSL -O "$GODOT_RELEASE/$zip"
+          curl -fsSL -O "$GODOT_RELEASE/SHA512-SUMS.txt"
+          grep " $zip\$" SHA512-SUMS.txt | sha512sum -c -
+          unzip -q "$zip" -d ~/godot-bin
+          mv ~/godot-bin/Godot_v${GODOT_VERSION}-stable_linux.x86_64 ~/godot-bin/godot
+          chmod +x ~/godot-bin/godot
+
+      - name: Download Android export templates
+        if: steps.cache-templates.outputs.cache-hit != 'true'
+        run: |
+          set -eu
+          mkdir -p ~/godot-dl
+          cd ~/godot-dl
+          tpz=Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          curl -fsSL -O "$GODOT_RELEASE/$tpz"
+          curl -fsSL -O "$GODOT_RELEASE/SHA512-SUMS.txt"
+          grep " $tpz\$" SHA512-SUMS.txt | sha512sum -c -
+          dest=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          mkdir -p "$dest"
+          unzip -q -j "$tpz" 'templates/android_*' templates/version.txt -d "$dest"
+          rm -f "$tpz"
+
+      - name: Run tests
+        run: |
+          set -eu
+          echo "$HOME/godot-bin" >> "$GITHUB_PATH"
+          PATH="$HOME/godot-bin:$PATH" tests/run.sh
+
+      - name: Set the version from the tag
+        run: tools/set-version.sh "$TAG"
+
+      - name: Configure Godot for the Android export
+        env:
+          TEST_KEYSTORE_B64: ${{ secrets.TEST_KEYSTORE_B64 }}
+          TEST_KEYSTORE_PASSWORD: ${{ secrets.TEST_KEYSTORE_PASSWORD }}
+        run: |
+          set -eu
+          if [ -z "$TEST_KEYSTORE_B64" ] || [ -z "$TEST_KEYSTORE_PASSWORD" ]; then
+            echo "The signing secrets TEST_KEYSTORE_B64 and TEST_KEYSTORE_PASSWORD are required for a release" >&2
+            exit 1
+          fi
+          ks="$RUNNER_TEMP/debug.keystore"
+          printf '%s' "$TEST_KEYSTORE_B64" | base64 -d > "$ks"
+          cfg="${XDG_CONFIG_HOME:-$HOME/.config}/godot"
+          mkdir -p "$cfg"
+          cat > "$cfg/editor_settings-4.7.tres" <<TRES
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/debug_keystore = "$ks"
+          export/android/debug_keystore_user = "slicendice-test"
+          export/android/debug_keystore_pass = "$TEST_KEYSTORE_PASSWORD"
+          TRES
+
+      - name: Export the APK
+        run: |
+          set -eu
+          export PATH="$HOME/godot-bin:$PATH"
+          mkdir -p build
+          godot --headless --path game --import
+          godot --headless --path game --export-debug "Android" "../build/slice-n-dice-$TAG.apk"
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
+          "$apksigner" verify --print-certs "build/slice-n-dice-$TAG.apk" | grep -i "SHA-256" || true
+          size=$(stat -c %s "build/slice-n-dice-$TAG.apk")
+          echo "APK size: $size bytes"
+          if [ "$size" -lt 1000000 ]; then
+            echo "APK is missing or too small" >&2
+            exit 1
+          fi
+
+      - name: Publish to the releases repository
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          set -eu
+          if [ -z "$GH_TOKEN" ]; then
+            echo "The secret RELEASES_TOKEN is not set" >&2
+            exit 1
+          fi
+          apk="build/slice-n-dice-$TAG.apk"
+          if gh release view "$TAG" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+            echo "Release $TAG exists: replacing its APK and notes"
+            gh release upload "$TAG" "$apk" --repo "$RELEASES_REPO" --clobber
+            gh release edit "$TAG" --repo "$RELEASES_REPO" --notes-file "$RUNNER_TEMP/notes.md" --prerelease=false --latest
+          else
+            gh release create "$TAG" "$apk" --repo "$RELEASES_REPO" \
+              --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --latest
+          fi
+          gh release view "$TAG" --repo "$RELEASES_REPO" --json tagName,isPrerelease,assets \
+            --jq '"published " + .tagName + ", prerelease=" + (.isPrerelease|tostring) + ", assets=" + ([.assets[].name]|join(","))'
