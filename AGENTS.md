@@ -193,15 +193,22 @@ missing, with a recommendation, and let the people choose.
 - **Build and test:** Godot 4.7.2, project in `game/`. Run on PC: `godot --path game`. Android debug APK:
   `godot --headless --path game --export-debug "Android" ../build/slice-n-dice-debug.apk` (needs Godot export
   templates, JDK 17 and the Android SDK configured in Godot's editor settings). Tests: `tests/run.sh` (needs `godot` on the
-  PATH; ~25 s) runs the headless checks of the simulation and the menus in `tests/test_sim.gd` and of the netcode
-  in `tests/test_net.gd` (loopback with fake clock, real ENet on localhost, the real main scene); it prints only
-  failures and a summary and exits non-zero on a failed check, an engine/script error or zero checks.
-  `tests/run.sh soak` runs a longer bot soak run (~30 s, not in CI). `python3 tests/sabotage.py [prefix]`
-  breaks the game code on purpose, one change at a time, and checks that the tests notice; it restores every
-  file byte for byte (check `git status` afterwards). When game code is refactored, its patterns may go stale
-  (the script reports "pattern count 0"): update them. New testable behaviour gets a check in
-  `tests/test_sim.gd` (netcode: `tests/test_net.gd`) and, if sensible, an entry in `tests/sabotage.py` (names
-  starting with "8" are the netcode ones). The tests live outside `game/` so the APK does not contain them. A new
+  PATH; ~70 s, nearly all of it the netcode suite) runs the headless checks of the simulation and the menus in
+  `tests/test_sim.gd`, of the netcode in `tests/test_net.gd` (loopback with fake clock, real ENet on localhost, the
+  real main scene) and of the update notice in `tests/test_update.gd`; `tests/run.sh sim|net|update ...` runs only
+  the named suites; it prints only failures and a summary and exits non-zero on a failed check, an engine/script
+  error or zero checks. `GAME_DIR=<copy of game/>` runs the tests against a copy and `TEST_PORT_OFFSET=N` shifts the
+  localhost ports and the `user://` test file (parallel runs). `tests/run.sh soak` runs a longer bot soak run (~30 s,
+  not in CI). `python3 tests/sabotage.py [-j N] [--full] [prefix ...]` breaks the game code on purpose, one change at
+  a time, and checks that the tests notice. It works in temporary copies of `game/` outside the repository (the
+  working tree is never modified; the script checks that `game/` is identical afterwards), runs only the suite that
+  covers an entry (prefix 1-7 sim, 8 net, 9 update; an entry that needs another suite goes into
+  `SUITES_OVERRIDE`), stops the net suite after its first failing group, and runs `-j N` entries in parallel
+  (default: half the CPU cores). All 123 entries take about 8 min with 6 workers (no gain beyond that on a 12-thread machine) (the old one-by-one run with the
+  whole suite per entry: about 2.5 h); `--full` runs the whole suite for every entry. When game code is refactored,
+  its patterns may go stale (the script reports "pattern count 0" and fails): update them. New testable behaviour
+  gets a check in `tests/test_sim.gd` (netcode: `tests/test_net.gd`) and, if sensible, an entry in
+  `tests/sabotage.py`. The tests live outside `game/` so the APK does not contain them. A new
   `class_name` file needs `godot --headless --path game --import` once before the tests see it.
 - **Architecture rule:** `game/sim` is a pure fixed-tick simulation without nodes, physics or Input;
   `game/view` only reads it.
