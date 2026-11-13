@@ -1,0 +1,66 @@
+class_name Hud
+extends CanvasLayer
+## Scoreboard and the gear button. German on-screen text.
+
+signal gear_pressed
+
+var gear_btn: Button
+var _labels: Array[Label] = []
+var _sim: Sim
+
+
+func setup(s: Sim) -> void:
+	_sim = s
+	layer = 5
+	var box := HBoxContainer.new()
+	box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	box.position.y = 8.0
+	box.add_theme_constant_override("separation", 28)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(box)
+	var legend := Label.new()
+	legend.text = "Treffer : Tode"
+	legend.add_theme_font_size_override("font_size", 16)
+	legend.modulate = Color(1, 1, 1, 0.6)
+	box.add_child(legend)
+	for i in s.players.size():
+		var l := Label.new()
+		l.add_theme_font_size_override("font_size", 22)
+		l.add_theme_color_override("font_color", ArenaView.PLAYER_COLORS[i])
+		l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+		l.add_theme_constant_override("outline_size", 6)
+		box.add_child(l)
+		_labels.append(l)
+
+	gear_btn = Button.new()
+	gear_btn.flat = true
+	gear_btn.custom_minimum_size = Vector2(Config.GEAR_SIZE, Config.GEAR_SIZE)
+	gear_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	gear_btn.position = Vector2(-Config.GEAR_SIZE - 12.0, 12.0)
+	gear_btn.size = Vector2(Config.GEAR_SIZE, Config.GEAR_SIZE)
+	gear_btn.focus_mode = Control.FOCUS_NONE
+	gear_btn.draw.connect(_draw_gear)
+	gear_btn.pressed.connect(func() -> void: gear_pressed.emit())
+	add_child(gear_btn)
+
+
+func _draw_gear() -> void:
+	var c := gear_btn.size * 0.5
+	var col := Color(1, 1, 1, 0.75)
+	gear_btn.draw_circle(c, Config.GEAR_SIZE * 0.5, Color(0, 0, 0, 0.35))
+	gear_btn.draw_arc(c, 12.0, 0.0, TAU, 24, col, 4.0)
+	for k in 8:
+		var dir := Vector2.from_angle(TAU * k / 8.0)
+		gear_btn.draw_line(c + dir * 12.0, c + dir * 19.0, col, 5.0)
+
+
+func gear_rect() -> Rect2:
+	return gear_btn.get_global_rect()
+
+
+func refresh() -> void:
+	for i in _labels.size():
+		var p := _sim.players[i]
+		_labels[i].visible = p.enabled
+		var who := "Du" if i == 0 else "Bot %d" % i
+		_labels[i].text = "%s %d : %d" % [who, p.kills, p.deaths]

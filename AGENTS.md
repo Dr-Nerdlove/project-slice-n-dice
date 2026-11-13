@@ -184,10 +184,15 @@ missing, with a recommendation, and let the people choose.
 
 - **People:** The repository owner (GitHub: Dr-Nerdlove) works on the project alone, together with AI
   assistants, and does not program themselves. They decide about merging and releases.
-- **What the project is:** Not decided yet - the repository is empty apart from the licence. Fill in once the
-  owner has described the project.
-- **Product languages:** Not decided yet. Ask the owner before writing the first user-facing text.
-- **Build and test:** No code, build or tests yet. Fill in with the first code.
+- **What the project is:** "Slice n Dice", a top-down arena brawler for Android with online multiplayer
+  (2-8 players) and a yo-yo as the weapon. Plan and decisions: `docs/PLAN.md`.
+- **Product languages:** Not finally decided. The prototype UI is German for now.
+- **Build and test:** Godot 4.7.2, project in `game/`. Run on PC: `godot --path game`. Android debug APK:
+  `godot --headless --path game --export-debug "Android" ../build/slice-n-dice-debug.apk` (needs Godot export
+  templates, JDK 17 and the Android SDK configured in Godot's editor settings). No automated tests yet; the
+  simulation in `game/sim` is pure code and would be testable - offer tests when it becomes risky.
+- **Architecture rule:** `game/sim` is a pure fixed-tick simulation without nodes, physics or Input;
+  `game/view` only reads it.
 - **Release:** No releases yet. Version scheme `vMAJOR.MINOR.PATCH` (see "Releases" above).
 - **Traps:** None known yet.
 - **Repository:** Private, owned by Dr-Nerdlove. Licence: GNU AGPL v3 (`LICENSE`). Default branch `main`. No CI
@@ -195,4 +200,4 @@ missing, with a recommendation, and let the people choose.
   "Protecting `main`").
 - **Limits of the environment:** Cloud sessions (Claude Code on the web) cannot open the repository settings
   (rulesets, secrets, Pages); the owner does that on github.com. GitHub is reached through the GitHub MCP tools,
-  not the `gh` CLI.
+  not the `gh` CLI. Local sessions on the owner's Linux machine have git over HTTPS working.
