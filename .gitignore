@@ -13,3 +13,6 @@ Thumbs.db
 
 # Build output (APKs)
 build/
+
+# Working copies of AI helper agents
+.claude/worktrees/
