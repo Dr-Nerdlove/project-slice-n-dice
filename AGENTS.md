@@ -228,20 +228,17 @@ missing, with a recommendation, and let the people choose.
   `value_changed` after the frame that follows `add_child`. (5) Two RefCounted objects that reference each other leak
   and make Godot print "resources still in use" at exit, which run.sh counts as an error: see the weak reference in
   `LoopbackEndpoint`. (6) Client and server clocks are not synchronised: a client that ticks slower or faster than
-  60 Hz makes the server's input buffer run dry or drop inputs (corrections, never a crash). (7) CI generates a new
-  debug keystore in every run, so every CI-built APK has a different signature: it cannot be installed over an
-  earlier build (uninstall first, which deletes the tuned values on the phone). A fixed keystore kept as a CI secret
-  would fix this; not set up yet, the owner has to choose it.
-- **More traps (display):** The dash is an edge event: any code that repeats an input for an unknown tick must use
-  `SimInput.repeated()` (no dash). A test of how the others look must measure the DISPLAYED state
-  (`ClientCore.displayed_pos`), not the predicted sim; the loopback has no jitter, so jitter handling is tested by
-  feeding late snapshots directly.
+  60 Hz makes the server's input buffer run dry or drop inputs (corrections, never a crash). (7) An APK only installs over an
+  earlier one when both are signed with the same key; otherwise the old app must be uninstalled first, which deletes
+  the tuned values on the phone. CI signs with the fixed test key from the repository secrets `TEST_KEYSTORE_B64`
+  and `TEST_KEYSTORE_PASSWORD` (alias `slicendice-test`; created by the owner with `tools/setup-test-keystore.sh`,
+  the key itself stays outside the repository on the owner's machine). Without the secrets CI falls back to a
+  throwaway key and prints a warning. `v0.1.0` and `v0.2.0` were signed with other keys.
 - **Repository:** Private, owned by Dr-Nerdlove. Licence: GNU AGPL v3 (`LICENSE`). Default branch `main`. CI:
   `.github/workflows/ci.yml` runs on every push and pull request: job `test` runs `tests/run.sh`; job `apk`
   (after `test`) exports the debug APK and uploads it as an artifact (14 days). Godot and the Android export
-  templates are downloaded from the official release and cached; the debug keystore is generated on the fly,
-  the Java/SDK/keystore paths are written to Godot's editor settings (no env vars exist for them). No secrets
-  needed. No branch protection: not available for private repositories on the owner's free plan (see
+  templates are downloaded from the official release and cached; the APK is signed with the fixed test key (trap
+  7), the Java/SDK/keystore paths are written to Godot's editor settings (no env vars exist for them). No branch protection: not available for private repositories on the owner's free plan (see
   "Protecting `main`").
 - **Limits of the environment:** Cloud sessions (Claude Code on the web) cannot open the repository settings
   (rulesets, secrets, Pages); the owner does that on github.com. GitHub is reached through the GitHub MCP tools,
