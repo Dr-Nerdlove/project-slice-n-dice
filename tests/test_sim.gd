@@ -536,9 +536,15 @@ func _mod_tests() -> void:
 			check("pierce L0: block stops the head", absf(p.heads[0].pos.x - 5.65) < 0.05)
 		else:
 			check("pierce L%d: head passes the block (range%s)" % [L, " +20%" if L == 2 else ""], absf(p.heads[0].pos.x - expect_x) < 0.1, "x=%.2f expect=%.2f" % [p.heads[0].pos.x, expect_x])
-		tap_i(s, 0); many(s, 90, idle4())
+		tap_i(s, 0)
+		var was_out := false
+		for _i in 90:
+			many(s, 1, idle4())
+			if p.heads[0].state == HS.OUT:
+				was_out = true
 		if L == 1:
-			check("pierce L1: retract is still blocked by the block", p.heads[0].state == HS.OUT and p.heads[0].pos.x > 7.3)
+			check("pierce L1: head never stops OUT on the way back", not was_out)
+			check("pierce L1: head returns to the hand through the block", p.heads[0].state == HS.HAND)
 		if L == 2:
 			check("pierce L2: retract passes the block", p.heads[0].state == HS.HAND)
 	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"pierce": 1})
@@ -554,6 +560,16 @@ func _mod_tests() -> void:
 	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"pierce": 2}); s.crate_pos = Vector2(8, 6.3)
 	throw_i(s, 0, Vector2.RIGHT, 60)
 	check("pierce: crate stops L1 flight, L2 passes it", cx1 < 7.1 and s.players[0].heads[0].pos.x > 11.5 and absf(s.crate_pos.x - 8.0) < 0.01, "L1 x=%.2f L2 x=%.2f" % [cx1, s.players[0].heads[0].pos.x])
+	# retract vs crate: L1 drags the crate along, L2 passes through it
+	for L in [1, 2]:
+		s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"pierce": L}); p = s.players[0]
+		throw_i(s, 0, Vector2.RIGHT, 60)
+		s.crate_pos = Vector2(7.0, 6.3)
+		tap_i(s, 0); many(s, 90, idle4())
+		if L == 1:
+			check("pierce L1: retracting head still pushes the crate", absf(s.crate_pos.x - 7.0) > 0.3 or p.heads[0].state != HS.HAND, "crate x=%.2f" % s.crate_pos.x)
+		else:
+			check("pierce L2: retracting head passes the crate", p.heads[0].state == HS.HAND and absf(s.crate_pos.x - 7.0) < 0.01, "crate x=%.2f" % s.crate_pos.x)
 	# L3 duel
 	s = mk([0, 1]); place(s, 0, Vector2(3, 6.3)); place(s, 1, Vector2(19, 6.3)); setm(s, 0, {"pierce": 3})
 	for t in 60: s.step([inp(Vector2.ZERO, Vector2.RIGHT, true), inp(Vector2.ZERO, Vector2.LEFT, true), inp(), inp()])
