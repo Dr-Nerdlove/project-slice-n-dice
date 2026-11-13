@@ -332,6 +332,450 @@ func test_two_clients() -> void:
 	check("2 clients: server buffers stay bounded", server.stale_inputs == 0 and server.slots[0].buffer.size() <= ServerCore.MAX_BUFFER)
 
 
+## Player B walks with direction changes, dashes several times and throws; player A stands and watches.
+func other_script(t: int) -> SimInput:
+	var ph := t % 240
+	if ph < 40:
+		return inp(Vector2(1.0, 0.0))
+	if ph < 41:
+		return inp(Vector2(1.0, 0.0), Vector2.ZERO, false, true)         # dash
+	if ph < 70:
+		return inp(Vector2(0.7, 0.7))
+	if ph < 71:
+		return inp(Vector2(0.7, 0.7), Vector2.ZERO, false, true)
+	if ph < 100:
+		return inp(Vector2(-0.6, -0.8))
+	if ph < 125:
+		return inp(Vector2.ZERO, Vector2(1.0, 0.0), true)                # charge, thrown at 125
+	if ph < 150:
+		return inp(Vector2(0.0, 1.0))
+	if ph < 153:
+		return inp(Vector2.ZERO, Vector2.ZERO, true)                     # tap: retract
+	if ph < 190:
+		return inp(Vector2(-1.0, 0.0))
+	if ph < 191:
+		return inp(Vector2(-1.0, 0.0), Vector2.ZERO, false, true)
+	if ph < 215:
+		return inp(Vector2(0.0, -1.0))
+	return inp()
+
+
+## What A's screen shows of B against B's true movement on the server. Returns the figures of the run.
+func measure_other(delay_ms: float, loss: float, smooth: bool, ticks := 720, seed := 21) -> Dictionary:
+	var rig := make_rig(delay_ms, loss, 2, seed)
+	warm_up(rig)
+	var a: ClientCore = rig["clients"][0]
+	var b_slot: int = (rig["clients"][1] as ClientCore).slot
+	var server: ServerCore = rig["server"]
+	if a.get("smooth_others") != null:
+		a.set("smooth_others", smooth)
+	var shown_prev := Vector2.INF
+	var true_prev := server.sim.players[b_slot].pos
+	var d_prev := Vector2.ZERO
+	var history: Array[Vector2] = []
+	var matched := -1
+	var max_jump := 0.0
+	var max_true := 0.0
+	var back := 0
+	var jit_sum := 0.0
+	var true_jit_sum := 0.0
+	var n := 0
+	var td_prev := Vector2.ZERO
+	for t in ticks:
+		step_rig(rig, func(k: int) -> SimInput: return inp() if k == 0 else other_script(t))
+		var tp := server.sim.players[b_slot].pos
+		var td := tp - true_prev
+		true_prev = tp
+		var shown: Vector2 = a.displayed_pos(b_slot, 0.5)
+		if t < 120:
+			shown_prev = shown
+			continue
+		var d := shown - shown_prev
+		shown_prev = shown
+		history.append(tp)
+		max_jump = maxf(max_jump, d.length())
+		max_true = maxf(max_true, td.length())
+		# Which moment of B's true path does the picture show? (the sample nearest to the displayed spot, the
+		# one closest to the previous match among equals). Going back in time by more than 2 ticks is a backward jump.
+		var lo := maxi(0, matched - 40)
+		var best := INF
+		for k in range(lo, history.size()):
+			best = minf(best, history[k].distance_to(shown))
+		var pick := -1
+		for k in range(lo, history.size()):
+			if history[k].distance_to(shown) <= best + 0.001 and (pick < 0 or absi(k - matched) < absi(pick - matched)):
+				pick = k
+		if matched >= 0 and pick < matched - 2:
+			back += 1
+		matched = maxi(matched, 0) if pick < 0 else pick
+		jit_sum += (d - d_prev).length()
+		true_jit_sum += (td - td_prev).length()
+		d_prev = d
+		td_prev = td
+		n += 1
+	return {"max_jump": max_jump, "max_true": max_true, "ratio": max_jump / max_true, "back": back,
+			"jitter": jit_sum / n, "true_jitter": true_jit_sum / n}
+
+
+func test_other_display() -> void:
+	var worst_ratio := 0.0
+	var worst_back := 0
+	var worst_jit := 0.0
+	var line := ""
+	for delay in [0.0, 20.0, 50.0]:
+		for loss in [0.0, 2.0]:
+			var m := measure_other(delay, loss, true)
+			worst_ratio = maxf(worst_ratio, m["ratio"])
+			worst_back = maxi(worst_back, m["back"])
+			worst_jit = maxf(worst_jit, m["jitter"] / m["true_jitter"])
+			line += " %d/%d:%.2f" % [delay, loss, m["ratio"]]
+	check("other display: no jump bigger than the true movement (worst ratio %.2f; delay/loss:%s)" % [worst_ratio, line], worst_ratio < 1.3)
+	check("other display: never goes back in time (0, 20, 50 ms, 0 and 2 % loss)", worst_back == 0, "back=%d" % worst_back)
+	check("other display: as smooth as the true path (worst jitter %.2fx the true one)" % worst_jit, worst_jit < 1.5)
+	# the old display (switch off) is what the owner saw: it must fail the same measures
+	var old := measure_other(20.0, 0.0, false)
+	check("other display: switch off gives the old, jumpy picture (ratio %.2f, jitter %.1fx)" % [old["ratio"], old["jitter"] / old["true_jitter"]], old["ratio"] > 2.0 and old["jitter"] / old["true_jitter"] > 3.0)
+	print("INFO  old display 20 ms: jump %.2f m (true %.2f), jitter %.4f (true %.4f)" % [old["max_jump"], old["max_true"], old["jitter"], old["true_jitter"]])
+
+
+# ---------------------------------------------------------------- repeated one-shot inputs
+
+func test_one_shot_inputs() -> void:
+	var i := inp(Vector2(0.5, 0.2), Vector2(0.0, 1.0), true, true)
+	var r := i.repeated()
+	check("repeated input: sticks are kept, the dash is not", r.move == i.move and r.aim == i.aim and r.aim_held and not r.dash and i.dash)
+	# server: the last dash input is consumed, then the client falls silent and the server repeats the input
+	var rig := make_rig(0.0, 0.0, 1, 3)
+	var c: ClientCore = rig["clients"][0]
+	c.set_mods({"extradash": 1})
+	warm_up(rig)
+	for _t in 20:
+		step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
+	var server: ServerCore = rig["server"]
+	var me := server.sim.players[c.slot]
+	var charges_before := me.dash_charges
+	step_rig(rig, func(_k: int) -> SimInput: return inp(Vector2.RIGHT, Vector2.ZERO, false, true))
+	for _t in 40:                                  # the client stops sending
+		(rig["hub"] as LoopbackHub).advance(DT_MS)
+		server.tick()
+	check("server: a dash input repeated on an underrun does not dash again (charges %d -> %d)" % [charges_before, me.dash_charges], charges_before == 2 and me.dash_charges == 1 and server.underruns > 20, "underruns=%d" % server.underruns)
+	# client: the snapshot carries a dash of player 1; the extrapolation must not dash again
+	var fs := fake_server_setup()
+	var cl: ClientCore = fs["client"]
+	var s := Sim.new(fs["cfg"], 1)
+	for k in 4:
+		s.set_player_enabled(k, k < 2)
+		s.players[k].alive = true
+	s.crate_pos = Vector2(-50, -50)
+	s.box_active = false
+	s.box_timer = 9999.0
+	s.apply_mods(1, {"extradash": 1})
+	s.players[1].pos = Vector2(8.0, 6.3)
+	s.players[1].prev_pos = s.players[1].pos
+	var dash := inp(Vector2.RIGHT, Vector2.ZERO, false, true)
+	s.step([SimInput.new(), dash, SimInput.new(), SimInput.new()])
+	check("client test setup: the dash started and one of two charges is spent", s.players[1].dash_t > 0.0 and s.players[1].dash_charges == 1)
+	s.tick = 100
+	var enc: Array = []
+	for k in 4:
+		enc.append(NetProto.encode_input(dash if k == 1 else SimInput.new()))
+	var body := NetProto.snapshot_body(enc, s.save_state())
+	(fs["hub"] as LoopbackHub).server.send(1, NetProto.snapshot_packet(100, 0, body), false)
+	(fs["hub"] as LoopbackHub).advance(1.0)
+	cl.poll()
+	for _t in 25:
+		cl.tick(SimInput.new())
+	check("client: the dash of another player is not repeated while extrapolating (charges left %d)" % cl.sim.players[1].dash_charges, cl.sim.players[1].dash_charges == 1)
+
+
+# ---------------------------------------------------------------- interpolated display
+
+const IP_V := 0.1          # metres per tick of player 1 in the interpolation tests
+
+func interp_world(s: Sim, tick_no: int) -> void:
+	var d := float(tick_no - 100)
+	var p := s.players[1]
+	p.pos = Vector2(5.0 + IP_V * d, 6.3)
+	p.prev_pos = Vector2(p.pos.x - IP_V, p.pos.y)
+	var h := p.heads[0]
+	h.state = SimHead.S.FLIGHT
+	h.pos = Vector2(5.0 + 3.0 * IP_V * d, 7.3)
+	h.prev_pos = Vector2(h.pos.x - 3.0 * IP_V, h.pos.y)
+	s.shards.clear()
+	var sh := SimShard.new()
+	sh.owner_id = 1
+	sh.pos = Vector2(3.0 + 2.0 * IP_V * d, 9.0)
+	sh.prev_pos = Vector2(sh.pos.x - 2.0 * IP_V, sh.pos.y)
+	s.shards.append(sh)
+	s.tick = tick_no
+
+
+func interp_setup() -> Dictionary:
+	var fs := fake_server_setup()
+	var s := Sim.new(fs["cfg"], 1)
+	for k in 4:
+		s.set_player_enabled(k, k < 2)
+		s.players[k].alive = true
+	s.crate_pos = Vector2(-50, -50)
+	s.box_active = false
+	s.box_timer = 9999.0
+	fs["sim"] = s
+	return fs
+
+
+## Server tick `tick_no` arrives at the client.
+func feed(fs: Dictionary, tick_no: int) -> void:
+	interp_world(fs["sim"], tick_no)
+	send_snapshot(fs, fs["sim"], tick_no, 0)
+
+
+func test_interpolation() -> void:
+	var fs := interp_setup()
+	var cl: ClientCore = fs["client"]
+	feed(fs, 100)
+	check("interp: before the first snapshot is used, a single snapshot is held", cl.displayed_pos(1, 0.5).x == 5.0 and cl.display_sim != null)
+	var px: Array[float] = []
+	var hx: Array[float] = []
+	var sx: Array[float] = []
+	var lag_ok := true
+	var clock: Array[float] = []
+	var tick_no := 100
+	for n in 120:
+		tick_no += 2
+		feed(fs, tick_no)
+		for _k in 2:
+			cl.tick(SimInput.new())
+			clock.append(cl._render_t)
+			if n > 20:
+				px.append(cl.displayed_pos(1, 0.5).x)
+				hx.append(cl.display_sim.players[1].heads[0].prev_pos.lerp(cl.display_sim.players[1].heads[0].pos, cl.display_alpha).x)
+				var sh := cl.display_sim.shards[0]
+				sx.append(sh.prev_pos.lerp(sh.pos, cl.display_alpha).x)
+				var behind: float = (5.0 + IP_V * (tick_no - 100) - px.back()) / IP_V
+				lag_ok = lag_ok and behind > 2.0 and behind < 7.0
+	var worst_p := 0.0
+	var worst_h := 0.0
+	var worst_s := 0.0
+	for k in range(1, px.size()):
+		worst_p = maxf(worst_p, absf(px[k] - px[k - 1] - IP_V))
+		worst_h = maxf(worst_h, absf(hx[k] - hx[k - 1] - 3.0 * IP_V))
+		worst_s = maxf(worst_s, absf(sx[k] - sx[k - 1] - 2.0 * IP_V))
+	check("interp: the other player moves evenly every tick (worst deviation %.4f m of %.2f)" % [worst_p, IP_V], worst_p < 0.02)
+	check("interp: their yo-yo head moves evenly (worst deviation %.4f m)" % worst_h, worst_h < 0.06)
+	check("interp: their shards move evenly (worst deviation %.4f m)" % worst_s, worst_s < 0.04)
+	check("interp: the picture runs about 2 snapshot intervals behind", lag_ok)
+	var step_ok := true
+	for k in range(1, clock.size()):
+		var d := clock[k] - clock[k - 1]
+		step_ok = step_ok and d > 0.74 and d < 1.26
+	check("interp: the render clock only runs 0.75x to 1.25x, it never jumps or goes back", step_ok)
+	check("interp: the own player is drawn from the predicted sim", cl.displayed_pos(0, 0.5) == cl.sim.players[0].prev_pos.lerp(cl.sim.players[0].pos, 0.5))
+	cl.smooth_others = false
+	check("interp: switched off there is no display sim and the predicted sim is used", cl.displayed_pos(1, 1.0) == cl.sim.players[1].pos and cl.display_sim == null)
+	cl.smooth_others = true
+
+	# buffer runs dry: hold at the newest state, never past it and never back
+	var newest_x := 5.0 + IP_V * (tick_no - 100)
+	var last := cl.displayed_pos(1, 0.5).x
+	var dry_ok := true
+	for _t in 14:
+		cl.tick(SimInput.new())
+		var x := cl.displayed_pos(1, 0.5).x
+		dry_ok = dry_ok and x >= last - 0.0001 and x <= newest_x + 0.0001
+		last = x
+	check("interp: when snapshots stop the picture holds the newest state (x %.2f of %.2f)" % [last, newest_x], dry_ok and is_equal_approx(last, newest_x))
+	# they come back (7 server ticks of them at once): no step back
+	var back_ok := true
+	var jump := 0.0
+	for _k in 7:
+		tick_no += 2
+		feed(fs, tick_no)
+		var x := cl.displayed_pos(1, 0.5).x
+		back_ok = back_ok and x >= last - 0.0001
+		jump = maxf(jump, x - last)
+		last = x
+	check("interp: when snapshots resume the picture does not step back", back_ok, "max step %.2f" % jump)
+
+	# a teleport (respawn) is shown as one jump, not as a slide across the arena
+	var fs3 := interp_setup()
+	var c3: ClientCore = fs3["client"]
+	var t3 := 100
+	var shift := 0.0
+	var xs3: Array[float] = []
+	feed(fs3, t3)
+	for n in 60:
+		t3 += 2
+		if n == 30:
+			shift = 12.0
+		interp_world(fs3["sim"], t3)
+		var pl: SimPlayer = (fs3["sim"] as Sim).players[1]
+		pl.pos.x += shift
+		pl.prev_pos.x += shift
+		send_snapshot(fs3, fs3["sim"], t3, 0)
+		for _k in 2:
+			c3.tick(SimInput.new())
+			xs3.append(c3.displayed_pos(1, 0.5).x)
+	var big := 0
+	var between := 0
+	var before_x := 5.0 + IP_V * 60.0          # about where the player is when the teleport happens
+	for k in range(1, xs3.size()):
+		if xs3[k] - xs3[k - 1] > 2.0:
+			big += 1
+		if xs3[k] > before_x + 1.5 and xs3[k] < before_x + shift - 1.5:
+			between += 1
+	check("interp: a teleport is one jump and nothing is drawn in between (jumps %d, in between %d)" % [big, between], big == 1 and between == 0)
+
+	# late snapshots make the delay grow, then it shrinks back slowly; the clock never jumps meanwhile
+	var fs4 := interp_setup()
+	var c4: ClientCore = fs4["client"]
+	var t4 := 100
+	feed(fs4, t4)
+	var base := c4.interp_delay_ms()
+	var clk: Array[float] = []
+	for n in 30:
+		t4 += 2
+		feed(fs4, t4)
+		for _k in 2:
+			c4.tick(SimInput.new())
+			clk.append(c4._render_t)
+	var steady := c4.interp_delay_ms()
+	for _k in 8:                                    # a stall of 8 ticks, then 4 snapshots at once
+		c4.tick(SimInput.new())
+		clk.append(c4._render_t)
+	for _k in 4:
+		t4 += 2
+		feed(fs4, t4)
+	var grown := c4.interp_delay_ms()
+	var clk_ok := true
+	for k in range(1, clk.size()):
+		clk_ok = clk_ok and clk[k] - clk[k - 1] > 0.74 and clk[k] - clk[k - 1] < 1.26
+	for n in 40:
+		t4 += 2
+		feed(fs4, t4)
+		for _k in 2:
+			c4.tick(SimInput.new())
+			clk.append(c4._render_t)
+			clk_ok = clk_ok and clk[-1] - clk[-2] > 0.74 and clk[-1] - clk[-2] < 1.26
+	var after_80 := c4.interp_delay_ms()
+	c4._extra = ClientCore.INTERP_EXTRA_MAX            # without snapshots (cheap): it must find its way back
+	for _n in 2000:
+		c4.tick(SimInput.new())
+	var settled := c4.interp_delay_ms()
+	check("interp: base delay is 4 ticks (%.1f ms)" % base, absf(base - 4.0 * 1000.0 / 60.0) < 0.1 and absf(steady - base) < 0.1)
+	check("interp: late snapshots grow the delay (%.0f -> %.0f ms)" % [steady, grown], grown > steady + 50.0)
+	check("interp: it shrinks back slowly, not at once (%.0f ms after 80 ticks, %.0f from the maximum after 2000)" % [after_80, settled], after_80 > steady + 25.0 and absf(settled - steady) < 20.0)
+	check("interp: the clock keeps its pace while the delay changes", clk_ok)
+	# a client clock 1 % faster than the server's must not make the delay creep up
+	var fs6 := interp_setup()
+	var c6: ClientCore = fs6["client"]
+	feed(fs6, 100)
+	var st6: Dictionary = (fs6["sim"] as Sim).save_state()
+	var sv := 100.0
+	var next_snap := 102
+	for _n in 3000:
+		c6.tick(SimInput.new())
+		sv += 0.99
+		while sv >= float(next_snap):
+			c6._buffer_snapshot(next_snap, st6)
+			next_snap += 2
+	check("interp: a client clock 1 %% fast does not make the delay creep up (%.0f ms)" % c6.interp_delay_ms(), c6.interp_delay_ms() < base + 40.0)
+	# lost snapshots (a gap) grow it as well
+	var fs5 := interp_setup()
+	var c5: ClientCore = fs5["client"]
+	var t5 := 100
+	feed(fs5, t5)
+	for n in 20:
+		t5 += 2
+		feed(fs5, t5)
+		for _k in 2:
+			c5.tick(SimInput.new())
+	var before5 := c5.interp_delay_ms()
+	t5 += 8                                         # three snapshots lost: the next one is 8 ticks after the last
+	for _k in 6:
+		c5.tick(SimInput.new())
+	feed(fs5, t5)
+	check("interp: lost snapshots grow the delay (%.0f -> %.0f ms)" % [before5, c5.interp_delay_ms()], c5.interp_delay_ms() > before5 + 30.0)
+
+
+# ---------------------------------------------------------------- the view draws the others from the display sim
+
+func test_view_others() -> void:
+	var cfg := Config.new()
+	var pred := Sim.new(cfg, 1)
+	var disp := Sim.new(cfg, 1)
+	for s in [pred, disp]:
+		for k in 4:
+			s.set_player_enabled(k, k < 2)
+			s.players[k].alive = true
+	pred.players[0].pos = Vector2(3.0, 6.0)
+	pred.players[0].prev_pos = Vector2(3.0, 6.0)
+	pred.players[1].pos = Vector2(10.0, 6.0)
+	pred.players[1].prev_pos = Vector2(10.0, 6.0)
+	disp.players[0].pos = Vector2(20.0, 6.0)
+	disp.players[0].prev_pos = Vector2(20.0, 6.0)
+	disp.players[1].prev_pos = Vector2(6.0, 8.0)
+	disp.players[1].pos = Vector2(8.0, 8.0)
+	var view := ArenaView.new()
+	root.add_child(view)
+	view.setup(pred)
+	view.use_sim(pred, 0)
+	view.render(0.5, 0.016)
+	check("view: without a display sim all players come from the predicted sim", view._bodies[1].position.x == 10.0 and view._bodies[0].position.x == 3.0)
+	view.set_others(disp, 0.25)
+	view.render(0.5, 0.016)
+	check("view: the others come from the display sim with its own alpha (x %.2f)" % view._bodies[1].position.x, is_equal_approx(view._bodies[1].position.x, 6.5) and is_equal_approx(view._bodies[1].position.z, 8.0))
+	check("view: the own player stays on the predicted sim", view._bodies[0].position.x == 3.0)
+	# shards and wires: the own ones from the predicted sim, the others' from the display sim
+	var mk := func(owner: int, x: float) -> SimShard:
+		var sh := SimShard.new()
+		sh.owner_id = owner
+		sh.pos = Vector2(x, 5.0)
+		sh.prev_pos = Vector2(x, 5.0)
+		return sh
+	pred.shards.append(mk.call(0, 1.0))
+	pred.shards.append(mk.call(1, 2.0))
+	disp.shards.append(mk.call(0, 3.0))
+	disp.shards.append(mk.call(1, 4.0))
+	var wire := func(owner: int, n: int) -> SimWire:
+		var w := SimWire.new()
+		w.owner_id = owner
+		for k in n:
+			w.pts.append(Vector2(float(k) * 2.0, 1.0))
+		return w
+	pred.wires.append(wire.call(0, 2))
+	pred.wires.append(wire.call(1, 4))
+	disp.wires.append(wire.call(0, 5))
+	disp.wires.append(wire.call(1, 3))
+	view.render(0.5, 0.016)
+	var xs: Array[float] = []
+	for n in view._shard_nodes:
+		if n.visible:
+			xs.append(n.position.x)
+	xs.sort()
+	var segs := 0
+	for n in view._wire_core:
+		if n.visible:
+			segs += 1
+	check("view: own shards from the predicted sim, the others' from the display sim", xs == [1.0, 4.0], str(xs))
+	check("view: own wires from the predicted sim, the others' from the display sim (%d segments)" % segs, segs == 1 + 2)
+	view.set_others(null, 1.0)
+	view.render(0.5, 0.016)
+	xs.clear()
+	for n in view._shard_nodes:
+		if n.visible:
+			xs.append(n.position.x)
+	xs.sort()
+	segs = 0
+	for n in view._wire_core:
+		if n.visible:
+			segs += 1
+	check("view: without a display sim every shard and wire comes from the predicted sim", xs == [1.0, 2.0] and segs == 1 + 3, "%s %d" % [str(xs), segs])
+	view.set_others(disp, 0.5)
+	view.use_sim(pred, 0)
+	check("view: use_sim drops the display sim", view.others_sim == null)
+	view.queue_free()
+
+
 func test_redundancy() -> void:
 	var skipped := {}
 	for red in [4, 1]:
@@ -824,6 +1268,7 @@ func test_menu_online() -> void:   # async: ranges only report changes once the 
 	menu.connect_requested.connect(func(a: String) -> void: got.append(["connect", a]))
 	menu.disconnect_requested.connect(func() -> void: got.append(["disconnect"]))
 	menu.lag_changed.connect(func(ms: float, loss: float) -> void: got.append(["lag", ms, loss]))
+	menu.smoothing_changed.connect(func(on: bool) -> void: got.append(["smooth", on]))
 	menu._show_page(2)
 	check("menu online: the Online page can be shown", menu._online_page.visible and not menu._values_page.visible and not menu._mods_page.visible)
 	check("menu online: button states at the start", not menu._connect_btn.disabled and menu._disconnect_btn.disabled)
@@ -839,8 +1284,14 @@ func test_menu_online() -> void:   # async: ranges only report changes once the 
 	menu._loss_slider.value = 7.0
 	check("menu online: sliders report delay and loss", got == [["lag", 100.0, 0.0], ["lag", 100.0, 7.0]], str(got))
 	check("menu online: the label says per direction and what happens to the ping", menu._lag_label.text.contains("pro Richtung") and menu._lag_label.text.contains("200 ms") and menu._loss_label.text.contains("7 %"), menu._lag_label.text)
+	check("menu online: the switch Gegner glätten is on by default", menu._smooth_check.button_pressed and menu._smooth_check.text == "Gegner glätten")
+	got.clear()
+	menu._smooth_check.button_pressed = false
+	menu._smooth_check.button_pressed = true
+	check("menu online: the switch reports off and on", got == [["smooth", false], ["smooth", true]], str(got))
+	menu._smooth_check.button_pressed = false
 	menu._on_reset()
-	check("menu online: reset on this page clears the lag tool", menu._lag_slider.value == 0.0 and menu._loss_slider.value == 0.0)
+	check("menu online: reset on this page clears the lag tool and switches smoothing on", menu._lag_slider.value == 0.0 and menu._loss_slider.value == 0.0 and menu._smooth_check.button_pressed)
 	menu.queue_free()
 
 
@@ -882,6 +1333,20 @@ func test_main_scene() -> void:
 		await process_frame
 	check("main: own modifier choice reaches the server", int(server.sim.players[0].mods.get("twin", 0)) == 2 and int(main.client.sim.players[0].mods.get("twin", 0)) == 2)
 	check("main: the HUD shows ping and correction", main.hud._net_label.visible and main.hud._net_label.text.begins_with("Ping "), main.hud._net_label.text)
+	check("main: the HUD shows the interpolation delay", main.hud._net_label.text.contains("Gegner ") and main.hud._net_label.text.contains(" ms zurück"), main.hud._net_label.text)
+	check("main: smoothing is on and the view gets the display sim", main.client.smooth_others and main.view.others_sim != null and main.view.others_sim == main.client.display_sim)
+	main.menu.smoothing_changed.emit(false)
+	for _i in 3:
+		server.tick()
+		OS.delay_msec(10)
+		await process_frame
+	check("main: the switch turns the smoothing off (view back on the predicted sim, HUD says so)", not main.client.smooth_others and main.view.others_sim == null and main.hud._net_label.text.contains("Gegner roh"), main.hud._net_label.text)
+	main.menu.smoothing_changed.emit(true)
+	for _i in 3:
+		server.tick()
+		OS.delay_msec(10)
+		await process_frame
+	check("main: and on again", main.client.smooth_others and main.view.others_sim != null)
 	main.menu.open_menu()
 	var tick_open: int = main.client.sim.tick
 	for _i in 30:
@@ -897,6 +1362,7 @@ func test_main_scene() -> void:
 		await process_frame
 	check("main: the server sees the player leave", server.players_online() == 0)
 	# a server that drops the connection: the game falls back as well
+	main.menu.smoothing_changed.emit(false)    # chosen while offline: the next connection starts with it
 	main.menu.connect_requested.emit("127.0.0.1:%d" % port)
 	for _i in 300:
 		server.tick()
@@ -905,6 +1371,7 @@ func test_main_scene() -> void:
 		if main._online:
 			break
 	check("main: second connect works", main._online)
+	check("main: a smoothing choice made before connecting is kept", not main.client.smooth_others)
 	server_ep.close()   # the server vanishes
 	var ticks_before: int = main.sim.tick
 	for _i in 600:
@@ -924,6 +1391,10 @@ func test_main_scene() -> void:
 func _initialize() -> void:
 	test_snapshot()
 	test_prediction()
+	test_one_shot_inputs()
+	test_interpolation()
+	test_view_others()
+	test_other_display()
 	test_two_clients()
 	test_redundancy()
 	test_jitter_buffer()

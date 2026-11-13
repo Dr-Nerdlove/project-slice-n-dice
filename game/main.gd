@@ -19,6 +19,7 @@ var lag: LagEndpoint           # the lag tool between the client and the network
 var _online := false           # the predicted sim of `client` is what the view shows
 var _lag_ms := 0.0
 var _loss_pct := 0.0
+var _smooth := true            # draw the other players interpolated (menu switch "Gegner glätten")
 
 var _acc := 0.0
 var _hitstop := 0.0
@@ -65,6 +66,11 @@ func _ready() -> void:
 		if lag != null:
 			lag.delay_ms = ms
 			lag.loss_pct = loss)
+
+	menu.smoothing_changed.connect(func(on: bool) -> void:
+		_smooth = on
+		if client != null:
+			client.smooth_others = on)
 
 	for i in range(1, Config.NUM_PLAYERS):
 		bots.append(Bot.new(i, cfg, SIM_SEED + i))
@@ -134,7 +140,11 @@ func _process(delta: float) -> void:
 	hud.net_text = _net_text() if _online else ""
 	hud.refresh()
 	router.exclude_rects = [hud.gear_rect()]
-	view.render(clampf(_acc / dt, 0.0, 1.0), delta)
+	var frac := clampf(_acc / dt, 0.0, 1.0)
+	if _online:
+		client.prepare_display(frac)
+		view.set_others(client.display_sim, client.display_alpha)
+	view.render(frac, delta)
 
 
 func _tick(dt: float) -> void:
@@ -171,6 +181,7 @@ func _connect(address_text: String) -> void:
 	lag.delay_ms = _lag_ms
 	lag.loss_pct = _loss_pct
 	client = ClientCore.new(lag)
+	client.smooth_others = _smooth
 	client.set_mods(cfg.mods_you)
 	menu.set_online_status("Verbinde …", true)
 
@@ -232,8 +243,9 @@ func _reason_text(reason: String, was_online: bool) -> String:
 
 
 func _net_text() -> String:
-	return "Ping %d ms   Korrektur %s m   offene Eingaben %d" % [
-			roundi(client.ping_ms), String.num(client.correction, 2).replace(".", ","), client.pending_inputs()]
+	var others := "Gegner %d ms zurück" % roundi(client.interp_delay_ms()) if client.smooth_others else "Gegner roh"
+	return "Ping %d ms   Korrektur %s m   offene Eingaben %d   %s" % [
+			roundi(client.ping_ms), String.num(client.correction, 2).replace(".", ","), client.pending_inputs(), others]
 
 
 func _notification(what: int) -> void:

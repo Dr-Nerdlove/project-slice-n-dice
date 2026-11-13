@@ -194,11 +194,39 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
   of the own player and yo-yo by re-simulating, correction measure, ping), a lag/loss tool (`LagEndpoint`), an
   ENet transport and an in-memory transport for tests. Headless server: `godot --headless --path game -- --server`.
 - Menu page "Online": server address, connect, artificial one-way delay (0-300 ms) and packet loss (0-20 %).
-- What it does **not** do yet: interpolation of the other players (they are extrapolated with their last input and
-  snap to the server state with every snapshot), lag compensation for hits, hosting on the internet (the home server,
+- What it does **not** do yet: lag compensation for hits (see below), hosting on the internet (the home server,
   router and DNS are untouched), 8 players (the sim has 4 slots), reconnecting, a lobby.
 - The owner's question for the test: does pulling to the yo-yo feel instant at 60-100 ms (set 30-50 ms per direction
   in the menu, the ping shown in the HUD is the round trip)?
+
+**Display of the other players (second experiment, to be played on phones):**
+- Own player: prediction, unchanged. Other players: **snapshot interpolation**. The first experiment drew them
+  from the predicted sim (extrapolated with their last input), so every change of their input made them snap, and
+  a dash looked like a teleport. Now `ClientCore` buffers the received snapshots and draws the others (body, yo-yo
+  heads, strings, aim line) from a separate display `Sim` loaded with the later of two snapshots around a render
+  time, with its `prev_*` positions taken from the earlier one; the view lerps between them (`ArenaView.set_others`).
+  Shared objects (crate, box) come from the predicted sim; wires and shards from the side of their owner (own:
+  predicted, others': interpolated). The predicted sim still simulates the others for collisions, only the display
+  source changed. Kill and hit effects are unchanged (they still come from the predicted sim).
+- The render time runs `INTERP_DELAY` = 4 ticks (2 snapshot intervals, 67 ms) behind the newest snapshot. The delay
+  grows (up to +8 ticks) when snapshots arrive late or are lost and shrinks back by 0.3 ticks per second. The render
+  clock runs 0.75x to 1.25x to reach its target and only jumps over a stall longer than 30 ticks. A client clock that
+  is a little fast or slow is absorbed by a slowly sinking server-time estimate. If the buffer runs dry the last
+  state is held (no extrapolation); a move bigger than 6 m between two snapshots (respawn) is not interpolated.
+- Menu page "Online": switch "Gegner glätten" (default on) to compare with the old display; the HUD line shows
+  how far in the past the others are drawn ("Gegner 67 ms zurück").
+- One-shot inputs: the dash is an edge event, so an input that is repeated (the client extrapolating the others, the
+  server on an input underrun) is repeated without the dash (`SimInput.repeated()`). Before, a repeated dash could
+  spend extra dash charges (only with the Extra-Dash modifier; with one charge the 1.2 s cooldown hid it).
+  The aim release is an edge in the sim (`held_prev`), so repeating `aim_held` is harmless.
+- **Consequence, the next open point: lag compensation.** The others are now shown about 67 ms plus half the ping in
+  the past, while the server still decides hits on the present positions. A player who aims at what he sees misses
+  by that distance; the server would have to rewind the other players to what the shooter saw.
+- Measured on the loopback with the fake clock (player B walks with direction changes, dashes and throws, A watches;
+  largest single-tick jump of B's picture vs. B's largest true step of 0.42 m): old display 1.21 m at 0 ms, 2.31 m
+  at 20 ms, 2.30 m at 50 ms per direction (2.9x to 5.5x), new display 0.42 m at all of them (1.0x), also with 2 %
+  loss; position jitter 0.04 to 0.10 before, 0.010 after (the true path has 0.0104). The loopback has no jitter;
+  the adaptive delay is tested separately.
 
 ### M3: Match loop
 - Rounds, points, target score, winner screen.

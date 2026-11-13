@@ -30,6 +30,11 @@ const MARK_WARHEAD := Color(1.0, 0.3, 0.1)
 const MARK_SHARDS := Color(1.0, 0.95, 0.3)
 
 var sim: Sim
+## Online: the interpolated state the OTHER players (their yo-yo, string, wires and shards) are drawn from, with
+## the blend factor between its prev_* and current positions. null: everything is drawn from `sim`.
+var others_sim: Sim
+var others_alpha := 1.0
+var _local_slot := 0
 var cfg: Config
 var camera: Camera3D
 
@@ -69,6 +74,8 @@ func setup(s: Sim) -> void:
 func use_sim(s: Sim, local_slot: int) -> void:
 	sim = s
 	cfg = s.cfg
+	_local_slot = local_slot
+	others_sim = null
 	_ring.get_parent().remove_child(_ring)
 	_bodies[local_slot].add_child(_ring)
 
@@ -286,9 +293,9 @@ func _make_head(col: Color) -> Node3D:
 	return head
 
 
-func _set_head_marks(head: Node3D, p: SimPlayer) -> void:
-	head.get_node("MarkBounce").visible = sim.lv(p, "bounce") > 0
-	var pierce := sim.lv(p, "pierce")
+func _set_head_marks(src: Sim, head: Node3D, p: SimPlayer) -> void:
+	head.get_node("MarkBounce").visible = src.lv(p, "bounce") > 0
+	var pierce := src.lv(p, "pierce")
 	var spikes := head.get_node("MarkPierce") as Node3D
 	spikes.visible = pierce > 0
 	if pierce > 0:
@@ -298,12 +305,12 @@ func _set_head_marks(head: Node3D, p: SimPlayer) -> void:
 			pivot.visible = gold or k % 2 == 0
 			((pivot.get_child(0) as MeshInstance3D).material_override as StandardMaterial3D).albedo_color = \
 					MARK_PIERCE_L3 if gold else MARK_PIERCE
-	head.get_node("MarkArc").visible = sim.lv(p, "arc") > 0
-	var wh := sim.lv(p, "warhead")
+	head.get_node("MarkArc").visible = src.lv(p, "arc") > 0
+	var wh := src.lv(p, "warhead")
 	var core := head.get_node("MarkWarhead") as Node3D
 	core.visible = wh > 0
 	core.scale = Vector3(1.0, 2.0, 1.0) * (0.8 + 0.25 * wh)
-	head.get_node("MarkShards").visible = sim.lv(p, "shards") > 0
+	head.get_node("MarkShards").visible = src.lv(p, "shards") > 0
 
 
 func shake(strength: float, time: float) -> void:
@@ -461,6 +468,12 @@ func _make_shard_node() -> MeshInstance3D:
 	return mi
 
 
+## Draws the other players from `s` (the interpolated display state) instead of the predicted sim; null = off.
+func set_others(s: Sim, a: float) -> void:
+	others_sim = s
+	others_alpha = a
+
+
 func render(alpha: float, delta: float) -> void:
 	_spin += delta * Config.HEAD_SPIN_SPEED
 	_time += delta
@@ -468,7 +481,13 @@ func render(alpha: float, delta: float) -> void:
 	_seg_cursor = 0
 	_aim_cursor = 0
 	for i in sim.players.size():
-		var p := sim.players[i]
+		# The own player is drawn from the predicted sim, the others from the interpolated one (when given).
+		var src: Sim = sim
+		var a := alpha
+		if others_sim != null and i != _local_slot:
+			src = others_sim
+			a = others_alpha
+		var p := src.players[i]
 		var body := _bodies[i]
 		var vis := p.enabled and p.alive
 		body.visible = vis
@@ -479,8 +498,8 @@ func render(alpha: float, delta: float) -> void:
 			(heads[k] as Node3D).visible = false
 		if not vis:
 			continue
-		var hr := sim.head_r(p)
-		var pos := p.prev_pos.lerp(p.pos, alpha)
+		var hr := src.head_r(p)
+		var pos := p.prev_pos.lerp(p.pos, a)
 		body.position = Vector3(pos.x, BODY_HEIGHT * 0.5, pos.y)
 		var cap := body.get_child(0) as MeshInstance3D
 		(cap.mesh as CapsuleMesh).radius = pr
@@ -504,23 +523,23 @@ func render(alpha: float, delta: float) -> void:
 			body.rotation.x = 0.0
 			_body_mats[i].albedo_color = base_col
 		# Lethal body (Gummiband).
-		var br := sim.body_lethal_r(p)
+		var br := src.body_lethal_r(p)
 		if br > 0.0:
 			var ld := _lethal_discs[i]
 			ld.visible = true
 			ld.position = Vector3(pos.x, 0.05, pos.y)
 			ld.scale = Vector3(br + Mods.BODY_LETHAL_MARGIN, 1.0, br + Mods.BODY_LETHAL_MARGIN)
 
-		var elastic := sim.lv(p, "elastic") > 0
+		var elastic := src.lv(p, "elastic") > 0
 		var hand_n := p.count_state(SimHead.S.HAND)
 		var hand_k := 0
 		for k in p.heads.size():
 			var h := p.heads[k]
 			var node := heads[k] as Node3D
 			node.visible = true
-			_set_head_marks(node, p)
+			_set_head_marks(src, node, p)
 			var out_like := h.lethal()
-			var hp := h.prev_pos.lerp(h.pos, alpha)
+			var hp := h.prev_pos.lerp(h.pos, a)
 			var hy := HEAD_Y
 			var hs := hr
 			if not out_like:
@@ -536,7 +555,7 @@ func render(alpha: float, delta: float) -> void:
 				var width := STRING_WIDTH
 				var scol := Color(0.9, 0.9, 0.9)
 				if elastic:
-					width = ELASTIC_STRING_WIDTH * (1.0 + 0.3 * sim.lv(p, "elastic") / Mods.MAX_LEVEL)
+					width = ELASTIC_STRING_WIDTH * (1.0 + 0.3 * src.lv(p, "elastic") / Mods.MAX_LEVEL)
 					scol = ELASTIC_STRING_COLOR
 				# The string is a polyline: player -> bounce points (pins) -> head.
 				var prev3 := Vector3(pos.x, STRING_Y, pos.y)
@@ -546,7 +565,7 @@ func render(alpha: float, delta: float) -> void:
 					prev3 = pin3
 				_string_segment(prev3, Vector3(hp.x, HEAD_Y + 0.1, hp.y), width, scol)
 		if p.charging:
-			var path := sim.aim_path(p)
+			var path := src.aim_path(p)
 			var acol := PLAYER_COLORS[i].lightened(0.4)
 			acol.a = 0.8
 			for k in range(1, path.size()):
@@ -581,7 +600,7 @@ func render(alpha: float, delta: float) -> void:
 ## Tripwires on the ground in the owner's colour (polylines along the string); lethal ones glow red and pulse.
 func _render_wires() -> void:
 	var cursor := 0
-	for w in sim.wires:
+	for w in _owned_by(sim.wires, true) + (_owned_by(others_sim.wires, false) if others_sim != null else []):
 		var blink := 1.0
 		if w.ttl < WIRE_BLINK_TIME:
 			blink = 0.35 + 0.65 * (0.5 + 0.5 * sin(_time * 30.0))
@@ -612,17 +631,36 @@ func _render_wires() -> void:
 
 
 func _render_shards(alpha: float) -> void:
-	var n := sim.shards.size()
+	# Own shards from the predicted sim, the others' from the interpolated one (all from `sim` when it is off).
+	var list: Array = []
+	for s in _owned_by(sim.shards, true):
+		list.append([s, alpha])
+	if others_sim != null:
+		for s in _owned_by(others_sim.shards, false):
+			list.append([s, others_alpha])
+	var n := list.size()
 	for k in n:
-		var s := sim.shards[k]
+		var s: SimShard = list[k][0]
 		var node := _pool_node(_shard_nodes, k, _make_shard_node)
-		var sp := s.prev_pos.lerp(s.pos, alpha)
+		var sp := s.prev_pos.lerp(s.pos, list[k][1])
 		node.visible = true
 		node.position = Vector3(sp.x, HEAD_Y + 0.15, sp.y)
 		var r := s.radius * 1.4
 		node.scale = Vector3(r, r, r)
 	for k in range(n, _shard_nodes.size()):
 		_shard_nodes[k].visible = false
+
+
+## The wires or shards (anything with an `owner_id`) of the own player (`mine`) or of all the others. Without an
+## interpolated sim every owner counts as "mine": everything comes from the predicted sim.
+func _owned_by(list: Array, mine: bool) -> Array:
+	if others_sim == null:
+		return list if mine else []
+	var out: Array = []
+	for o in list:
+		if (o.owner_id == _local_slot) == mine:
+			out.append(o)
+	return out
 
 
 func _place_line(mi: MeshInstance3D, a: Vector3, b: Vector3, width: float) -> void:

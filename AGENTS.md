@@ -205,7 +205,9 @@ missing, with a recommendation, and let the people choose.
 - **Netcode (experiment, M2):** `game/net/`, pure logic without nodes except `server_main.gd`. `ServerCore`
   (authoritative sim, 60 Hz), `ClientCore` (prediction by re-simulating the pure `Sim`), `NetProto` (wire format,
   validation), the `NetEndpoint` interface with `ENetEndpoint` (real UDP), `LoopbackHub` (in memory with delay and
-  loss, for tests) and `LagEndpoint` (the artificial lag tool of the Online menu page). `Sim.save_state()` /
+  loss, for tests) and `LagEndpoint` (the artificial lag tool of the Online menu page). The own player is predicted; the OTHER players are
+  drawn from `ClientCore.display_sim`, an interpolation between buffered snapshots about 4+ ticks in the past (switch
+  "Gegner glätten"; `ArenaView.set_others`), so hits (decided on present positions) are not lag-compensated yet. `Sim.save_state()` /
   `load_state()` snapshot every script variable by reflection (`game/sim/state_io.gd`): a variable that is not
   state (computed property, static data) must be listed in its class's `STATE_SKIP`, everything else is included
   automatically. Run the server: `godot --headless --path game -- --server [--port N] [--bots]` (default UDP
@@ -230,6 +232,10 @@ missing, with a recommendation, and let the people choose.
   debug keystore in every run, so every CI-built APK has a different signature: it cannot be installed over an
   earlier build (uninstall first, which deletes the tuned values on the phone). A fixed keystore kept as a CI secret
   would fix this; not set up yet, the owner has to choose it.
+- **More traps (display):** The dash is an edge event: any code that repeats an input for an unknown tick must use
+  `SimInput.repeated()` (no dash). A test of how the others look must measure the DISPLAYED state
+  (`ClientCore.displayed_pos`), not the predicted sim; the loopback has no jitter, so jitter handling is tested by
+  feeding late snapshots directly.
 - **Repository:** Private, owned by Dr-Nerdlove. Licence: GNU AGPL v3 (`LICENSE`). Default branch `main`. CI:
   `.github/workflows/ci.yml` runs on every push and pull request: job `test` runs `tests/run.sh`; job `apk`
   (after `test`) exports the debug APK and uploads it as an artifact (14 days). Godot and the Android export

@@ -139,7 +139,7 @@ func _next_input(s: Slot) -> SimInput:
 			s.last_input = SimInput.new()
 		if s.starved > REBUFFER_AFTER:
 			s.started = false
-		return s.last_input
+		return s.last_input.repeated()   # a dash is an edge: never repeated
 	return SimInput.new()
 
 

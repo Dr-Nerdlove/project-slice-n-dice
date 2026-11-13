@@ -7,6 +7,7 @@ signal closed
 signal connect_requested(address: String)
 signal disconnect_requested
 signal lag_changed(delay_ms: float, loss_pct: float)
+signal smoothing_changed(on: bool)
 
 # name, German label, min, max, step, unit
 const SLIDERS: Array = [
@@ -53,6 +54,7 @@ var _address_edit: LineEdit
 var _connect_btn: Button
 var _disconnect_btn: Button
 var _online_status: Label
+var _smooth_check: CheckButton
 var _lag_slider: HSlider
 var _loss_slider: HSlider
 var _lag_label: Label
@@ -216,6 +218,20 @@ func _build_online_page(scroll: ScrollContainer) -> void:
 	_online_status.add_theme_font_size_override("font_size", 26)
 	_online_status.mouse_filter = Control.MOUSE_FILTER_PASS
 	col.add_child(_online_status)
+	_smooth_check = CheckButton.new()
+	_smooth_check.text = "Gegner glätten"
+	_smooth_check.button_pressed = true
+	_smooth_check.custom_minimum_size = Vector2(0, SLIDER_HEIGHT)
+	_smooth_check.add_theme_font_size_override("font_size", FONT_SIZE)
+	_smooth_check.toggled.connect(func(on: bool) -> void: smoothing_changed.emit(on))
+	col.add_child(_smooth_check)
+	var smooth_info := Label.new()
+	smooth_info.text = "An: die anderen Spieler werden flüssig, aber etwas in der Vergangenheit gezeigt. Aus: rohe Vorhersage (ruckelt)."
+	smooth_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	smooth_info.add_theme_font_size_override("font_size", DESC_FONT_SIZE)
+	smooth_info.modulate = Color(1, 1, 1, 0.85)
+	smooth_info.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(smooth_info)
 	var lag_title := Label.new()
 	lag_title.text = "Netz-Test"
 	lag_title.add_theme_font_size_override("font_size", 26)
@@ -547,6 +563,7 @@ func _on_reset() -> void:
 	if _online_page.visible:
 		_lag_slider.value = 0.0
 		_loss_slider.value = 0.0
+		_smooth_check.button_pressed = true
 		return
 	if _mods_page.visible:
 		_set_all("you", 0)

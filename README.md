@@ -49,7 +49,8 @@ The first netcode experiment: a headless server on a PC, 2-4 phones on the same 
   It prints joins and leaves and a status line every 10 seconds. Allow the port in the PC's firewall.
 - On the phone: open the settings (gear), page **Online**, type the PC's address (`name` or `address:port`),
   **Verbinden**. The sliders on that page add artificial delay (per direction, so the ping grows by twice that value)
-  and packet loss; the HUD shows ping, correction and open inputs.
+  and packet loss, and the switch **Gegner glätten** (on: the other players are drawn smoothly, a little in the past;
+  off: the raw prediction, to compare); the HUD shows ping, correction, open inputs and the delay of the others.
 - Check a running server without a display: `godot --headless --path game -s tests/net_probe.gd -- HOST[:PORT]`.
 
 The Android build has the INTERNET permission enabled for this.
