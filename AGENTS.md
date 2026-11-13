@@ -257,7 +257,8 @@ missing, with a recommendation, and let the people choose.
   the key itself stays outside the repository on the owner's machine). Without the secrets CI falls back to a
   throwaway key and prints a warning. `v0.1.0` and `v0.2.0` were signed with other keys.
 - **Repository:** Private, owned by Dr-Nerdlove. Licence: GNU AGPL v3 (`LICENSE`). Default branch `main`. CI:
-  `.github/workflows/ci.yml` runs on every push and pull request: job `test` runs `tests/run.sh`; job `apk`
+  `.github/workflows/ci.yml` runs on every push and pull request: job `test` runs `tests/run.sh`; job `secrets` scans the full git history with a pinned,
+  checksum-verified gitleaks binary (`--redact`, no config file; a finding fails the run); job `apk`
   (after `test`) exports the debug APK and uploads it as an artifact (14 days). Godot and the Android export
   templates are downloaded from the official release and cached; the APK is signed with the fixed test key (trap
   7), the Java/SDK/keystore paths are written to Godot's editor settings (no env vars exist for them). No branch protection: not available for private repositories on the owner's free plan (see
