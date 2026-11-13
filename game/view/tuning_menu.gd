@@ -4,6 +4,10 @@ extends CanvasLayer
 ## (sandbox: modifier levels for the player and the bots). German labels, big touch targets.
 
 signal closed
+signal connect_requested(address: String)
+signal disconnect_requested
+signal lag_changed(delay_ms: float, loss_pct: float)
+signal smoothing_changed(on: bool)
 
 # name, German label, min, max, step, unit
 const SLIDERS: Array = [
@@ -44,6 +48,17 @@ var _values_page: ScrollContainer
 var _mods_page: ScrollContainer
 var _tab_values: Button
 var _tab_mods: Button
+var _tab_online: Button
+var _online_page: ScrollContainer
+var _address_edit: LineEdit
+var _connect_btn: Button
+var _disconnect_btn: Button
+var _online_status: Label
+var _smooth_check: CheckButton
+var _lag_slider: HSlider
+var _loss_slider: HSlider
+var _lag_label: Label
+var _loss_label: Label
 var _level_buttons := {}   # "you:<id>" / "bots:<id>" -> Array[Button]
 var _desc_labels := {}     # id -> Label
 var _syn_label: Label
@@ -93,13 +108,17 @@ func setup(c: Config) -> void:
 	root.add_child(tabs)
 	_tab_values = _button("Werte")
 	_tab_values.toggle_mode = true
-	_tab_values.pressed.connect(func() -> void: _show_page(false))
+	_tab_values.pressed.connect(func() -> void: _show_page(0))
 	tabs.add_child(_tab_values)
 	_tab_mods = _button("Modifikatoren")
 	_tab_mods.toggle_mode = true
 	_tab_mods.custom_minimum_size = Vector2(260, 56)
-	_tab_mods.pressed.connect(func() -> void: _show_page(true))
+	_tab_mods.pressed.connect(func() -> void: _show_page(1))
 	tabs.add_child(_tab_mods)
+	_tab_online = _button("Online")
+	_tab_online.toggle_mode = true
+	_tab_online.pressed.connect(func() -> void: _show_page(2))
+	tabs.add_child(_tab_online)
 
 	var scroll := _make_scroll()
 	_values_page = scroll
@@ -107,6 +126,9 @@ func setup(c: Config) -> void:
 	_mods_page = _make_scroll()
 	root.add_child(_mods_page)
 	_build_mods_page(_mods_page)
+	_online_page = _make_scroll()
+	root.add_child(_online_page)
+	_build_online_page(_online_page)
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -127,7 +149,7 @@ func setup(c: Config) -> void:
 		grid.add_child(pad)
 
 	_build_export_panel()
-	_show_page(false)
+	_show_page(0)
 	_save_timer = Timer.new()
 	_save_timer.one_shot = true
 	_save_timer.wait_time = 0.5
@@ -146,11 +168,130 @@ func _make_scroll() -> ScrollContainer:
 	return scroll
 
 
-func _show_page(mods: bool) -> void:
-	_values_page.visible = not mods
-	_mods_page.visible = mods
-	_tab_values.set_pressed_no_signal(not mods)
-	_tab_mods.set_pressed_no_signal(mods)
+## 0 = values, 1 = modifiers, 2 = online.
+func _show_page(page: int) -> void:
+	_values_page.visible = page == 0
+	_mods_page.visible = page == 1
+	_online_page.visible = page == 2
+	_tab_values.set_pressed_no_signal(page == 0)
+	_tab_mods.set_pressed_no_signal(page == 1)
+	_tab_online.set_pressed_no_signal(page == 2)
+
+
+## Connection to a game server plus the artificial lag tool. The lag applies to what this phone sends and
+## receives, so it works against any server.
+func _build_online_page(scroll: ScrollContainer) -> void:
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 14)
+	scroll.add_child(col)
+	var info := Label.new()
+	info.text = "Online spielst du mit den Werten des Servers. Deine Modifikatoren („Du“ auf der Seite Modifikatoren) werden übernommen."
+	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	info.add_theme_font_size_override("font_size", DESC_FONT_SIZE)
+	info.modulate = Color(1, 1, 1, 0.85)
+	info.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(info)
+	var cap := Label.new()
+	cap.text = "Server-Adresse (Name oder IP, optional mit :Port)"
+	cap.add_theme_font_size_override("font_size", FONT_SIZE)
+	cap.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(cap)
+	_address_edit = LineEdit.new()
+	_address_edit.custom_minimum_size = Vector2(0, SLIDER_HEIGHT)
+	_address_edit.add_theme_font_size_override("font_size", FONT_SIZE)
+	_address_edit.max_length = 255
+	_address_edit.text = NetStore.load_address()
+	col.add_child(_address_edit)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	col.add_child(row)
+	_connect_btn = _button("Verbinden")
+	_connect_btn.pressed.connect(func() -> void: connect_requested.emit(_address_edit.text))
+	row.add_child(_connect_btn)
+	_disconnect_btn = _button("Trennen")
+	_disconnect_btn.pressed.connect(func() -> void: disconnect_requested.emit())
+	_disconnect_btn.disabled = true
+	row.add_child(_disconnect_btn)
+	_online_status = Label.new()
+	_online_status.text = "Nicht verbunden"
+	_online_status.add_theme_font_size_override("font_size", 26)
+	_online_status.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(_online_status)
+	_smooth_check = CheckButton.new()
+	_smooth_check.text = "Gegner glätten"
+	_smooth_check.button_pressed = true
+	_smooth_check.custom_minimum_size = Vector2(0, SLIDER_HEIGHT)
+	_smooth_check.add_theme_font_size_override("font_size", FONT_SIZE)
+	_smooth_check.toggled.connect(func(on: bool) -> void: smoothing_changed.emit(on))
+	col.add_child(_smooth_check)
+	var smooth_info := Label.new()
+	smooth_info.text = "An: die anderen Spieler werden flüssig, aber etwas in der Vergangenheit gezeigt. Aus: rohe Vorhersage (ruckelt)."
+	smooth_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	smooth_info.add_theme_font_size_override("font_size", DESC_FONT_SIZE)
+	smooth_info.modulate = Color(1, 1, 1, 0.85)
+	smooth_info.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(smooth_info)
+	var lag_title := Label.new()
+	lag_title.text = "Netz-Test"
+	lag_title.add_theme_font_size_override("font_size", 26)
+	lag_title.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(lag_title)
+	_lag_label = Label.new()
+	_lag_label.add_theme_font_size_override("font_size", FONT_SIZE)
+	_lag_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(_lag_label)
+	_lag_slider = _plain_slider(0.0, 300.0, 5.0)
+	_lag_slider.value_changed.connect(func(_v: float) -> void: _on_lag_changed())
+	col.add_child(_lag_slider)
+	_loss_label = Label.new()
+	_loss_label.add_theme_font_size_override("font_size", FONT_SIZE)
+	_loss_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(_loss_label)
+	_loss_slider = _plain_slider(0.0, 20.0, 1.0)
+	_loss_slider.value_changed.connect(func(_v: float) -> void: _on_lag_changed())
+	col.add_child(_loss_slider)
+	_update_lag_labels()
+	var pad := Control.new()
+	pad.custom_minimum_size = Vector2(0, 80)
+	pad.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(pad)
+
+
+func _plain_slider(lo: float, hi: float, step: float) -> HSlider:
+	var s := HSlider.new()
+	s.min_value = lo
+	s.max_value = hi
+	s.step = step
+	s.custom_minimum_size = Vector2(0, SLIDER_HEIGHT)
+	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	s.add_theme_icon_override("grabber", _grabber)
+	s.add_theme_icon_override("grabber_highlight", _grabber)
+	s.add_theme_icon_override("grabber_disabled", _grabber)
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color(0.3, 0.33, 0.4)
+	track.set_content_margin_all(6.0)
+	track.set_corner_radius_all(6)
+	s.add_theme_stylebox_override("slider", track)
+	return s
+
+
+func _update_lag_labels() -> void:
+	var ms := int(_lag_slider.value)
+	_lag_label.text = "Künstliche Verzögerung pro Richtung: %d ms (der Ping steigt um %d ms)" % [ms, 2 * ms]
+	_loss_label.text = "Paketverlust pro Richtung: %d %%" % int(_loss_slider.value)
+
+
+func _on_lag_changed() -> void:
+	_update_lag_labels()
+	lag_changed.emit(_lag_slider.value, _loss_slider.value)
+
+
+## Status line of the Online page; `busy` is true while connecting or connected (the button states follow).
+func set_online_status(text: String, busy: bool) -> void:
+	_online_status.text = text
+	_connect_btn.disabled = busy
+	_disconnect_btn.disabled = not busy
 
 
 func _build_mods_page(scroll: ScrollContainer) -> void:
@@ -416,8 +557,14 @@ func _queue_save() -> void:
 	_save_timer.start()
 
 
-## Each page resets its own content: the values page the tuning values, the modifier page the levels.
+## Each page resets its own content: the values page the tuning values, the modifier page the levels,
+## the online page the lag tool.
 func _on_reset() -> void:
+	if _online_page.visible:
+		_lag_slider.value = 0.0
+		_loss_slider.value = 0.0
+		_smooth_check.button_pressed = true
+		return
 	if _mods_page.visible:
 		_set_all("you", 0)
 		_set_all("bots", 0)

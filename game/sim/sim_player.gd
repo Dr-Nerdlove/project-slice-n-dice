@@ -2,6 +2,9 @@ class_name SimPlayer
 extends RefCounted
 ## Plain-data state of one player and its yo-yo heads.
 
+## Computed properties (below) are not state.
+const STATE_SKIP := ["head", "prev_head", "ystate"]
+
 ## Derived summary of the yo-yo state (used by the view and the single-head helpers `ystate` / `head`).
 enum Yo { READY, CHARGING, FLIGHT, OUT, RETRACT, PULL }
 

@@ -1,5 +1,8 @@
 extends Node
 ## Wires sim, view, input, bots, HUD and menu together and runs the fixed 60 Hz tick loop.
+## Offline the local sim runs here. Online (menu page "Online") the tick source is a ClientCore that
+## predicts the own player and follows the server; the view and HUD then read its sim instead.
+## Started with "-- --server" it becomes a headless dedicated server and builds none of this.
 
 const SIM_SEED := 20260101
 
@@ -10,6 +13,13 @@ var router: InputRouter
 var hud: Hud
 var menu: TuningMenu
 var bots: Array[Bot] = []
+var client: ClientCore         # set while connecting / online
+var lag: LagEndpoint           # the lag tool between the client and the network
+
+var _online := false           # the predicted sim of `client` is what the view shows
+var _lag_ms := 0.0
+var _loss_pct := 0.0
+var _smooth := true            # draw the other players interpolated (menu switch "Gegner glätten")
 
 var _acc := 0.0
 var _hitstop := 0.0
@@ -17,6 +27,12 @@ var _applied_bot_mode := -1
 
 
 func _ready() -> void:
+	if OS.get_cmdline_user_args().has("--server"):
+		var server := ServerMain.new()
+		add_child(server)
+		if not server.start(OS.get_cmdline_user_args()):
+			get_tree().quit(1)
+		return
 	cfg = Config.new()
 	TuningStore.load_into(cfg)
 	sim = Sim.new(cfg, SIM_SEED)
@@ -42,6 +58,19 @@ func _ready() -> void:
 	add_child(menu)
 	menu.setup(cfg)
 	menu.closed.connect(func() -> void: router.blocked = false)
+	menu.connect_requested.connect(_connect)
+	menu.disconnect_requested.connect(func() -> void: _leave_online("closed"))
+	menu.lag_changed.connect(func(ms: float, loss: float) -> void:
+		_lag_ms = ms
+		_loss_pct = loss
+		if lag != null:
+			lag.delay_ms = ms
+			lag.loss_pct = loss)
+
+	menu.smoothing_changed.connect(func(on: bool) -> void:
+		_smooth = on
+		if client != null:
+			client.smooth_others = on)
 
 	for i in range(1, Config.NUM_PLAYERS):
 		bots.append(Bot.new(i, cfg, SIM_SEED + i))
@@ -71,27 +100,51 @@ func _sync_mods() -> void:
 
 
 func _process(delta: float) -> void:
-	_sync_mods()
-	if cfg.bot_mode != _applied_bot_mode:
-		_apply_bot_mode()
+	if sim == null:
+		return   # server mode
+	if client != null:
+		_poll_client(delta)
 	var dt := 1.0 / Config.TICK_RATE
-	if not menu.visible:
-		if _hitstop > 0.0:
-			_hitstop -= delta  # presentation-only freeze; the sim simply does not tick
-		else:
-			_acc = minf(_acc + delta, Config.MAX_ACCUMULATED_TIME)
-			while _acc >= dt:
-				_acc -= dt
-				_tick(dt)
-				if _hitstop > 0.0:
-					break
-	var me := sim.players[0]
+	var shown := sim
+	var slot := 0
+	if _online:
+		shown = client.sim
+		slot = client.slot
+		client.set_mods(cfg.mods_you)
+		# Online the world does not wait: no hit-stop, and the sim keeps running while the menu is open.
+		_acc = minf(_acc + delta, Config.MAX_ACCUMULATED_TIME)
+		while _acc >= dt and _online:
+			_acc -= dt
+			_tick_online()
+			_poll_client(0.0)
+	else:
+		_sync_mods()
+		if cfg.bot_mode != _applied_bot_mode:
+			_apply_bot_mode()
+		if not menu.visible:
+			if _hitstop > 0.0:
+				_hitstop -= delta  # presentation-only freeze; the sim simply does not tick
+			else:
+				_acc = minf(_acc + delta, Config.MAX_ACCUMULATED_TIME)
+				while _acc >= dt:
+					_acc -= dt
+					_tick(dt)
+					if _hitstop > 0.0:
+						break
+	if _online:
+		shown = client.sim
+	var me := shown.players[slot]
 	router.dash_charges = me.dash_charges
-	router.dash_charges_max = sim.dash_max(me)
-	router.dash_ready_ratio = 1.0 - clampf(me.dash_cd / maxf(sim.dash_cooldown_of(me), 0.001), 0.0, 1.0)
+	router.dash_charges_max = shown.dash_max(me)
+	router.dash_ready_ratio = 1.0 - clampf(me.dash_cd / maxf(shown.dash_cooldown_of(me), 0.001), 0.0, 1.0)
+	hud.net_text = _net_text() if _online else ""
 	hud.refresh()
 	router.exclude_rects = [hud.gear_rect()]
-	view.render(clampf(_acc / dt, 0.0, 1.0), delta)
+	var frac := clampf(_acc / dt, 0.0, 1.0)
+	if _online:
+		client.prepare_display(frac)
+		view.set_others(client.display_sim, client.display_alpha)
+	view.render(frac, delta)
 
 
 func _tick(dt: float) -> void:
@@ -109,3 +162,92 @@ func _tick(dt: float) -> void:
 			_hitstop = Config.HITSTOP_TIME
 			if e["victim"] == 0 or e["killer"] == 0:
 				Input.vibrate_handheld(Config.VIBRATE_MS)
+
+
+# ---------------------------------------------------------------- online
+
+func _connect(address_text: String) -> void:
+	_leave_online("closed", false)
+	var a := NetStore.parse_address(address_text)
+	if a["host"] == "":
+		menu.set_online_status("Ungültige Adresse", false)
+		return
+	NetStore.save_address(address_text.strip_edges())
+	var endpoint := ENetEndpoint.new()
+	if endpoint.connect_to(a["host"], a["port"]) != OK:
+		menu.set_online_status("Verbindung fehlgeschlagen", false)
+		return
+	lag = LagEndpoint.new(endpoint)
+	lag.delay_ms = _lag_ms
+	lag.loss_pct = _loss_pct
+	client = ClientCore.new(lag)
+	client.smooth_others = _smooth
+	client.set_mods(cfg.mods_you)
+	menu.set_online_status("Verbinde …", true)
+
+
+func _poll_client(delta: float) -> void:
+	if client == null:
+		return
+	client.poll(delta)
+	match client.state:
+		ClientCore.State.ONLINE:
+			if not _online:
+				_enter_online()
+		ClientCore.State.FAILED, ClientCore.State.CLOSED:
+			_leave_online(client.fail_reason)
+
+
+func _enter_online() -> void:
+	_online = true
+	_acc = 0.0
+	view.use_sim(client.sim, client.slot)
+	hud.use_sim(client.sim, client.slot)
+	hud.online = true
+	menu.set_online_status("Verbunden als Spieler %d" % (client.slot + 1), true)
+
+
+func _tick_online() -> void:
+	client.tick(router.poll(client.sim.players[client.slot].pos))
+	for e: Dictionary in client.events:
+		view.handle_event(e)
+		if e["type"] == "kill" and (e["victim"] == client.slot or e["killer"] == client.slot):
+			Input.vibrate_handheld(Config.VIBRATE_MS)
+
+
+## Back to the offline game (which was paused while online and simply continues).
+func _leave_online(reason: String, show_status := true) -> void:
+	var was_online := _online
+	if client != null:
+		client.close()
+	client = null
+	lag = null
+	_online = false
+	_acc = 0.0
+	view.use_sim(sim, 0)
+	hud.use_sim(sim, 0)
+	hud.online = false
+	if show_status:
+		menu.set_online_status(_reason_text(reason, was_online), false)
+
+
+func _reason_text(reason: String, was_online: bool) -> String:
+	match reason:
+		"full":
+			return "Server ist voll (4 Spieler)"
+		"version":
+			return "Falsche Version: App und Server passen nicht zusammen"
+		"timeout", "unreachable":
+			return "Verbindung fehlgeschlagen"
+	return "Getrennt" if was_online else "Nicht verbunden"
+
+
+func _net_text() -> String:
+	var others := "Gegner %d ms zurück" % roundi(client.interp_delay_ms()) if client.smooth_others else "Gegner roh"
+	return "Ping %d ms   Korrektur %s m   offene Eingaben %d   %s" % [
+			roundi(client.ping_ms), String.num(client.correction, 2).replace(".", ","), client.pending_inputs(), others]
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and client != null:
+		client.close()   # tells the server at once instead of letting the slot time out

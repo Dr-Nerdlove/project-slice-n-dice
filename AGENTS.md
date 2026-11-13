@@ -182,33 +182,69 @@ missing, with a recommendation, and let the people choose.
 
 ## Project knowledge
 
-- **People:** The repository owner (GitHub: Dr-Nerdlove) works on the project alone, together with AI
-  assistants, and does not program themselves. They decide about merging and releases.
+- **People:** Two people work on the project together with AI assistants; neither programs themselves. The
+  repository owner (GitHub: Dr-Nerdlove) and a collaborator (GitHub: Joni9993), who has admin rights and whose
+  machine the local sessions run on (`gh` is logged in as Joni9993 there: `gh repo create` creates under that
+  account even when another owner is named). Agreed between them (2026-11-13): while the concept is being worked
+  out, Joni9993 works ahead and decides about merging and test releases; Dr-Nerdlove builds on it afterwards.
 - **What the project is:** "Slice n Dice", a top-down arena brawler for Android with online multiplayer
   (2-8 players) and a yo-yo as the weapon. Plan and decisions: `docs/PLAN.md`.
 - **Product languages:** Not finally decided. The prototype UI is German for now.
 - **Build and test:** Godot 4.7.2, project in `game/`. Run on PC: `godot --path game`. Android debug APK:
   `godot --headless --path game --export-debug "Android" ../build/slice-n-dice-debug.apk` (needs Godot export
   templates, JDK 17 and the Android SDK configured in Godot's editor settings). Tests: `tests/run.sh` (needs `godot` on the
-  PATH; ~3 s) runs the headless checks of the simulation and the menus in `tests/test_sim.gd`; it prints only
+  PATH; ~25 s) runs the headless checks of the simulation and the menus in `tests/test_sim.gd` and of the netcode
+  in `tests/test_net.gd` (loopback with fake clock, real ENet on localhost, the real main scene); it prints only
   failures and a summary and exits non-zero on a failed check, an engine/script error or zero checks.
   `tests/run.sh soak` runs a longer bot soak run (~30 s, not in CI). `python3 tests/sabotage.py [prefix]`
   breaks the game code on purpose, one change at a time, and checks that the tests notice; it restores every
   file byte for byte (check `git status` afterwards). When game code is refactored, its patterns may go stale
   (the script reports "pattern count 0"): update them. New testable behaviour gets a check in
-  `tests/test_sim.gd` and, if sensible, an entry in `tests/sabotage.py`. The tests live outside `game/` so the
-  APK does not contain them.
+  `tests/test_sim.gd` (netcode: `tests/test_net.gd`) and, if sensible, an entry in `tests/sabotage.py` (names
+  starting with "8" are the netcode ones). The tests live outside `game/` so the APK does not contain them. A new
+  `class_name` file needs `godot --headless --path game --import` once before the tests see it.
 - **Architecture rule:** `game/sim` is a pure fixed-tick simulation without nodes, physics or Input;
   `game/view` only reads it.
+- **Netcode (experiment, M2):** `game/net/`, pure logic without nodes except `server_main.gd`. `ServerCore`
+  (authoritative sim, 60 Hz), `ClientCore` (prediction by re-simulating the pure `Sim`), `NetProto` (wire format,
+  validation), the `NetEndpoint` interface with `ENetEndpoint` (real UDP), `LoopbackHub` (in memory with delay and
+  loss, for tests) and `LagEndpoint` (the artificial lag tool of the Online menu page). The own player is predicted; the OTHER players are
+  drawn from `ClientCore.display_sim`, an interpolation between buffered snapshots about 4+ ticks in the past (switch
+  "Gegner glätten"; `ArenaView.set_others`), except their yo-yo heads that are out and their shards: those are drawn
+  from the predicted sim, in the present, with a decaying visual offset against pops (`ClientCore._apply_predicted`,
+  `predict_heads`). Hits are decided on present positions and not lag-compensated (open design decision in
+  `docs/PLAN.md`). The server's input buffer per player is adaptive (`ServerCore.Slot.target`). `Sim.save_state()` /
+  `load_state()` snapshot every script variable by reflection (`game/sim/state_io.gd`): a variable that is not
+  state (computed property, static data) must be listed in its class's `STATE_SKIP`, everything else is included
+  automatically. Run the server: `godot --headless --path game -- --server [--port N] [--bots]` (default UDP
+  24565; no hosting is set up); check a running one with
+  `godot --headless --path game -s tests/net_probe.gd -- HOST[:PORT] [--lag MS] [--loss PCT]`. Decisions and what is
+  not done yet: `docs/PLAN.md` (M2).
 - **Modifiers:** Modifier definitions, German texts and all their numbers live in `game/sim/mods.gd`.
-- **Release:** No releases yet. Version scheme `vMAJOR.MINOR.PATCH` (see "Releases" above).
-- **Traps:** None known yet.
+- **Release:** Pre-releases for testers so far: `v0.1.0` (built by hand, signed with the local debug key) and
+  `v0.2.0` (the CI artifact of the netcode branch, attached by hand with `gh release create --prerelease`). No
+  release workflow yet. Version scheme `vMAJOR.MINOR.PATCH` (see "Releases" above). The version inside the APK
+  (`version/name` and `version/code` in `game/export_presets.cfg`) is still 0.1.0 / 1 and has to be raised by hand.
+- **Traps:** (1) ENet turns an unreliable packet bigger than one MTU into a reliable one unless it is sent with
+  `FLAG_UNRELIABLE_FRAGMENT` (`ENetEndpoint` does; from ENet's source, not provable from GDScript). (2)
+  `PackedByteArray.decompress_dynamic` works only for gzip, deflate and brotli, not zstd: the snapshot stores its raw
+  size. (3) `bytes_to_var` prints an engine ERROR for every malformed buffer (run.sh counts those as failures), so
+  `NetProto.unpack` only decodes buffers that start with an Array header; a truncated Array with a valid header still
+  prints one error line on the server (harmless noise, not tested). (4) A slider (`Range`) only emits
+  `value_changed` after the frame that follows `add_child`. (5) Two RefCounted objects that reference each other leak
+  and make Godot print "resources still in use" at exit, which run.sh counts as an error: see the weak reference in
+  `LoopbackEndpoint`. (6) Client and server clocks are not synchronised: a client that ticks slower or faster than
+  60 Hz makes the server's input buffer run dry or drop inputs (corrections, never a crash). (7) An APK only installs over an
+  earlier one when both are signed with the same key; otherwise the old app must be uninstalled first, which deletes
+  the tuned values on the phone. CI signs with the fixed test key from the repository secrets `TEST_KEYSTORE_B64`
+  and `TEST_KEYSTORE_PASSWORD` (alias `slicendice-test`; created by the owner with `tools/setup-test-keystore.sh`,
+  the key itself stays outside the repository on the owner's machine). Without the secrets CI falls back to a
+  throwaway key and prints a warning. `v0.1.0` and `v0.2.0` were signed with other keys.
 - **Repository:** Private, owned by Dr-Nerdlove. Licence: GNU AGPL v3 (`LICENSE`). Default branch `main`. CI:
   `.github/workflows/ci.yml` runs on every push and pull request: job `test` runs `tests/run.sh`; job `apk`
   (after `test`) exports the debug APK and uploads it as an artifact (14 days). Godot and the Android export
-  templates are downloaded from the official release and cached; the debug keystore is generated on the fly,
-  the Java/SDK/keystore paths are written to Godot's editor settings (no env vars exist for them). No secrets
-  needed. No branch protection: not available for private repositories on the owner's free plan (see
+  templates are downloaded from the official release and cached; the APK is signed with the fixed test key (trap
+  7), the Java/SDK/keystore paths are written to Godot's editor settings (no env vars exist for them). No branch protection: not available for private repositories on the owner's free plan (see
   "Protecting `main`").
 - **Limits of the environment:** Cloud sessions (Claude Code on the web) cannot open the repository settings
   (rulesets, secrets, Pages); the owner does that on github.com. GitHub is reached through the GitHub MCP tools,

@@ -4,6 +4,8 @@ extends RefCounted
 ## Call step(inputs) exactly once per tick (Config.TICK_RATE). All state is plain data.
 
 const HS := SimHead.S
+## Variables that are not part of the snapshot: configuration, static layout, per-tick output, rng (handled by hand).
+const STATE_SKIP := ["cfg", "rng", "statics", "wall_count", "events"]
 
 var cfg: Config
 var rng := RandomNumberGenerator.new()
@@ -49,6 +51,21 @@ func _init(config: Config, seed_value: int) -> void:
 		p.facing = (Vector2(a.x, a.y) * 0.5 - p.pos).normalized()
 		p.aim_dir = p.facing
 		players.append(p)
+
+
+## Complete mutable state as plain data (survives var_to_bytes). Not included: cfg, static layout, events.
+func save_state() -> Dictionary:
+	var d := StateIO.dump(self)
+	d["rng_seed"] = rng.seed
+	d["rng_state"] = rng.state
+	return d
+
+
+## Overwrites the state in place (existing SimPlayer / SimHead objects are kept where the counts match).
+func load_state(d: Dictionary) -> void:
+	StateIO.restore(self, d)
+	rng.seed = d["rng_seed"]
+	rng.state = d["rng_state"]
 
 
 func crate_rect() -> Rect2:

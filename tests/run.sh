@@ -18,6 +18,10 @@ fi
 
 OUT=$("$GODOT" --headless --path game -s "$ROOT/tests/test_sim.gd" 2>&1)
 GODOT_EXIT=$?
+OUT_NET=$("$GODOT" --headless --path game -s "$ROOT/tests/test_net.gd" 2>&1)
+NET_EXIT=$?
+OUT=$(printf '%s\n%s' "$OUT" "$OUT_NET")
+[ "$NET_EXIT" -gt "$GODOT_EXIT" ] && GODOT_EXIT=$NET_EXIT
 PASS=$(printf '%s\n' "$OUT" | grep -c '^PASS')
 FAIL=$(printf '%s\n' "$OUT" | grep -c '^FAIL')
 printf '%s\n' "$OUT" | grep '^FAIL'

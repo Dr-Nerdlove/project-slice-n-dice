@@ -141,7 +141,11 @@ The tuning menu has a "Werte kopieren" button. It copies one compact text block 
   - Interpolation for other players.
   - Lag compensation for hits.
   - UDP (ENet), tick rate 30-60 Hz.
-  - Evaluate the netfox addon for prediction and rollback before building something custom.
+  - Evaluate the netfox addon for prediction and rollback before building something custom. **Decision (first
+    experiment):** custom prediction by re-simulating the pure `Sim`, without netfox. netfox synchronises
+    properties of nodes, while this game's whole state lives in one pure-code simulation without nodes; here
+    prediction is just "load the server state, step the same code again with the unacknowledged inputs". netfox
+    was **not tried in practice**; if the custom code turns out to be too much work, it can still be evaluated.
 - **Biggest technical risk:** Pulling to the yo-yo must feel instant even at 60 ms ping. Test early with artificial lag and packet loss.
 - **Graphics:** Placeholders and free asset packs until the MVP, own high-quality models in the polish phase. Mobile renderer; target devices are ordinary Android phones.
 - **Readability:** With 8 players on a phone screen it gets crowded. Check in milestone 2 and limit FFA to 6 if necessary.
@@ -184,6 +188,118 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
 - Test tool for artificial lag and packet loss.
 - **Done when:** A match with 100 ms lag and 2 % packet loss plays smoothly and fairly.
 
+**First experiment (done, to be played on phones):**
+- `Sim.save_state()` / `load_state()` snapshot all mutable state by reflection (`game/sim/state_io.gd`).
+- `game/net/`: `ServerCore` (authoritative sim, 60 Hz, 30 Hz snapshots, per-player input buffer), `ClientCore` (prediction
+  of the own player and yo-yo by re-simulating, correction measure, ping), a lag/loss tool (`LagEndpoint`), an
+  ENet transport and an in-memory transport for tests. Headless server: `godot --headless --path game -- --server`.
+- Menu page "Online": server address, connect, artificial one-way delay (0-300 ms) and packet loss (0-20 %).
+- What it does **not** do yet: lag compensation for hits (see below), hosting on the internet (the home server,
+  router and DNS are untouched), 8 players (the sim has 4 slots), reconnecting, a lobby.
+- The owner's question for the test: does pulling to the yo-yo feel instant at 60-100 ms (set 30-50 ms per direction
+  in the menu, the ping shown in the HUD is the round trip)?
+
+**Display of the other players (second experiment, to be played on phones):**
+- Own player: prediction, unchanged. Other players: **snapshot interpolation**. The first experiment drew them
+  from the predicted sim (extrapolated with their last input), so every change of their input made them snap, and
+  a dash looked like a teleport. Now `ClientCore` buffers the received snapshots and draws the others (body, yo-yo
+  heads, strings, aim line) from a separate display `Sim` loaded with the later of two snapshots around a render
+  time, with its `prev_*` positions taken from the earlier one; the view lerps between them (`ArenaView.set_others`).
+  Shared objects (crate, box) come from the predicted sim; wires and shards from the side of their owner (own:
+  predicted, others': interpolated). The predicted sim still simulates the others for collisions, only the display
+  source changed. Kill and hit effects are unchanged (they still come from the predicted sim).
+- The render time runs `INTERP_DELAY` = 4 ticks (2 snapshot intervals, 67 ms) behind the newest snapshot. The delay
+  grows (up to +8 ticks) when snapshots arrive late or are lost and shrinks back by 0.3 ticks per second. The render
+  clock runs 0.75x to 1.25x to reach its target and only jumps over a stall longer than 30 ticks. A client clock that
+  is a little fast or slow is absorbed by a slowly sinking server-time estimate. If the buffer runs dry the last
+  state is held (no extrapolation); a move bigger than 6 m between two snapshots (respawn) is not interpolated.
+- Menu page "Online": switch "Gegner glätten" (default on) to compare with the old display; the HUD line shows
+  how far in the past the others are drawn ("Gegner 67 ms zurück").
+- One-shot inputs: the dash is an edge event, so an input that is repeated (the client extrapolating the others, the
+  server on an input underrun) is repeated without the dash (`SimInput.repeated()`). Before, a repeated dash could
+  spend extra dash charges (only with the Extra-Dash modifier; with one charge the 1.2 s cooldown hid it).
+  The aim release is an edge in the sim (`held_prev`), so repeating `aim_held` is harmless.
+- **Consequence: the victim was killed before the head visibly arrived** (owner's test on two phones). The others
+  were drawn about 67 ms plus half the ping in the past, while the own player is predicted (ahead of the server) and
+  the server decides hits on the present. This is fixed for yo-yo heads and shards by the next section; what is left
+  of lag compensation (the thrower aiming at what he sees) is still open.
+- Measured on the loopback with the fake clock (player B walks with direction changes, dashes and throws, A watches;
+  largest single-tick jump of B's picture vs. B's largest true step of 0.42 m): old display 1.21 m at 0 ms, 2.31 m
+  at 20 ms, 2.30 m at 50 ms per direction (2.9x to 5.5x), new display 0.42 m at all of them (1.0x), also with 2 %
+  loss; position jitter 0.04 to 0.10 before, 0.010 after (the true path has 0.0104). The loopback has no jitter;
+  the adaptive delay is tested separately.
+
+**Heads and shards of the others are drawn in the present (third experiment, to be played on phones):**
+- Bodies stay interpolated (smooth, in the past). A yo-yo head of another player that is **not in the hand** in the
+  predicted sim (FLIGHT, OUT, RETRACT) is drawn from the predicted sim (`client.sim`), and so are the shards of the
+  others: a thrown head needs no further input to fly, so the prediction already has it where the server will have it
+  when the victim's own inputs arrive there. Heads in the hand stay with the interpolated body. Done in
+  `ClientCore._apply_predicted` (per frame, into `display_sim`; the view is unchanged). `predict_heads` switches it
+  off; "Gegner glätten" off still draws everything raw from the predicted sim, as before.
+- **How reliable the prediction is, per head state** (the others' input is their last known one, repeated):
+  FLIGHT is exact (straight or curved path, bounces, speed are fixed at the throw); wrong only if a tap queued during
+  flight (`queued_retract`) has not reached the client yet, or the thrower is hit/stunned (his heads keep flying, still
+  fine). OUT is exact while the thrower stands still; if he walks, the head follows him by the string variant
+  (drag, leash, rigid) using his repeated last input, wrong as soon as he changes direction; a tap or hold that has not
+  reached the client yet (retract, pull) is also unknown. RETRACT homes to the thrower's position, so it follows his
+  predicted body (wrong as much as that is) and a retract started by a tap the client has not seen is predicted as OUT
+  for up to one ping. Shards are exact after they exist, but they only exist once the retract that spawns them is
+  known, so a shard can appear late (it is drawn where it then is). The body that kills (own player) is predicted
+  by the client itself.
+- **No pops:** every displayed head has a visual offset (old drawn position minus new source position) that slides to
+  zero over `HEAD_CATCHUP_TICKS` = 6 ticks (100 ms), linearly. It is set when the source changes (thrown: hand ->
+  predicted path; back in the hand: predicted path -> hand, the head is drawn as a returning head while it slides) and
+  when a snapshot corrects a predicted head (new predicted position differs from the old one). So the drawn head is
+  never further from its true predicted place than the offset. An offset bigger than `HEAD_MAX_OFFSET` = 6 m
+  (teleport) is dropped at once, and the offset of a player who is dead (respawn) does not exist. The string is drawn by
+  the view from the interpolated body through the pins (taken from the predicted head, so bends and bounce points are
+  right) to the drawn head: it stays continuous, only its first piece is longer for a moment because the body is
+  further back than the head. Shards slide in without an offset (they appear where they are).
+- Measured on the loopback with the fake clock (player A stands, B throws at A; "gap" = on A's screen the distance
+  between the drawn head or shard and A, minus the hit distance, at the tick on which A's client learns of its death /
+  at the server's kill tick mapped to A's time; 0 = touching, positive = the killer has not arrived yet). Three
+  scenarios (flight through A, retracting head through A, shard at A), 0 / 20 / 50 ms per direction, 0 and 2 % loss:
+  | gap in m, learn / server | 0 ms | 20 ms | 50 ms |
+  |---|---|---|---|
+  | flight, before (old display, fixed buffer) | 2.6 | 4.0 | 5.2 |
+  | flight, display fix only | -0.2 | 0.2 | 2.3 |
+  | flight, display fix + small buffer | -0.2 | -0.2 | 0.7 (1.5 with 2 % loss) |
+  | retract, before | 2.0 | 3.1 | 3.3 |
+  | retract, display fix only | -0.2 | 0.1 | 2.6 |
+  | retract, display fix + small buffer | -0.2 | -0.2 (0.1 with 2 % loss) | 1.1 |
+  | shard, before | 1.7 | 2.2 | 2.2 |
+  | shard, display fix only | -0.1 | -0.1 | -0.1 (2.2 at the server's kill) |
+  | shard, display fix + small buffer | -0.1 | -0.1 | -0.5 (2.2 at the server's kill) |
+
+  (2 % loss changes little with the redundant inputs; "before" at 2 % loss was 0.5 to 1 m worse.) The negative
+  values are the killer drawn up to 0.2 m inside the victim. The rest at 50 ms is the catch-up slide of a head that is
+  thrown less than a ping before it hits: it appears at the hand and has to cover the distance within 100 ms.
+- **Remaining limit:** a dodge in the last moment reaches the server about half a ping later, so the server may still
+  count a hit the victim did not see (and the victim may see a head touch him that the server missed: the prediction
+  of his own body is ahead of the server, the head is predicted in the present, but his input is not there yet).
+  Whether to favour the thrower (as now: the server decides on its present) or the victim (rewind, or give a dodge
+  that was started a ping ago the benefit) is an open design decision. A shard whose retract the victim has not heard
+  of yet cannot be seen coming at all. At 50 ms per direction the throw reaches the victim less than a ping before the
+  hit, so the victim sees the head appear and sweep in with the catch-up offset, still about 2 m from touching when he
+  dies.
+- **Smaller server input buffer:** `ServerCore.JITTER_TICKS` (fixed 3 ticks = 50 ms) is gone. Each player has a
+  target (`Slot.target`): it starts at `JITTER_START`, grows by one when the buffer runs dry (underrun) or 3 inputs
+  arrive in one tick (burst), up to `JITTER_MAX` = 5; every growth doubles the quiet time needed before it shrinks by
+  one (300 ticks, up to 3600), so a link that needs the larger buffer does not run dry again every few seconds; a
+  buffer that never ran down to its target for 30 ticks is trimmed by one input (a dash in the dropped input is handed
+  to the next one; the dropped input counts as used).
+  Measured on the loopback (two clients duelling, 3000 client-ticks): the average time an input waits in the buffer
+  (server ticks) was 2.0 at 0 and 20 ms, 2.6 at 50 ms, 1.6 at 100 ms / 2 % loss with the fixed buffer; now 0.0, 0.0,
+  0.2 and 1.4. Corrections (a snapshot moved the own predicted position by more than 1 cm): 16 with the fixed buffer
+  at every setting; now 16 at 0 and 20 ms, 24 at 50 ms, 18 at 100 ms / 2 % (over 12000 ticks the totals were equal
+  within noise: 66 to 90 against 86 to 92 at 100 ms / 2 %, 96 against 86 at 50 ms). One client alone at 100 ms / 2 %:
+  2 corrections of 0.10 m (one tick of input) in 1200 ticks while the buffer learns; the fixed buffer had none.
+  Starting at 2 or 3 and shrinking was tried and is no better, because the shrink probes the link. At 100 ms / 2 %
+  loss the waiting time is no better than before (the target grows with every loss); the gain is on links
+  without loss. The loopback has no jitter beyond the 1-tick rounding of its fixed delays, so how the buffer behaves
+  on a real jittery link is not tested: that is for the phone test.
+
+
 ### M3: Match loop
 - Rounds, points, target score, winner screen.
 - Shop phase with coins, interest, reroll and upgrading.
@@ -216,4 +332,4 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
 
 ## 11. Next step
 
-Finish and tune the M1 prototype on the phone.
+Finish and tune the M1 prototype on the phone, and play the first netcode experiment (M2) on the LAN with 2-4 phones.
