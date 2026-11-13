@@ -37,6 +37,7 @@ func _init(config: Config, seed_value: int) -> void:
 		var p := SimPlayer.new()
 		p.id = i
 		p.pos = Config.SPAWNS[i]
+		p.dash_charges = cfg.dash_charges
 		p.prev_pos = p.pos
 		p.head = p.pos
 		p.prev_head = p.pos
@@ -127,12 +128,14 @@ func _step_player(p: SimPlayer, inp: SimInput, dt: float) -> void:
 		SimPlayer.Yo.CHARGING:
 			_step_charging(p, inp, released, dt)
 		SimPlayer.Yo.FLIGHT:
+			_track_press(p, pressed, held, dt, true)
 			_step_flight(p, dt)
 		SimPlayer.Yo.OUT:
 			_step_out(p, pressed, held, dt)
 		SimPlayer.Yo.PULL:
 			_step_pull(p, held, dt)
 		SimPlayer.Yo.RETRACT:
+			_track_press(p, pressed, held, dt, false)
 			_step_retract(p, dt)
 
 	if p.ystate == SimPlayer.Yo.READY or p.ystate == SimPlayer.Yo.CHARGING:
@@ -140,13 +143,15 @@ func _step_player(p: SimPlayer, inp: SimInput, dt: float) -> void:
 
 
 func _move_player(p: SimPlayer, inp: SimInput, dt: float) -> void:
-	p.dash_cd = maxf(0.0, p.dash_cd - dt)
+	_step_dash_charges(p, dt)
 	var mv := inp.move.limit_length(1.0)
 	if mv.length() > Config.MOVE_DEADZONE:
 		p.facing = mv.normalized()
-	if inp.dash and p.dash_cd <= 0.0 and p.dash_t <= 0.0:
+	if inp.dash and p.dash_charges > 0 and p.dash_t <= 0.0:
 		p.dash_t = cfg.dash_duration
-		p.dash_cd = cfg.dash_cooldown
+		if p.dash_charges >= cfg.dash_charges:
+			p.dash_cd = cfg.dash_cooldown  # the refill timer starts with the first spent charge
+		p.dash_charges -= 1
 		p.dash_dir = p.facing
 	var delta := Vector2.ZERO
 	if p.dash_t > 0.0:
@@ -159,6 +164,21 @@ func _move_player(p: SimPlayer, inp: SimInput, dt: float) -> void:
 			speed *= cfg.charge_speed_mult
 		delta = mv * speed * dt
 	_slide_player(p, delta)
+
+
+## Charges refill one at a time, each taking dash_cooldown.
+func _step_dash_charges(p: SimPlayer, dt: float) -> void:
+	var mx := cfg.dash_charges
+	p.dash_charges = mini(p.dash_charges, mx)
+	if p.dash_charges >= mx:
+		p.dash_cd = 0.0
+		return
+	if p.dash_cd <= 0.0:
+		p.dash_cd = cfg.dash_cooldown
+	p.dash_cd -= dt
+	if p.dash_cd <= 0.0:
+		p.dash_charges += 1
+		p.dash_cd = cfg.dash_cooldown if p.dash_charges < mx else 0.0
 
 
 func _slide_player(p: SimPlayer, delta: Vector2) -> void:
@@ -258,10 +278,29 @@ func _step_flight(p: SimPlayer, dt: float) -> void:
 		_land(p)
 
 
+## The head lies still. A press that is still running keeps counting (press_active / press_t),
+## a short tap made during the flight retracts the head right away.
 func _land(p: SimPlayer) -> void:
 	p.ystate = SimPlayer.Yo.OUT
-	p.press_active = false
-	p.press_t = 0.0
+	if p.tap_buffered:
+		p.tap_buffered = false
+		p.press_active = false
+		p.ystate = SimPlayer.Yo.RETRACT
+
+
+## Follows a press that starts while the head is moving, so it is not lost at the landing.
+func _track_press(p: SimPlayer, pressed: bool, held: bool, dt: float, buffer_tap: bool) -> void:
+	if pressed:
+		p.press_active = true
+		p.press_t = 0.0
+	if not p.press_active:
+		return
+	if held:
+		p.press_t += dt
+	else:
+		p.press_active = false
+		if buffer_tap and p.press_t < cfg.tap_threshold:
+			p.tap_buffered = true
 
 
 func _step_out(p: SimPlayer, pressed: bool, held: bool, dt: float) -> void:
@@ -303,14 +342,28 @@ func _step_retract(p: SimPlayer, dt: float) -> void:
 	if d <= step:
 		p.ystate = SimPlayer.Yo.READY
 		p.head = p.pos
+		p.press_active = false
 		return
-	var nh := p.head + to_p / d * step
+	var dir := to_p / d
+	var start := p.head
+	p.head = _sweep_retract(start, dir * step)
+	# Blocked by a wall / obstacle / jammed crate: lie there again instead of jittering in place.
+	if (p.head - start).dot(dir) < step * Config.RETRACT_MIN_PROGRESS:
+		p.ystate = SimPlayer.Yo.OUT
+
+
+## Moves a retracting head: stopped by walls and obstacles, drags the crate, breaks the box and passes on.
+func _sweep_retract(pos: Vector2, delta: Vector2) -> Vector2:
 	var r := cfg.head_radius
-	# The retracting head drags the crate along and breaks the box; walls do not stop it.
-	_crate_vs_circle(nh, r, 1.0)
-	if box_active and Collide.push_out_rect(nh, r, box_rect()) != Vector2.ZERO:
-		_break_box()
-	p.head = nh
+	var n := maxi(1, ceili(delta.length() / (r * Config.SUBSTEP_FACTOR)))
+	var sv := delta / float(n)
+	for _i in n:
+		pos = _push_statics(pos + sv, r)
+		if box_active and Collide.push_out_rect(pos, r, box_rect()) != Vector2.ZERO:
+			_break_box()
+		pos = _crate_vs_circle(pos, r, 1.0)
+		pos = _push_statics(pos, r)
+	return pos
 
 
 func _apply_out_variant(p: SimPlayer, player_delta: Vector2) -> void:
@@ -440,6 +493,8 @@ func _reset_yoyo(p: SimPlayer) -> void:
 	p.prev_head = p.pos
 	p.charge_t = 0.0
 	p.press_active = false
+	p.press_t = 0.0
+	p.tap_buffered = false
 	p.dash_t = 0.0
 
 
@@ -465,4 +520,5 @@ func _respawn(p: SimPlayer) -> void:
 	p.facing = (Config.ARENA_SIZE * 0.5 - best).normalized()
 	p.aim_dir = p.facing
 	p.dash_cd = 0.0
+	p.dash_charges = cfg.dash_charges
 	events.append({"type": "respawn", "pos": best, "player": p.id})

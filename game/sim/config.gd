@@ -36,6 +36,7 @@ const SPAWN_NOISE := 0.5
 const HEAD_BOUNCE_EXTRA := 0.6     # extra knock distance when two heads collide
 const CATCH_MARGIN := 0.1
 const MAX_ACCUMULATED_TIME := 0.25
+const RETRACT_MIN_PROGRESS := 0.3  # a retract step that gains less than this share of its length counts as blocked
 
 # --- Bot behaviour (fixed) ---
 const BOT_MOVE_SCALE := 0.6
@@ -68,6 +69,9 @@ const STICK_KNOB_RADIUS := 36.0
 const DASH_BUTTON_RADIUS := 62.0
 const DASH_BUTTON_OFFSET := Vector2(120.0, 250.0)  # from the lower right corner
 const GEAR_SIZE := 56.0
+const STICK_REST_OFFSET_LEFT := Vector2(230.0, 230.0)    # resting centre of the left stick, from the lower left corner
+const STICK_REST_OFFSET_RIGHT := Vector2(330.0, 230.0)   # resting centre of the right stick, from the lower right corner
+const DASH_PIP_RADIUS := 6.0
 
 # --- Tunable values (instance variables, defaults below) ---
 var player_radius: float
@@ -76,6 +80,7 @@ var charge_speed_mult: float
 var dash_distance: float
 var dash_duration: float
 var dash_cooldown: float
+var dash_charges: int
 var respawn_time: float
 var head_radius: float
 var min_range: float
@@ -98,6 +103,7 @@ const DEFAULTS := {
 	"dash_distance": 3.0,
 	"dash_duration": 0.12,
 	"dash_cooldown": 1.2,
+	"dash_charges": 1,
 	"respawn_time": 1.5,
 	"head_radius": 0.35,
 	"min_range": 2.5,

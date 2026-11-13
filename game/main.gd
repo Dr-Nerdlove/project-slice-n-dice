@@ -77,7 +77,10 @@ func _process(delta: float) -> void:
 				_tick(dt)
 				if _hitstop > 0.0:
 					break
-	router.dash_ready_ratio = 1.0 - clampf(sim.players[0].dash_cd / maxf(cfg.dash_cooldown, 0.001), 0.0, 1.0)
+	var me := sim.players[0]
+	router.dash_charges = me.dash_charges
+	router.dash_charges_max = cfg.dash_charges
+	router.dash_ready_ratio = 1.0 - clampf(me.dash_cd / maxf(cfg.dash_cooldown, 0.001), 0.0, 1.0)
 	hud.refresh()
 	router.exclude_rects = [hud.gear_rect()]
 	view.render(clampf(_acc / dt, 0.0, 1.0), delta)

@@ -8,7 +8,8 @@ signal closed
 const SLIDERS: Array = [
 	["player_speed", "Lauftempo", 2.0, 12.0, 0.1, "m/s"],
 	["dash_distance", "Dash-Weite", 1.0, 8.0, 0.1, "m"],
-	["dash_cooldown", "Dash-Abklingzeit", 0.2, 4.0, 0.05, "s"],
+	["dash_charges", "Dash-Ladungen", 1.0, 5.0, 1.0, ""],
+	["dash_cooldown", "Dash-Abklingzeit (pro Ladung)", 0.2, 4.0, 0.05, "s"],
 	["charge_time", "Aufladezeit", 0.1, 2.0, 0.05, "s"],
 	["min_range", "Mindestreichweite", 1.0, 8.0, 0.1, "m"],
 	["max_range", "Maximalreichweite", 3.0, 14.0, 0.1, "m"],
@@ -74,6 +75,9 @@ func setup(c: Config) -> void:
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
+	scroll.scroll_deadzone = 10
+	scroll.get_v_scroll_bar().custom_minimum_size.x = 26.0  # wide, always visible: also a scroll handle for thumbs
 	root.add_child(scroll)
 	var grid := GridContainer.new()
 	grid.columns = 2
@@ -81,11 +85,18 @@ func setup(c: Config) -> void:
 	grid.add_theme_constant_override("h_separation", 40)
 	grid.add_theme_constant_override("v_separation", 10)
 	scroll.add_child(grid)
+	grid.mouse_filter = Control.MOUSE_FILTER_PASS
 
 	grid.add_child(_selector("Verhalten des Jojos, wenn er draußen liegt", VARIANT_NAMES, "out_variant"))
 	grid.add_child(_selector("Übungsgegner", BOT_NAMES, "bot_mode"))
 	for def: Array in SLIDERS:
 		grid.add_child(_slider_row(def))
+	# Bottom padding so the last row can be scrolled clear of the screen edge.
+	for _i in 2:
+		var pad := Control.new()
+		pad.custom_minimum_size = Vector2(0, 80)
+		pad.mouse_filter = Control.MOUSE_FILTER_PASS
+		grid.add_child(pad)
 
 	_save_timer = Timer.new()
 	_save_timer.one_shot = true
@@ -120,6 +131,7 @@ func _selector(caption: String, names: Array[String], key: String) -> Control:
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var l := Label.new()
 	l.text = caption
+	l.mouse_filter = Control.MOUSE_FILTER_PASS
 	l.add_theme_font_size_override("font_size", FONT_SIZE)
 	box.add_child(l)
 	var opt := OptionButton.new()
@@ -147,6 +159,7 @@ func _slider_row(def: Array) -> Control:
 	var box := VBoxContainer.new()
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var l := Label.new()
+	l.mouse_filter = Control.MOUSE_FILTER_PASS
 	l.add_theme_font_size_override("font_size", FONT_SIZE)
 	box.add_child(l)
 	var s := HSlider.new()
@@ -166,7 +179,7 @@ func _slider_row(def: Array) -> Control:
 	s.value_changed.connect(func(v: float) -> void:
 		if _suppress:
 			return
-		cfg.set(key, v)
+		cfg.set(key, int(roundf(v)) if typeof(Config.DEFAULTS[key]) == TYPE_INT else v)
 		_update_label(key)
 		_queue_save())
 	box.add_child(s)
@@ -179,7 +192,7 @@ func _update_label(key: String) -> void:
 	var def: Array = row["def"]
 	var decimals := 2 if (def[4] as float) < 0.1 else (1 if (def[4] as float) < 1.0 else 0)
 	var v: float = cfg.get(key)
-	(row["label"] as Label).text = "%s: %s %s" % [def[1], String.num(v, decimals), def[5]]
+	(row["label"] as Label).text = ("%s: %s %s" % [def[1], String.num(v, decimals), def[5]]).strip_edges()
 
 
 func refresh() -> void:

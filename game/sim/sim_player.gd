@@ -15,7 +15,8 @@ var pos := Vector2.ZERO
 var prev_pos := Vector2.ZERO
 var facing := Vector2.RIGHT
 var dash_t := 0.0
-var dash_cd := 0.0
+var dash_cd := 0.0          # seconds until the next dash charge is back
+var dash_charges := 1       # dashes available right now
 var dash_dir := Vector2.RIGHT
 
 var ystate: int = Yo.READY
@@ -30,6 +31,7 @@ var flown := 0.0
 var held_prev := false
 var press_active := false
 var press_t := 0.0
+var tap_buffered := false   # a short tap happened during FLIGHT: retract as soon as the head lands
 
 
 func head_is_lethal() -> bool:

@@ -4,10 +4,16 @@ extends Control
 
 signal menu_requested
 
-var blocked := false                       # true while the tuning menu is open
+var blocked := false:                      # true while the tuning menu is open
+	set(v):
+		blocked = v
+		if v:
+			_release_all()
 var exclude_rects: Array[Rect2] = []       # screen areas owned by other UI (gear button)
 var mouse_to_world: Callable               # (Vector2 screen) -> Vector2 sim position, or Vector2.INF
-var dash_ready_ratio := 1.0                # 0 = just used, 1 = ready (for drawing)
+var dash_ready_ratio := 1.0                # progress of the next dash charge, 0..1 (for drawing)
+var dash_charges := 1                      # dashes available now (for drawing)
+var dash_charges_max := 1
 
 var _move_idx := -1
 var _move_c := Vector2.ZERO
@@ -36,6 +42,21 @@ func _screen_size() -> Vector2:
 
 func _dash_center() -> Vector2:
 	return _screen_size() - Config.DASH_BUTTON_OFFSET
+
+
+func _move_rest() -> Vector2:
+	return Vector2(Config.STICK_REST_OFFSET_LEFT.x, _screen_size().y - Config.STICK_REST_OFFSET_LEFT.y)
+
+
+func _aim_rest() -> Vector2:
+	return _screen_size() - Config.STICK_REST_OFFSET_RIGHT
+
+
+func _notification(what: int) -> void:
+	# A finger can vanish without an "up" event (app switch, system gesture): never keep a stale touch.
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT \
+			or what == NOTIFICATION_APPLICATION_PAUSED:
+		_release_all()
 
 
 func _input(event: InputEvent) -> void:
@@ -83,15 +104,24 @@ func _release_all() -> void:
 
 
 func _touch_down(idx: int, pos: Vector2) -> void:
+	# A "down" for an index we still hold means its "up" was lost: drop the stale touch first.
+	_touch_up(idx)
 	for r in exclude_rects:
 		if r.has_point(pos):
 			return
-	if pos.distance_to(_dash_center()) <= Config.DASH_BUTTON_RADIUS + 10.0:
+	if pos.distance_to(_dash_center()) <= Config.DASH_BUTTON_RADIUS + 4.0:
 		if _dash_idx == -1:
 			_dash_idx = idx
 			_dash_latch = true
 		return
-	if pos.x < _screen_size().x * 0.5:
+	var w := _screen_size().x
+	var to_move := pos.x < w * 0.5
+	# Near the middle a thumb may land on the "wrong" side: use the other stick if this one is busy.
+	if to_move and _move_idx != -1 and _aim_idx == -1 and pos.x > w * 0.35:
+		to_move = false
+	elif not to_move and _aim_idx != -1 and _move_idx == -1 and pos.x < w * 0.65:
+		to_move = true
+	if to_move:
 		if _move_idx == -1:
 			_move_idx = idx
 			_move_c = pos
@@ -220,17 +250,38 @@ func _draw() -> void:
 		return
 	var white := Color(1, 1, 1, 0.22)
 	var knob := Color(1, 1, 1, 0.45)
+	# Sticks are always visible: at rest in the lower corners, floating to the finger while touched.
 	if _move_idx != -1:
 		_draw_stick(_move_c, _move_p, white, knob)
+	else:
+		var rest := _move_rest()
+		_draw_stick(rest, rest, Color(1, 1, 1, 0.12), Color(1, 1, 1, 0.28))
 	if _aim_idx != -1:
 		_draw_stick(_aim_c, _aim_p, Color(1, 0.8, 0.4, 0.25), Color(1, 0.8, 0.4, 0.5))
+	else:
+		var rest := _aim_rest()
+		_draw_stick(rest, rest, Color(1, 0.8, 0.4, 0.14), Color(1, 0.8, 0.4, 0.3))
 	var c := _dash_center()
 	var pressed := _dash_idx != -1
-	var a := 0.18 + 0.25 * dash_ready_ratio + (0.2 if pressed else 0.0)
+	var usable := dash_charges > 0
+	var a := 0.18 + (0.25 if usable else 0.0) + (0.2 if pressed else 0.0)
 	draw_circle(c, Config.DASH_BUTTON_RADIUS, Color(0.3, 0.7, 1.0, a))
 	draw_arc(c, Config.DASH_BUTTON_RADIUS, 0.0, TAU, 40, Color(1, 1, 1, 0.5), 3.0)
+	if dash_charges < dash_charges_max:  # progress of the next charge
+		draw_arc(c, Config.DASH_BUTTON_RADIUS - 5.0, -PI * 0.5, -PI * 0.5 + TAU * dash_ready_ratio, 40,
+				Color(1, 1, 1, 0.9), 4.0)
 	var font := ThemeDB.fallback_font
-	draw_string(font, c + Vector2(-40.0, 8.0), "Dash", HORIZONTAL_ALIGNMENT_CENTER, 80.0, 24, Color(1, 1, 1, 0.9))
+	draw_string(font, c + Vector2(-40.0, 2.0), "Dash", HORIZONTAL_ALIGNMENT_CENTER, 80.0, 22, Color(1, 1, 1, 0.9))
+	# One pip per stored charge, filled while available.
+	var pr := Config.DASH_PIP_RADIUS
+	var step := pr * 2.0 + 5.0
+	var x0 := c.x - step * (dash_charges_max - 1) * 0.5
+	for i in dash_charges_max:
+		var pc := Vector2(x0 + step * i, c.y + 20.0)
+		if i < dash_charges:
+			draw_circle(pc, pr, Color(1, 1, 1, 0.95))
+		else:
+			draw_arc(pc, pr - 1.0, 0.0, TAU, 16, Color(1, 1, 1, 0.7), 2.0)
 
 
 func _draw_stick(c: Vector2, p: Vector2, base_col: Color, knob_col: Color) -> void:

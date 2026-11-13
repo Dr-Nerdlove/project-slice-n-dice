@@ -13,9 +13,10 @@ func setup(s: Sim) -> void:
 	_sim = s
 	layer = 5
 	var box := HBoxContainer.new()
-	box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	box.position.y = 8.0
-	box.add_theme_constant_override("separation", 28)
+	# Top left, so it can never run into the gear button in the top right corner.
+	box.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	box.position = Vector2(16.0, 8.0)
+	box.add_theme_constant_override("separation", 20)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(box)
 	var legend := Label.new()
