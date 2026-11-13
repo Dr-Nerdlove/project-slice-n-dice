@@ -1,0 +1,8 @@
+.godot/
+*.translation
+# export output
+build/
+export/
+*.apk
+*.aab
+*.idsig

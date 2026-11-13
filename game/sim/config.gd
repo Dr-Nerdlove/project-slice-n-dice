@@ -1,0 +1,159 @@
+class_name Config
+extends RefCounted
+## The ONE place for every tunable number. Units: metres, seconds.
+## Runtime-tunable values are instance variables (see DEFAULTS); fixed layout data are constants.
+
+enum OutVariant { DRAG, LEASH, RIGID }  # A, B, C
+enum BotMode { OFF, DUMMY, ACTIVE }
+
+# --- Arena layout (fixed) ---
+const ARENA_SIZE := Vector2(28.0, 12.6)
+const WALL_THICKNESS := 2.0
+const OBSTACLES: Array[Rect2] = [
+	Rect2(12.9, 4.9, 2.2, 2.8),
+	Rect2(5.8, 2.4, 1.6, 1.6),
+	Rect2(20.6, 8.6, 1.6, 1.6),
+	Rect2(18.8, 1.6, 1.2, 1.2),
+]
+const CRATE_START := Vector2(14.0, 2.0)
+const BOX_POS := Vector2(14.0, 10.6)
+const SPAWNS: Array[Vector2] = [
+	Vector2(2.5, 6.3), Vector2(25.5, 6.3), Vector2(9.5, 1.3), Vector2(18.5, 11.3),
+	Vector2(2.5, 2.0), Vector2(25.5, 10.6), Vector2(2.5, 10.6), Vector2(25.5, 2.0),
+]
+
+# --- Sim constants (fixed) ---
+const TICK_RATE := 60.0
+const NUM_PLAYERS := 4
+const MOVE_DEADZONE := 0.1
+const SUBSTEP_FACTOR := 0.5        # max movement per substep as a fraction of the radius
+const CRATE_HALF := 0.7
+const BOX_HALF := 0.6
+const CRATE_PUSH_RATIO := 0.3      # share of a player's push that moves the crate (rest slows the player)
+const BOX_RESPAWN_TIME := 6.0
+const PLAYER_SEPARATION_SHARE := 0.5
+const SPAWN_NOISE := 0.5
+const HEAD_BOUNCE_EXTRA := 0.6     # extra knock distance when two heads collide
+const CATCH_MARGIN := 0.1
+const MAX_ACCUMULATED_TIME := 0.25
+const RETRACT_MIN_PROGRESS := 0.3  # a retract step that gains less than this share of its length counts as blocked
+
+# --- Bot behaviour (fixed) ---
+const BOT_MOVE_SCALE := 0.6
+const BOT_AVOID_DIST := 1.8
+const BOT_AVOID_WEIGHT := 1.5
+const BOT_WANDER_TIME := Vector2(1.5, 3.5)
+const BOT_ATTACK_WAIT := Vector2(1.2, 3.0)
+const BOT_AIM_ERROR := 0.3          # radians
+const BOT_RETRACT_WAIT := Vector2(0.4, 1.2)
+const BOT_PULL_CHANCE := 0.2
+const BOT_PULL_HOLD_EXTRA := 0.6
+const BOT_DASH_CHANCE := 0.004      # per tick while idle
+const BOT_ATTACK_RANGE_FACTOR := 1.2
+const BOT_MARGIN := 1.8
+
+# --- Feel / presentation (fixed) ---
+const HITSTOP_TIME := 0.07
+const SHAKE_STRENGTH := 0.35
+const SHAKE_TIME := 0.25
+const VIBRATE_MS := 40
+const CAMERA_PITCH_DEG := 65.0
+const CAMERA_FOV := 55.0
+const CAMERA_MARGIN := 1.2
+const HEAD_SPIN_SPEED := 18.0
+const AIM_LINE_WIDTH := 0.14
+
+# --- Touch UI (fixed, in base-resolution pixels) ---
+const STICK_RADIUS := 90.0
+const STICK_KNOB_RADIUS := 36.0
+const DASH_BUTTON_RADIUS := 62.0
+const DASH_BUTTON_OFFSET := Vector2(120.0, 250.0)  # from the lower right corner
+const GEAR_SIZE := 56.0
+const STICK_REST_OFFSET_LEFT := Vector2(230.0, 230.0)    # resting centre of the left stick, from the lower left corner
+const STICK_REST_OFFSET_RIGHT := Vector2(330.0, 230.0)   # resting centre of the right stick, from the lower right corner
+const DASH_PIP_RADIUS := 6.0
+
+# --- Tunable values (instance variables, defaults below) ---
+var player_radius: float
+var player_speed: float
+var charge_speed_mult: float
+var dash_distance: float
+var dash_duration: float
+var dash_cooldown: float
+var dash_charges: int
+var respawn_time: float
+var head_radius: float
+var min_range: float
+var max_range: float
+var charge_time: float
+var flight_speed: float
+var retract_speed: float
+var pull_speed: float
+var string_length: float
+var tap_threshold: float
+var aim_deadzone: float
+var accidental_hold_time: float
+var out_variant: int
+var bot_mode: int
+
+const DEFAULTS := {
+	"player_radius": 0.5,
+	"player_speed": 6.0,
+	"charge_speed_mult": 0.6,
+	"dash_distance": 3.0,
+	"dash_duration": 0.12,
+	"dash_cooldown": 1.2,
+	"dash_charges": 1,
+	"respawn_time": 1.5,
+	"head_radius": 0.35,
+	"min_range": 2.5,
+	"max_range": 8.0,
+	"charge_time": 0.7,
+	"flight_speed": 28.0,
+	"retract_speed": 22.0,
+	"pull_speed": 20.0,
+	"string_length": 9.0,
+	"tap_threshold": 0.2,
+	"aim_deadzone": 0.25,
+	"accidental_hold_time": 0.07,
+	"out_variant": OutVariant.DRAG,
+	"bot_mode": BotMode.ACTIVE,
+}
+
+
+func _init() -> void:
+	reset()
+
+
+func reset() -> void:
+	for k: String in DEFAULTS:
+		set(k, DEFAULTS[k])
+
+
+func to_dict() -> Dictionary:
+	var d := {}
+	for k: String in DEFAULTS:
+		d[k] = get(k)
+	return d
+
+
+func from_dict(d: Dictionary) -> void:
+	for k: String in DEFAULTS:
+		if not d.has(k):
+			continue
+		var v: Variant = d[k]
+		if not (v is float or v is int):
+			continue
+		if typeof(DEFAULTS[k]) == TYPE_INT:
+			set(k, int(v))
+		else:
+			set(k, float(v))
+
+
+## Largest throw distance actually usable (never longer than the string).
+func effective_max_range() -> float:
+	return minf(max_range, string_length)
+
+
+func effective_min_range() -> float:
+	return minf(min_range, effective_max_range())
