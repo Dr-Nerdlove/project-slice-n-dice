@@ -1,9 +1,9 @@
 class_name SimWire
 extends RefCounted
-## A tripwire lying on the ground (Stolperdraht).
+## A tripwire lying on the ground (Stolperdraht): a polyline that follows the string path.
 
-var a := Vector2.ZERO
-var b := Vector2.ZERO
+var pts := PackedVector2Array()
+var half_width := 0.06
 var owner_id := 0
 var ttl := 0.0
 var lethal := false

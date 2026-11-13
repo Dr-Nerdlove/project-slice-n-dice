@@ -79,16 +79,40 @@ Decisions of 2026-11-13:
 
 First batch of ten modifiers. All definitions, German texts and every number live in `game/sim/mods.gd`.
 
-1. **Tripwire** (Stolperdraht): the string stays on the ground as a wire when a retract starts; enemies touching it stumble (level 3: the wire is lethal).
+1. **Tripwire** (Stolperdraht): the string stays on the ground as a wire when a retract or a pull starts, along the current string path; enemies touching it stumble (level 3: the wire is lethal).
 2. **Big head** (Dicker Brocken): the yo-yo head is much bigger, without slowdown.
 3. **Elastic** (Gummiband): faster pull, and the player is flung onward after catching the head; from level 2 the body is lethal while pulling and flung.
 4. **Extra dash** (Extra-Dash): more dash charges, shorter cooldown, longer dash at level 3.
-5. **Bounce** (Abpraller): the flying head reflects off walls and obstacles, gaining distance with every bounce.
-6. **Arc return** (Bogenwurf): the retract comes home on a curve (side chosen with the move stick); level 3 circles the player first.
+5. **Bounce** (Abpraller): the flying head reflects off walls and obstacles (1 / 3 / 5 times), gaining flight distance with every bounce (+1.5 / +3 / +5 m).
+6. **Arc** (Bogenwurf): the throw and the retract fly on a curve (side chosen with the move stick, default left; a throw still lands at the aimed point and the aim line shows the curve); level 3 circles the player first, passing through blocks and sliding along the outer walls so the full turn always completes.
 7. **Pierce** (Durchschlag): the head passes through obstacle blocks (retract and crate from level 2); level 3 knocks enemy heads away in duels.
 8. **Shards** (Splitter): lethal shards fly out from the head when a retract starts; at level 3 they bounce once.
 9. **Warhead** (Sprengkopf): the head explodes where it lands; from level 2 also where a retract starts.
-10. **Twin** (Zwilling): 2 / 3 / 5 yo-yos, controls see section 3.
+10. **Twin** (Zwilling): always exactly 2 yo-yos, controls see section 3. Level 2 ("Kreuzfeuer"): when retracting with both out, the heads first fly to the midpoint between them (lethal) and return together. Level 3: retract 1.5x faster, and an undeflected hold pulls to a lying yo-yo even while the other one is still in hand.
+
+### Synergies
+
+Modifiers influence each other. A synergy is a pair of modifiers that are both on; it is defined in the `SYNERGIES` table in `game/sim/mods.gd` (ids, German one-line text, numbers) and shown in the menu under "Aktive Kombinationen". Everything else combines per head without special rules (e.g. Bogenwurf + Splitter).
+
+- Shards + Warhead: every shard explodes where it ends (radius 0.8 / 1.2 / 1.6 by warhead level).
+- Shards + Pierce: shards pass through obstacle blocks (and the crate from pierce level 2).
+- Shards + Bounce: shards bounce as often as the bounce level allows, in addition to the single bounce of Shards level 3.
+- Shards + Big head: shard radius scales with the big-head factor.
+- Big head + Warhead: explosion radius x1.15 / x1.3 / x1.5 by big-head level (also for shard explosions).
+- Big head + Tripwire: the wire is wider (trigger half-width scales with the big-head factor).
+
+### String follows the bounce path
+
+With bounces the string is a polyline: player, the bounce points ("pins", in order from the player outwards), head. The path is real:
+
+- Retract: the head travels back through the pins (each is removed as it passes), then to the player; lethal all the way. Pull: the player travels along the path through the pins to the head.
+- String length is the path length. A head that is out: variant A (drag) drags the head along the path towards its nearest pin when the path gets too long; B (leash) limits how far the player may move away from the first pin; C (rigid) drops the pins as soon as the player moves.
+- Pins are never removed because of a free line of sight (no rope physics). Pierce creates no pins. Arc throws have no pins; the arc return and the Kreuzfeuer meeting flight ignore the pins (they are dropped when the retract starts).
+- The tripwire follows the same polyline; trigger tests run against every segment.
+
+### Value export
+
+The tuning menu has a "Werte kopieren" button. It copies one compact text block with every tuning value (config keys, values changed from the default marked with `*`), the out variant, the bot mode and the modifier levels for the player and the bots to the clipboard and shows it in a read-only text box, so it can be pasted to a developer. "Zurücksetzen" resets only the page it is on (values or modifier levels).
 
 ## 5. Shop, coins and catching up
 

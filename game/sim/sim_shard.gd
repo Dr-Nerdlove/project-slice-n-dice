@@ -10,3 +10,5 @@ var speed := 20.0
 var radius := 0.12
 var bounces_left := 0
 var owner_id := 0
+var pass_level := 0           # 1 = passes obstacle blocks, 2 = also the crate (Splitter + Durchschlag)
+var blast := 0.0              # > 0: explodes with this radius where it ends (Splitter + Sprengkopf)

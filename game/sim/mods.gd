@@ -14,14 +14,19 @@ const PRICES := {Tier.CHEAP: 3, Tier.MEDIUM: 5, Tier.EXPENSIVE: 8}
 const ROMAN: Array[String] = ["", "I", "II", "III"]
 
 # --- numbers shared by the mechanics (not level dependent) ---
-const WIRE_HALF_WIDTH := 0.06        # tripwire: half thickness for touching
+const WIRE_HALF_WIDTH := 0.06        # tripwire: half thickness for touching (before the big-head synergy)
 const WIRE_MIN_LENGTH := 0.4         # no wire is left for a shorter string
 const BODY_LETHAL_MARGIN := 0.15    # lethal body reach beyond touching (players are pushed apart at exactly touching)
 const FLING_MIN_PROGRESS := 0.3      # a fling step that gains less than this share ends the fling
 const PIERCE_EXIT_STEP := 0.1        # step used to leave a block a pierced head landed in
 const PIERCE_EXIT_MAX_STEPS := 400
 const ARC_MAX_BULGE_RATIO := 1.0     # the arc never bulges more than this times the string length
-const ARC_MIN_CHORD := 0.6           # shorter strings come home straight
+const ARC_MIN_CHORD := 0.6           # shorter strings come home / fly straight
+const ARC_THROW_MAX_RATIO := 0.6     # an arced throw never bulges more than this share of its distance
+const PIN_REACH := 0.3               # a head / player counts as having reached a pin within this distance
+const PIN_STUCK_PROGRESS := 0.1      # a player step along the string that gains less than this share gives up the pin
+const CROSS_MIN_GAP := 0.6           # Kreuzfeuer: heads closer together than this just return normally
+const ARC_THROW_SAMPLES := 32        # points used to preview an arced throw (aim line)
 const EXPLOSION_VIEW_TIME := 0.35    # presentation only
 
 const ORDER: Array[String] = [
@@ -79,20 +84,20 @@ const TABLE := {
 	"bounce": {
 		"name": "Abpraller", "tier": Tier.MEDIUM,
 		"desc": [
-			"Der fliegende Jojo prallt {bounces} mal von Wänden ab.",
-			"Bis zu {bounces} Abpraller, jeder verlängert den Flug um {bonus_dist} m.",
+			"Der fliegende Jojo prallt {bounces} mal von Wänden ab, jeder Abpraller verlängert den Flug um {bonus_dist} m. Die Schnur knickt an den Abprallpunkten.",
+			"Bis zu {bounces} Abpraller, jeder +{bonus_dist} m Flug. Die Schnur folgt dem Weg über alle Abprallpunkte.",
 			"Bis zu {bounces} Abpraller, jeder +{bonus_dist} m Flug, nach dem ersten {speed_pct} % schneller.",
 		],
 		"n": {
-			"bounces": [1, 3, 5], "bonus_dist": [0.0, 2.0, 4.0], "speed_pct": [0, 0, 25],
+			"bounces": [1, 3, 5], "bonus_dist": [1.5, 3.0, 5.0], "speed_pct": [0, 0, 25],
 		},
 	},
 	"arc": {
 		"name": "Bogenwurf", "tier": Tier.MEDIUM,
 		"desc": [
-			"Der Jojo kommt im Bogen zurück ({bulge} m seitlich). Die Seite bestimmst du mit dem Laufstick.",
-			"Größerer Bogen ({bulge} m) und {retract_mult}-mal schnellere Rückkehr.",
-			"Erst kreist der Jojo einmal um dich, dann kommt er im Bogen heim. Schnell und weit.",
+			"Wurf und Rückkehr im Bogen ({bulge} m seitlich). Die Seite bestimmst du mit dem Laufstick. Beim Einholen im Bogen entfallen die Abprallpunkte der Schnur.",
+			"Größerer Bogen ({bulge} m) bei Wurf und Rückkehr, Rückkehr {retract_mult}-mal schneller.",
+			"Erst kreist der Jojo sicher einmal um dich (auch durch Blöcke, an der Wand entlang), dann kommt er im Bogen heim. Schnell und weit.",
 		],
 		"n": {
 			"bulge": [2.5, 4.5, 4.5], "retract_mult": [1.0, 1.3, 1.3],
@@ -135,17 +140,60 @@ const TABLE := {
 	"twin": {
 		"name": "Zwilling", "tier": Tier.EXPENSIVE,
 		"desc": [
-			"Du hast {heads} Jojos. Kurz tippen holt alle ein, Halten zieht dich zum Jojo in Laufrichtung.",
-			"Du hast {heads} Jojos.",
-			"Du hast {heads} Jojos – ein ganzer Schwarm!",
+			"Du hast {heads} Jojos. Kurz tippen holt beide ein, Halten zieht dich zum Jojo in Laufrichtung.",
+			"Kreuzfeuer: Beim Einholen treffen sich beide Jojos in der Mitte dazwischen (tödlich!) und kommen dann gemeinsam zurück.",
+			"Kreuzfeuer, Rückweg {retract_mult}-mal so schnell. Auch mit einem Jojo in der Hand: Halten ohne Stick zieht dich zum liegenden Jojo.",
 		],
-		"n": {"heads": [2, 3, 5]},
+		"n": {
+			"heads": [2, 2, 2], "cross": [0, 1, 1], "retract_mult": [1.0, 1.0, 1.5], "pull_free": [0, 0, 1],
+		},
 	},
 }
 
+## Combinations of two modifiers (active when both have level >= 1). "by" names the modifier whose level
+## picks the value of every key in "n"; "{key}" in the text is replaced by that value.
+const SYNERGIES := {
+	"shards_warhead": {
+		"ids": ["shards", "warhead"], "by": "warhead",
+		"desc": "Splitter + Sprengkopf: Jeder Splitter explodiert dort, wo er endet (Radius {radius} m).",
+		"n": {"radius": [0.8, 1.2, 1.6]},
+	},
+	"shards_pierce": {
+		"ids": ["shards", "pierce"], "by": "pierce",
+		"desc": "Splitter + Durchschlag: Splitter fliegen durch Hindernisblöcke (ab Durchschlag II auch durch die Kiste).",
+		"n": {},
+	},
+	"shards_bounce": {
+		"ids": ["shards", "bounce"], "by": "bounce",
+		"desc": "Splitter + Abpraller: Splitter prallen so oft von Wänden ab, wie dein Abpraller es erlaubt.",
+		"n": {},
+	},
+	"shards_bighead": {
+		"ids": ["shards", "bighead"], "by": "bighead",
+		"desc": "Splitter + Dicker Brocken: Die Splitter sind so viel größer wie dein Jojo-Kopf.",
+		"n": {},
+	},
+	"bighead_warhead": {
+		"ids": ["bighead", "warhead"], "by": "bighead",
+		"desc": "Dicker Brocken + Sprengkopf: Alle Explosionen sind {radius_mult}-mal so groß.",
+		"n": {"radius_mult": [1.15, 1.3, 1.5]},
+	},
+	"bighead_tripwire": {
+		"ids": ["bighead", "tripwire"], "by": "bighead",
+		"desc": "Dicker Brocken + Stolperdraht: Der Draht ist so viel breiter wie dein Jojo-Kopf größer ist.",
+		"n": {},
+	},
+}
+const SYNERGY_ORDER: Array[String] = [
+	"shards_warhead", "shards_pierce", "shards_bounce", "shards_bighead", "bighead_warhead", "bighead_tripwire",
+]
+
 
 static func max_heads() -> int:
-	return int((TABLE["twin"]["n"]["heads"] as Array)[MAX_LEVEL - 1])
+	var m := 1
+	for v: Variant in (TABLE["twin"]["n"]["heads"] as Array):
+		m = maxi(m, int(v))
+	return m
 
 
 ## Value of `key` of modifier `id` at `level` (1..3).
@@ -204,3 +252,39 @@ static func sanitize(src: Variant) -> Dictionary:
 			if v is float or v is int:
 				d[id] = clampi(int(v), 0, MAX_LEVEL)
 	return d
+
+
+## True when both modifiers of the synergy `key` have level >= 1 in `levels`.
+static func syn_active(key: String, levels: Dictionary) -> bool:
+	for id: String in (SYNERGIES[key]["ids"] as Array):
+		if int(levels.get(id, 0)) <= 0:
+			return false
+	return true
+
+
+## Synergy value `name` for `levels` (0 when the synergy is not active or has no such key).
+static func syn_n(key: String, name: String, levels: Dictionary) -> float:
+	if not syn_active(key, levels):
+		return 0.0
+	var syn: Dictionary = SYNERGIES[key]
+	var arr: Array = (syn["n"] as Dictionary).get(name, [])
+	if arr.is_empty():
+		return 0.0
+	var l := clampi(int(levels.get(syn["by"], 1)), 1, MAX_LEVEL)
+	return float(arr[l - 1])
+
+
+## Keys of the synergies that are active for `levels`, in display order.
+static func active_synergies(levels: Dictionary) -> Array[String]:
+	var out: Array[String] = []
+	for key in SYNERGY_ORDER:
+		if syn_active(key, levels):
+			out.append(key)
+	return out
+
+
+static func describe_synergy(key: String, levels: Dictionary) -> String:
+	var text: String = SYNERGIES[key]["desc"]
+	for name: String in (SYNERGIES[key]["n"] as Dictionary):
+		text = text.replace("{" + name + "}", fmt_num(syn_n(key, name, levels)))
+	return text

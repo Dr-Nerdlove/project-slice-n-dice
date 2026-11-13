@@ -10,7 +10,6 @@ const HEAD_Y := 0.35
 const HAND_Y := 0.7
 const STRING_WIDTH := 0.05
 const STRING_Y := 0.6
-const MAX_HEADS := 5
 const ELASTIC_STRING_WIDTH := 0.13
 const ELASTIC_STRING_COLOR := Color(1.0, 0.65, 0.15)
 const WIRE_WIDTH := 0.1
@@ -36,13 +35,15 @@ var camera: Camera3D
 
 var _bodies: Array[Node3D] = []
 var _heads: Array = []     # per player: Array[Node3D]
-var _strings: Array = []   # per player: Array[MeshInstance3D]
+var _string_segs: Array[MeshInstance3D] = []   # pool: one box per string segment, reused every frame
+var _aim_segs: Array[MeshInstance3D] = []      # pool: segments of the aim lines
+var _seg_cursor := 0
+var _aim_cursor := 0
 var _body_mats: Array[StandardMaterial3D] = []
 var _lethal_discs: Array[MeshInstance3D] = []
 var _wire_core: Array[MeshInstance3D] = []
 var _wire_glow: Array[MeshInstance3D] = []
 var _shard_nodes: Array[MeshInstance3D] = []
-var _aim_lines: Array[MeshInstance3D] = []
 var _aim_marks: Array[MeshInstance3D] = []
 var _crate: MeshInstance3D
 var _box: MeshInstance3D
@@ -166,20 +167,12 @@ func _build_players() -> void:
 		_lethal_discs.append(disc_l)
 
 		var heads: Array[Node3D] = []
-		var strings: Array[MeshInstance3D] = []
-		for _k in MAX_HEADS:
+		for _k in Mods.max_heads():
 			var head := _make_head(col)
 			add_child(head)
 			heads.append(head)
-			var st := _box_mesh(Vector3(1, 1, 1), _mat(Color(0.9, 0.9, 0.9), true))
-			add_child(st)
-			strings.append(st)
 		_heads.append(heads)
-		_strings.append(strings)
 
-		var line := _box_mesh(Vector3(1, 1, 1), _mat(col.lightened(0.4), true, 0.8))
-		add_child(line)
-		_aim_lines.append(line)
 		var mark := MeshInstance3D.new()
 		var mc := CylinderMesh.new()
 		mc.top_radius = 1.0
@@ -427,6 +420,25 @@ func _make_line_node() -> MeshInstance3D:
 	return _box_mesh(Vector3(1, 1, 1), _mat(Color(1, 1, 1), true, 0.9))
 
 
+func _make_string_node() -> MeshInstance3D:
+	return _box_mesh(Vector3(1, 1, 1), _mat(Color(0.9, 0.9, 0.9), true))
+
+
+## One segment of a polyline string / aim line; reuses pooled boxes (cursor reset every frame).
+func _string_segment(a: Vector3, b: Vector3, width: float, col: Color) -> void:
+	var mi := _pool_node(_string_segs, _seg_cursor, _make_string_node)
+	_seg_cursor += 1
+	(mi.material_override as StandardMaterial3D).albedo_color = col
+	_place_line(mi, a, b, width)
+
+
+func _aim_segment(a: Vector3, b: Vector3, width: float, col: Color) -> void:
+	var mi := _pool_node(_aim_segs, _aim_cursor, _make_line_node)
+	_aim_cursor += 1
+	(mi.material_override as StandardMaterial3D).albedo_color = col
+	_place_line(mi, a, b, width)
+
+
 func _make_shard_node() -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var sm := SphereMesh.new()
@@ -443,19 +455,18 @@ func render(alpha: float, delta: float) -> void:
 	_spin += delta * Config.HEAD_SPIN_SPEED
 	_time += delta
 	var pr := cfg.player_radius
+	_seg_cursor = 0
+	_aim_cursor = 0
 	for i in sim.players.size():
 		var p := sim.players[i]
 		var body := _bodies[i]
 		var vis := p.enabled and p.alive
 		body.visible = vis
-		_aim_lines[i].visible = false
 		_aim_marks[i].visible = false
 		_lethal_discs[i].visible = false
 		var heads: Array = _heads[i]
-		var strings: Array = _strings[i]
-		for k in MAX_HEADS:
+		for k in heads.size():
 			(heads[k] as Node3D).visible = false
-			(strings[k] as MeshInstance3D).visible = false
 		if not vis:
 			continue
 		var hr := sim.head_r(p)
@@ -512,26 +523,34 @@ func render(alpha: float, delta: float) -> void:
 			node.scale = Vector3(hs, hs * 0.5, hs)
 			node.rotation.y = _spin if out_like else _spin * 0.3
 			if out_like:
-				var st := strings[k] as MeshInstance3D
-				var from3 := Vector3(pos.x, STRING_Y, pos.y)
-				var to3 := Vector3(hp.x, HEAD_Y + 0.1, hp.y)
 				var width := STRING_WIDTH
-				var smat := st.material_override as StandardMaterial3D
+				var scol := Color(0.9, 0.9, 0.9)
 				if elastic:
 					width = ELASTIC_STRING_WIDTH * (1.0 + 0.3 * sim.lv(p, "elastic") / Mods.MAX_LEVEL)
-					smat.albedo_color = ELASTIC_STRING_COLOR
-				else:
-					smat.albedo_color = Color(0.9, 0.9, 0.9)
-				_place_line(st, from3, to3, width)
+					scol = ELASTIC_STRING_COLOR
+				# The string is a polyline: player -> bounce points (pins) -> head.
+				var prev3 := Vector3(pos.x, STRING_Y, pos.y)
+				for pin in h.pins:
+					var pin3 := Vector3(pin.x, STRING_Y, pin.y)
+					_string_segment(prev3, pin3, width, scol)
+					prev3 = pin3
+				_string_segment(prev3, Vector3(hp.x, HEAD_Y + 0.1, hp.y), width, scol)
 		if p.charging:
-			var rng_len := sim.aim_range(p)
-			var end := pos + p.aim_dir * rng_len
-			_place_line(_aim_lines[i], Vector3(pos.x, 0.05, pos.y), Vector3(end.x, 0.05, end.y), Config.AIM_LINE_WIDTH)
+			var path := sim.aim_path(p)
+			var acol := PLAYER_COLORS[i].lightened(0.4)
+			acol.a = 0.8
+			for k in range(1, path.size()):
+				_aim_segment(Vector3(path[k - 1].x, 0.05, path[k - 1].y), Vector3(path[k].x, 0.05, path[k].y), Config.AIM_LINE_WIDTH, acol)
+			var end := path[path.size() - 1]
 			var mark := _aim_marks[i]
 			mark.visible = true
 			mark.position = Vector3(end.x, 0.05, end.y)
 			mark.scale = Vector3(hr * 1.1, 1.0, hr * 1.1)
 
+	for k in range(_seg_cursor, _string_segs.size()):
+		_string_segs[k].visible = false
+	for k in range(_aim_cursor, _aim_segs.size()):
+		_aim_segs[k].visible = false
 	_render_wires()
 	_render_shards(alpha)
 
@@ -549,32 +568,35 @@ func render(alpha: float, delta: float) -> void:
 		camera.v_offset = 0.0
 
 
-## Tripwires on the ground in the owner's colour; lethal ones glow red and pulse.
+## Tripwires on the ground in the owner's colour (polylines along the string); lethal ones glow red and pulse.
 func _render_wires() -> void:
-	var n := sim.wires.size()
-	for k in n:
-		var w := sim.wires[k]
-		var core := _pool_node(_wire_core, k, _make_line_node)
-		var glow := _pool_node(_wire_glow, k, _make_line_node)
-		var a3 := Vector3(w.a.x, 0.05, w.a.y)
-		var b3 := Vector3(w.b.x, 0.05, w.b.y)
+	var cursor := 0
+	for w in sim.wires:
 		var blink := 1.0
 		if w.ttl < WIRE_BLINK_TIME:
 			blink = 0.35 + 0.65 * (0.5 + 0.5 * sin(_time * 30.0))
-		var cmat := core.material_override as StandardMaterial3D
-		var gmat := glow.material_override as StandardMaterial3D
-		if w.lethal:
-			var pulse := 0.6 + 0.4 * sin(_time * 12.0)
-			cmat.albedo_color = Color(1.0, 0.85, 0.8, blink)
-			gmat.albedo_color = Color(WIRE_LETHAL_COLOR.r, WIRE_LETHAL_COLOR.g, WIRE_LETHAL_COLOR.b, 0.55 * pulse * blink)
-			_place_line(core, a3, b3, WIRE_WIDTH)
-			_place_line(glow, a3 + Vector3(0, -0.01, 0), b3 + Vector3(0, -0.01, 0), WIRE_LETHAL_WIDTH * (1.0 + 0.4 * pulse))
-		else:
-			var c := PLAYER_COLORS[w.owner_id]
-			cmat.albedo_color = Color(c.r, c.g, c.b, blink)
-			_place_line(core, a3, b3, WIRE_WIDTH)
-			glow.visible = false
-	for k in range(n, _wire_core.size()):
+		var pulse := 0.6 + 0.4 * sin(_time * 12.0)
+		var core_w := maxf(WIRE_WIDTH, w.half_width * 2.0)
+		var glow_w := maxf(WIRE_LETHAL_WIDTH, w.half_width * 3.0) * (1.0 + 0.4 * pulse)
+		for k in range(1, w.pts.size()):
+			var a3 := Vector3(w.pts[k - 1].x, 0.05, w.pts[k - 1].y)
+			var b3 := Vector3(w.pts[k].x, 0.05, w.pts[k].y)
+			var core := _pool_node(_wire_core, cursor, _make_line_node)
+			var glow := _pool_node(_wire_glow, cursor, _make_line_node)
+			cursor += 1
+			var cmat := core.material_override as StandardMaterial3D
+			var gmat := glow.material_override as StandardMaterial3D
+			if w.lethal:
+				cmat.albedo_color = Color(1.0, 0.85, 0.8, blink)
+				gmat.albedo_color = Color(WIRE_LETHAL_COLOR.r, WIRE_LETHAL_COLOR.g, WIRE_LETHAL_COLOR.b, 0.55 * pulse * blink)
+				_place_line(core, a3, b3, core_w)
+				_place_line(glow, a3 + Vector3(0, -0.01, 0), b3 + Vector3(0, -0.01, 0), glow_w)
+			else:
+				var c := PLAYER_COLORS[w.owner_id]
+				cmat.albedo_color = Color(c.r, c.g, c.b, blink)
+				_place_line(core, a3, b3, core_w)
+				glow.visible = false
+	for k in range(cursor, _wire_core.size()):
 		_wire_core[k].visible = false
 		_wire_glow[k].visible = false
 

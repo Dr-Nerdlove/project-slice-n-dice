@@ -46,6 +46,10 @@ var _tab_values: Button
 var _tab_mods: Button
 var _level_buttons := {}   # "you:<id>" / "bots:<id>" -> Array[Button]
 var _desc_labels := {}     # id -> Label
+var _syn_label: Label
+var _export_panel: Control
+var _export_status: Label
+var _export_text: TextEdit
 
 
 func setup(c: Config) -> void:
@@ -77,6 +81,9 @@ func setup(c: Config) -> void:
 	var reset := _button("Zurücksetzen")
 	reset.pressed.connect(_on_reset)
 	top.add_child(reset)
+	var export_btn := _button("Werte kopieren")
+	export_btn.pressed.connect(_on_export)
+	top.add_child(export_btn)
 	var close := _button("Schließen")
 	close.pressed.connect(close_menu)
 	top.add_child(close)
@@ -119,6 +126,7 @@ func setup(c: Config) -> void:
 		pad.mouse_filter = Control.MOUSE_FILTER_PASS
 		grid.add_child(pad)
 
+	_build_export_panel()
 	_show_page(false)
 	_save_timer = Timer.new()
 	_save_timer.one_shot = true
@@ -167,12 +175,41 @@ func _build_mods_page(scroll: ScrollContainer) -> void:
 		var max3 := _button("Alle Stufe 3")
 		max3.pressed.connect(func() -> void: _set_all(who, Mods.MAX_LEVEL))
 		row.add_child(max3)
+	col.add_child(_synergy_panel())
 	for id in Mods.ORDER:
 		col.add_child(_mod_row(id))
 	var pad := Control.new()
 	pad.custom_minimum_size = Vector2(0, 80)
 	pad.mouse_filter = Control.MOUSE_FILTER_PASS
 	col.add_child(pad)
+
+
+## "Aktive Kombinationen": the synergies that are active for "Du".
+func _synergy_panel() -> Control:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.mouse_filter = Control.MOUSE_FILTER_PASS
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.2, 0.16, 0.08, 0.9)
+	sb.set_corner_radius_all(10)
+	sb.set_content_margin_all(12.0)
+	panel.add_theme_stylebox_override("panel", sb)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	box.mouse_filter = Control.MOUSE_FILTER_PASS
+	panel.add_child(box)
+	var head := Label.new()
+	head.text = "Aktive Kombinationen"
+	head.add_theme_font_size_override("font_size", 26)
+	head.mouse_filter = Control.MOUSE_FILTER_PASS
+	box.add_child(head)
+	_syn_label = Label.new()
+	_syn_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_syn_label.add_theme_font_size_override("font_size", DESC_FONT_SIZE)
+	_syn_label.modulate = Color(1, 1, 1, 0.9)
+	_syn_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	box.add_child(_syn_label)
+	return panel
 
 
 func _mod_row(id: String) -> Control:
@@ -252,6 +289,11 @@ func _set_all(who: String, level: int) -> void:
 
 func _refresh_mods() -> void:
 	_suppress = true
+	var combos: Array[String] = []
+	for key in Mods.active_synergies(cfg.mods_you):
+		combos.append("• " + Mods.describe_synergy(key, cfg.mods_you))
+	_syn_label.text = "\n".join(combos) if not combos.is_empty() \
+			else "Keine. Kombiniere z. B. Splitter mit Sprengkopf, Dicker Brocken mit Stolperdraht."
 	for id in Mods.ORDER:
 		var lv_you: int = cfg.mods_you.get(id, 0)
 		var lv_bots: int = cfg.mods_bots.get(id, 0)
@@ -374,10 +416,54 @@ func _queue_save() -> void:
 	_save_timer.start()
 
 
+## Each page resets its own content: the values page the tuning values, the modifier page the levels.
 func _on_reset() -> void:
-	cfg.reset()
+	if _mods_page.visible:
+		_set_all("you", 0)
+		_set_all("bots", 0)
+	else:
+		cfg.reset()
 	refresh()
 	TuningStore.save(cfg)
+
+
+## Overlay with the settings as plain text, selectable, plus a short confirmation.
+func _build_export_panel() -> void:
+	_export_panel = Control.new()
+	_export_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_export_panel.visible = false
+	add_child(_export_panel)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.8)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_export_panel.add_child(dim)
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for side in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 30)
+	_export_panel.add_child(margin)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	margin.add_child(box)
+	_export_status = Label.new()
+	_export_status.add_theme_font_size_override("font_size", 26)
+	box.add_child(_export_status)
+	_export_text = TextEdit.new()
+	_export_text.editable = false
+	_export_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_export_text.add_theme_font_size_override("font_size", 20)
+	box.add_child(_export_text)
+	var done := _button("Fertig")
+	done.pressed.connect(func() -> void: _export_panel.visible = false)
+	box.add_child(done)
+
+
+func _on_export() -> void:
+	var text := cfg.export_text()
+	DisplayServer.clipboard_set(text)
+	_export_text.text = text
+	_export_status.text = "In die Zwischenablage kopiert"
+	_export_panel.visible = true
 
 
 func open_menu() -> void:
@@ -387,5 +473,6 @@ func open_menu() -> void:
 
 func close_menu() -> void:
 	visible = false
+	_export_panel.visible = false
 	TuningStore.save(cfg)
 	closed.emit()

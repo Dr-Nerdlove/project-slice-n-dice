@@ -166,3 +166,25 @@ func effective_max_range() -> float:
 
 func effective_min_range() -> float:
 	return minf(min_range, effective_max_range())
+
+
+## All current settings as one compact plain-text block (config keys with their values), for pasting into a chat.
+## A trailing "*" marks a value that differs from the default.
+func export_text() -> String:
+	var lines: Array[String] = ["slice-n-dice settings (* = differs from default)"]
+	for k: String in DEFAULTS:
+		var v: Variant = get(k)
+		var shown := str(v)
+		if k == "out_variant":
+			shown = OutVariant.keys()[int(v)]
+		elif k == "bot_mode":
+			shown = BotMode.keys()[int(v)]
+		lines.append("%s=%s%s" % [k, shown, " *" if v != DEFAULTS[k] else ""])
+	for group in ["mods_you", "mods_bots"]:
+		var levels: Dictionary = get(group)
+		var parts: Array[String] = []
+		for id in Mods.ORDER:
+			var lvl := int(levels.get(id, 0))
+			parts.append("%s=%d%s" % [id, lvl, "*" if lvl != 0 else ""])
+		lines.append("%s: %s" % [group, " ".join(parts)])
+	return "\n".join(lines)

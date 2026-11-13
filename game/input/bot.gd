@@ -81,6 +81,9 @@ func think(sim: Sim, dt: float) -> SimInput:
 					if rng.randf() < Config.BOT_THROW_MORE_CHANCE:
 						phase = Phase.IDLE
 						attack_wait = Config.BOT_NEXT_THROW_WAIT
+					elif Mods.n("twin", "pull_free", sim.lv(me, "twin")) > 0.0 and me.count_state(SimHead.S.OUT) > 0 \
+							and rng.randf() < Config.BOT_PULL_CHANCE:
+						phase = Phase.HOLD  # Zwilling III: pull to the lying yo-yo with one still in hand
 					else:
 						phase = Phase.TAP
 			elif me.count_state(SimHead.S.OUT) == me.heads.size():
@@ -100,7 +103,8 @@ func think(sim: Sim, dt: float) -> SimInput:
 		Phase.HOLD:
 			inp.aim_held = true
 			phase_t += dt
-			if me.hand_index() >= 0 or phase_t >= cfg.tap_threshold + Config.BOT_PULL_HOLD_EXTRA * 3.0:
+			var pull_over := phase_t >= cfg.tap_threshold + 0.15 and not me.pulling
+			if pull_over or phase_t >= cfg.tap_threshold + Config.BOT_PULL_HOLD_EXTRA * 3.0:
 				inp.aim_held = false
 				_to_idle()
 	return inp

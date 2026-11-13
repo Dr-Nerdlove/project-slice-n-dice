@@ -24,6 +24,18 @@ var arc_side := 1.0           # +1 left, -1 right of the travel direction
 var circ_left := 0.0          # radians of the opening circle still to sweep
 var circ_angle := 0.0
 var circ_r := 0.0
+# string path: bounce points (pins) in order from the player outwards; the last one is next to the head
+var pins := PackedVector2Array()
+# arced throw (Bogenwurf): the flight follows a curve to throw_target
+var throw_curved := false
+var throw_origin := Vector2.ZERO
+var throw_target := Vector2.ZERO
+var throw_side := 1.0
+var throw_bulge := 0.0
+var throw_len := 1.0
+# Kreuzfeuer (Zwilling II): fly to the meeting point first, then return
+var meet_on := false
+var meet := Vector2.ZERO
 
 
 func lethal() -> bool:
