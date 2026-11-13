@@ -189,15 +189,26 @@ missing, with a recommendation, and let the people choose.
 - **Product languages:** Not finally decided. The prototype UI is German for now.
 - **Build and test:** Godot 4.7.2, project in `game/`. Run on PC: `godot --path game`. Android debug APK:
   `godot --headless --path game --export-debug "Android" ../build/slice-n-dice-debug.apk` (needs Godot export
-  templates, JDK 17 and the Android SDK configured in Godot's editor settings). No automated tests yet; the
-  simulation in `game/sim` is pure code and would be testable - offer tests when it becomes risky.
+  templates, JDK 17 and the Android SDK configured in Godot's editor settings). Tests: `tests/run.sh` (needs `godot` on the
+  PATH; ~3 s) runs the headless checks of the simulation and the menus in `tests/test_sim.gd`; it prints only
+  failures and a summary and exits non-zero on a failed check, an engine/script error or zero checks.
+  `tests/run.sh soak` runs a longer bot soak run (~30 s, not in CI). `python3 tests/sabotage.py [prefix]`
+  breaks the game code on purpose, one change at a time, and checks that the tests notice; it restores every
+  file byte for byte (check `git status` afterwards). When game code is refactored, its patterns may go stale
+  (the script reports "pattern count 0"): update them. New testable behaviour gets a check in
+  `tests/test_sim.gd` and, if sensible, an entry in `tests/sabotage.py`. The tests live outside `game/` so the
+  APK does not contain them.
 - **Architecture rule:** `game/sim` is a pure fixed-tick simulation without nodes, physics or Input;
   `game/view` only reads it.
 - **Modifiers:** Modifier definitions, German texts and all their numbers live in `game/sim/mods.gd`.
 - **Release:** No releases yet. Version scheme `vMAJOR.MINOR.PATCH` (see "Releases" above).
 - **Traps:** None known yet.
-- **Repository:** Private, owned by Dr-Nerdlove. Licence: GNU AGPL v3 (`LICENSE`). Default branch `main`. No CI
-  yet. No branch protection: not available for private repositories on the owner's free plan (see
+- **Repository:** Private, owned by Dr-Nerdlove. Licence: GNU AGPL v3 (`LICENSE`). Default branch `main`. CI:
+  `.github/workflows/ci.yml` runs on every push and pull request: job `test` runs `tests/run.sh`; job `apk`
+  (after `test`) exports the debug APK and uploads it as an artifact (14 days). Godot and the Android export
+  templates are downloaded from the official release and cached; the debug keystore is generated on the fly,
+  the Java/SDK/keystore paths are written to Godot's editor settings (no env vars exist for them). No secrets
+  needed. No branch protection: not available for private repositories on the owner's free plan (see
   "Protecting `main`").
 - **Limits of the environment:** Cloud sessions (Claude Code on the web) cannot open the repository settings
   (rulesets, secrets, Pages); the owner does that on github.com. GitHub is reached through the GitHub MCP tools,
