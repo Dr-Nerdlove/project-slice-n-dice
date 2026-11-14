@@ -444,6 +444,48 @@ func test_other_display() -> void:
 	print("INFO  old display 20 ms: jump %.2f m (true %.2f), jitter %.4f (true %.4f)" % [old["max_jump"], old["max_true"], old["jitter"], old["true_jitter"]])
 
 
+# ---------------------------------------------------------------- chosen figure
+
+func test_skin() -> void:
+	var rig := make_rig(0.0, 0.0, 2, 3)
+	var a: ClientCore = rig["clients"][0]
+	var b: ClientCore = rig["clients"][1]
+	a.set_skin(6)
+	warm_up(rig)
+	for _t in 30:
+		step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
+	var server: ServerCore = rig["server"]
+	check("figure: the choice reaches the server's slot", server.sim.players[a.slot].skin == 6)
+	check("figure: the chooser sees it on their own predicted player", a.sim.players[a.slot].skin == 6)
+	check("figure: the other client sees it through the snapshot", b.sim.players[a.slot].skin == 6)
+	check("figure: a client that never chose keeps the default (slot)", server.sim.players[b.slot].skin == b.slot and b.sim.players[b.slot].skin == b.slot)
+	a.set_skin(2)
+	for _t in 30:
+		step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
+	check("figure: a change travels again", server.sim.players[a.slot].skin == 2 and b.sim.players[a.slot].skin == 2)
+	check("figure: out-of-range choices on the client wrap into range", (func() -> bool:
+		a.set_skin(19)
+		return a._wanted_skin == 3).call())
+
+
+func test_skin_delayed() -> void:
+	# with a slow link the own choice must show at once and survive snapshots that still carry the old one
+	var rig := make_rig(200.0, 0.0, 1, 3)
+	var a: ClientCore = rig["clients"][0]
+	warm_up(rig)
+	for _t in 30:
+		step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
+	a.set_skin(5)
+	step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
+	check("figure: the own choice shows on the predicted player at once", a.sim.players[a.slot].skin == 5)
+	var server: ServerCore = rig["server"]
+	var kept := true
+	for _t in 8:
+		step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
+		kept = kept and a.sim.players[a.slot].skin == 5
+	check("figure: old snapshots do not flip it back before the server knows", kept and server.sim.players[a.slot].skin != 5)
+
+
 # ---------------------------------------------------------------- repeated one-shot inputs
 
 func test_one_shot_inputs() -> void:
@@ -1391,6 +1433,22 @@ func test_robustness() -> void:
 	var mods := server.sim.players[slot_i].mods
 	check("server: modifier levels are clamped, unknown ids dropped", int(mods["twin"]) == Mods.MAX_LEVEL and int(mods["bounce"]) == 0 and int(mods["pierce"]) == 2 and not mods.has("nonsense"))
 
+	# the chosen figure is validated
+	var skin_before := server.sim.players[slot_i].skin
+	var d_skin := server.dropped_packets
+	raw.send(1, NetProto.pack([NetProto.T_SKIN, 5]), true)
+	hub.advance(1.0)
+	server.pump()
+	check("server: a valid figure choice is applied", server.sim.players[slot_i].skin == 5 and server.dropped_packets == d_skin)
+	var bad_skins: Array = [8, -1, 1 << 40, 2.0, "3", null, [1], true]
+	for bad: Variant in bad_skins:
+		raw.send(1, NetProto.pack([NetProto.T_SKIN, bad]), true)
+	raw.send(1, NetProto.pack([NetProto.T_SKIN]), true)
+	raw.send(1, NetProto.pack([NetProto.T_SKIN, 1, 2]), true)
+	hub.advance(1.0)
+	server.pump()
+	check("server: invalid figure choices are dropped and change nothing", server.sim.players[slot_i].skin == 5 and server.dropped_packets == d_skin + bad_skins.size() + 2 and skin_before != 5)
+
 	# a ping gets a pong
 	raw.poll()
 	raw.send(1, NetProto.pack([NetProto.T_PING, 1234]), false)
@@ -1775,6 +1833,9 @@ func test_main_scene() -> void:
 	root.add_child(main)
 	await process_frame
 	check("main: offline at the start", not main._online and main.client == null and main.view.sim == main.sim)
+	main.cfg.character = 2
+	await process_frame
+	check("main: offline the player shows the chosen figure and the bots the following ones", main.sim.players[0].skin == 2 and main.sim.players[1].skin == 3 and main.sim.players[3].skin == 5)
 	main.menu.set_online_status("x", false)
 	main.menu.connect_requested.emit("a b")
 	check("main: an unusable address is refused with a message", main.menu._online_status.text == "Ungültige Adresse" and main.client == null)
@@ -1798,6 +1859,12 @@ func test_main_scene() -> void:
 		OS.delay_msec(10)
 		await process_frame
 	check("main: own modifier choice reaches the server", int(server.sim.players[0].mods.get("twin", 0)) == 2 and int(main.client.sim.players[0].mods.get("twin", 0)) == 2)
+	main.cfg.character = 4
+	for _i in 60:
+		server.tick()
+		OS.delay_msec(10)
+		await process_frame
+	check("main: a changed figure choice reaches the server while online", server.sim.players[0].skin == 4 and main.client.sim.players[0].skin == 4)
 	check("main: the HUD shows ping and correction", main.hud._net_label.visible and main.hud._net_label.text.begins_with("Ping "), main.hud._net_label.text)
 	check("main: the HUD shows the interpolation delay", main.hud._net_label.text.contains("Gegner ") and main.hud._net_label.text.contains(" ms zurück"), main.hud._net_label.text)
 	check("main: smoothing is on and the view gets the display sim", main.client.smooth_others and main.view.others_sim != null and main.view.others_sim == main.client.display_sim)
@@ -1858,7 +1925,7 @@ func _initialize() -> void:
 	# TEST_STOP_ON_FAIL=1 (set by tests/sabotage.py): stop after the first test group that fails.
 	var stop_early := OS.get_environment("TEST_STOP_ON_FAIL") == "1"
 	var groups: Array[Callable] = [
-		test_snapshot, test_prediction, test_one_shot_inputs, test_interpolation, test_view_others,
+		test_snapshot, test_prediction, test_one_shot_inputs, test_skin, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
 		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_client_rules, test_lag_tool,
 		test_address_parse, test_enet, test_menu_online, test_main_scene,

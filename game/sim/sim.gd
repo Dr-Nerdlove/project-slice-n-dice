@@ -89,6 +89,11 @@ func set_player_enabled(i: int, on: bool) -> void:
 	p.respawn_t = 0.0
 
 
+## Sets which figure a player shows (presentation only; never read by the simulation).
+func set_skin(i: int, k: int) -> void:
+	players[i].skin = posmod(k, Config.SKIN_COUNT)
+
+
 ## Sets the modifier levels of a player (id -> 0..3). Cheap to call every frame.
 func apply_mods(i: int, levels: Dictionary) -> void:
 	var p := players[i]

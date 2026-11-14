@@ -25,6 +25,7 @@ const SPAWNS: Array[Vector2] = [
 # --- Sim constants (fixed) ---
 const TICK_RATE := 60.0
 const NUM_PLAYERS := 4
+const SKIN_COUNT := 8              # player figures to choose from (presentation only)
 const MOVE_DEADZONE := 0.1
 const SUBSTEP_FACTOR := 0.5        # max movement per substep as a fraction of the radius
 const CRATE_HALF := 0.7
@@ -100,6 +101,8 @@ var bot_mode: int
 ## Sandbox modifier levels (modifier id -> 0..3): one set for the human player, one shared by all bots.
 var mods_you: Dictionary = Mods.empty_levels()
 var mods_bots: Dictionary = Mods.empty_levels()
+## The figure the human player chose (0..SKIN_COUNT-1). Saved with the settings, but not a tuning value: reset leaves it.
+var character := 0
 
 const DEFAULTS := {
 	"player_radius": 0.5,
@@ -141,12 +144,15 @@ func to_dict() -> Dictionary:
 		d[k] = get(k)
 	d["mods_you"] = mods_you.duplicate()
 	d["mods_bots"] = mods_bots.duplicate()
+	d["character"] = character
 	return d
 
 
 func from_dict(d: Dictionary) -> void:
 	mods_you = Mods.sanitize(d.get("mods_you"))
 	mods_bots = Mods.sanitize(d.get("mods_bots"))
+	var ch: Variant = d.get("character")
+	character = posmod(int(ch), SKIN_COUNT) if (ch is int or (ch is float and is_finite(ch))) else 0
 	for k: String in DEFAULTS:
 		if not d.has(k):
 			continue

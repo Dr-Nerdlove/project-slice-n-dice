@@ -9,6 +9,7 @@ extends RefCounted
 ##   [T_HELLO, version]                      reliable, first message after connecting
 ##   [T_INPUT, seq, [input, ...]]            unreliable, newest first (seq, seq-1, ...)
 ##   [T_MODS, {modifier id: level}]          reliable, whenever the chosen modifier levels change
+##   [T_SKIN, figure]                        reliable, whenever the chosen figure changes (int 0..SKIN_COUNT-1)
 ##   [T_PING, time]                          unreliable
 ## server -> client
 ##   [T_WELCOME, version, slot, config]      reliable
@@ -24,6 +25,7 @@ const T_HELLO := 1
 const T_INPUT := 2
 const T_MODS := 3
 const T_PING := 4
+const T_SKIN := 5
 const T_WELCOME := 10
 const T_REJECT := 11
 const T_PONG := 12

@@ -204,7 +204,7 @@ missing, with a recommendation, and let the people choose.
   working tree is never modified; the script checks that `game/` is identical afterwards), runs only the suite that
   covers an entry (prefix 1-7 sim, 8 net, 9 update; an entry that needs another suite goes into
   `SUITES_OVERRIDE`), stops the net suite after its first failing group, and runs `-j N` entries in parallel
-  (default: half the CPU cores). All 123 entries take about 8 min with 6 workers (no gain beyond that on a 12-thread machine) (the old one-by-one run with the
+  (default: half the CPU cores). All 145 entries take about 9 min with 6 workers (no gain beyond that on a 12-thread machine) (the old one-by-one run with the
   whole suite per entry: about 2.5 h); `--full` runs the whole suite for every entry. When game code is refactored,
   its patterns may go stale (the script reports "pattern count 0" and fails): update them. New testable behaviour
   gets a check in `tests/test_sim.gd` (netcode: `tests/test_net.gd`) and, if sensible, an entry in
@@ -227,6 +227,15 @@ missing, with a recommendation, and let the people choose.
   24565; no hosting is set up); check a running one with
   `godot --headless --path game -s tests/net_probe.gd -- HOST[:PORT] [--lag MS] [--loss PCT]`. Decisions and what is
   not done yet: `docs/PLAN.md` (M2).
+- **Figure choice:** `Config.character` (0..`Config.SKIN_COUNT`-1, saved with the settings, not reset by the menu) is chosen on the menu tab "Figur"; offline `main.gd` writes it into `SimPlayer.skin` (bots get the following figures), online it travels as `NetProto.T_SKIN` and returns to the others in the snapshot. Presentation only: the sim never reads `skin`.
+- **Figures:** The eight player figures are built from primitives and animated in code in
+  `game/view/character_rig.gd` (one skeleton and one footprint for all, so the choice is visual only; each has its
+  own gait numbers). The body colour is the player's slot colour, the figure is the player's choice.
+- **Pictures without a display:** `tools/render-preview.sh OUT_DIR` renders `tools/character_preview.gd` (all
+  figures, poses, the real game view, the menu page "Figur") to PNG files in a Docker container with a virtual
+  screen and a software renderer (first run builds the image `godot-render:local` from `tools/render/Dockerfile`,
+  then about 5 s per run). Use it to look at visual changes before the phone test; extend the script when a new
+  visual thing needs a picture. Animations still need the phone.
 - **Modifiers:** Modifier definitions, German texts and all their numbers live in `game/sim/mods.gd`.
 - **Release:** Testers get APKs from the PUBLIC repository `Joni9993/slice-n-dice-releases` (this one is private).
   How a release is made: (1) add a section `## MAJOR.MINOR.PATCH` to `CHANGELOG.md` (the workflow fails without it;

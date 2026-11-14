@@ -342,6 +342,51 @@ func _mod_tests() -> void:
 	cfgy.from_dict(JSON.parse_string(JSON.stringify(cfgx.to_dict())))
 	check("sandbox choice survives JSON round trip", cfgy.mods_you["pierce"] == 2 and cfgy.mods_bots["twin"] == 3 and cfgy.mods_you["twin"] == 0)
 
+	# --- figure choice (presentation only)
+	check("figure: skin count agrees in sim and view", Config.SKIN_COUNT == CharacterRig.KIND_COUNT and CharacterRig.NAMES.size() == Config.SKIN_COUNT)
+	var cfgc := Config.new()
+	check("figure: default is the first one", cfgc.character == 0 and cfgc.to_dict()["character"] == 0)
+	cfgc.character = 5
+	var cfgd := Config.new()
+	cfgd.from_dict(JSON.parse_string(JSON.stringify(cfgc.to_dict())))
+	check("figure: choice survives JSON round trip", cfgd.character == 5)
+	cfgd.reset()
+	check("figure: reset leaves the choice", cfgd.character == 5)
+	for garbage: Variant in ["x", null, [3], {"a": 1}, NAN, INF, true]:
+		cfgd.character = 3
+		cfgd.from_dict({"character": garbage})
+		check("figure: garbage value %s gives 0" % str(garbage), cfgd.character == 0)
+	cfgd.from_dict({"character": 11})
+	check("figure: too large value wraps into range", cfgd.character == 3)
+	cfgd.from_dict({"character": -1})
+	check("figure: negative value wraps into range", cfgd.character == Config.SKIN_COUNT - 1)
+	cfgd.from_dict({"character": 2.0})
+	check("figure: float value is accepted", cfgd.character == 2)
+	cfgd.from_dict({})
+	check("figure: old file without the key gives 0", cfgd.character == 0)
+	s = mk([0, 1])
+	check("figure: new sim shows figure = slot", s.players[0].skin == 0 and s.players[1].skin == 1)
+	s.set_skin(1, 6)
+	check("figure: set_skin sets it", s.players[1].skin == 6 and s.players[0].skin == 0)
+	s.set_skin(1, 8 + 3)
+	check("figure: set_skin wraps too large", s.players[1].skin == 3)
+	s.set_skin(1, -1)
+	check("figure: set_skin wraps negative", s.players[1].skin == Config.SKIN_COUNT - 1)
+	var sa := Sim.new(Config.new(), 7)
+	var sb := Sim.new(Config.new(), 7)
+	for k in Config.NUM_PLAYERS:
+		sb.set_skin(k, 7 - k)
+	for tk in 120:
+		var ia := idle4()
+		ia[0] = inp(Vector2(1, 0.3), Vector2(1, 0), tk % 50 < 25, tk == 40)
+		ia[1] = inp(Vector2(-1, 0.2), Vector2(-1, 0), tk % 70 < 30, tk == 70)
+		sa.step(ia)
+		sb.step(ia)
+	var same := true
+	for k in Config.NUM_PLAYERS:
+		same = same and sa.players[k].pos == sb.players[k].pos and sa.players[k].heads[0].pos == sb.players[k].heads[0].pos
+	check("figure: a different skin does not change the simulation", same and sa.players[0].pos != Config.SPAWNS[0] and sa.players[0].skin != sb.players[0].skin)
+
 	# --- 1 Stolperdraht
 	for L in [1, 2, 3]:
 		s = mk([0, 1]); place(s, 0, Vector2(3, 6.3)); place(s, 1, Vector2(7, 9.0)); setm(s, 0, {"tripwire": L})
@@ -1163,6 +1208,19 @@ func _menu_tests() -> void:
 	menu._show_page(0)
 	menu._on_reset()
 	check("menu: reset on the values page resets the values but not the levels", cfgm.player_speed == Config.DEFAULTS["player_speed"] and cfgm.mods_you["shards"] == 1)
+	menu._show_page(3)
+	check("menu: figure tab shows only the figure page", menu._figure_page.visible and not menu._values_page.visible and not menu._mods_page.visible and not menu._online_page.visible and menu._tab_figure.button_pressed)
+	check("menu: figure page has 8 buttons named after the figures and a preview area first", menu._figure_buttons.size() == 8 and menu._figure_buttons[3].text == CharacterRig.NAMES[3] and menu._figure_preview.rig.kind == menu.cfg.character and menu._figure_preview.get_index() == 0 and menu._figure_buttons[0].button_pressed and not menu._figure_buttons[1].button_pressed)
+	menu._figure_buttons[5].pressed.emit()
+	check("menu: pressing a figure button sets the choice", cfgm.character == 5)
+	check("menu: the preview shows the chosen figure", menu._figure_preview.rig.kind == 5)
+	check("menu: only the chosen figure shows pressed", menu._figure_buttons[5].button_pressed and menu._figure_buttons.filter(func(b: Button) -> bool: return b.button_pressed).size() == 1)
+	menu._on_reset()
+	check("menu: reset on the figure page leaves the figure", cfgm.character == 5 and menu._figure_buttons[5].button_pressed)
+	cfgm.character = 2
+	menu.refresh()
+	check("menu: refresh shows the choice from the config", menu._figure_buttons[2].button_pressed and not menu._figure_buttons[5].button_pressed)
+	menu._show_page(0)
 	menu._on_export()
 	check("menu: export shows the text and the confirmation", menu._export_panel.visible and menu._export_text.text == cfgm.export_text() and menu._export_status.text == "In die Zwischenablage kopiert" and not menu._export_text.editable)
 	menu.queue_free()

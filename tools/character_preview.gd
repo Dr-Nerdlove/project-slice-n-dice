@@ -3,7 +3,8 @@ extends SceneTree
 ## Needs a display and a GPU or software renderer (see "Pictures without a display" in AGENTS.md):
 ##   godot --path game -s ../tools/character_preview.gd -- OUT_DIR
 ## Writes lineup_<n>.png (all eight figures walking towards the camera, in four phases of their step),
-## poses.png (standing, charging, dashing, stunned, seen from behind) and arena.png (the real game view).
+## poses.png (standing, charging, dashing, stunned, seen from behind), arena.png (the real game view) and
+## menu.png (the menu page "Figur").
 
 const COLS: Array[Color] = [
 	Color(0.25, 0.55, 1.0), Color(1.0, 0.35, 0.3), Color(0.35, 0.85, 0.4), Color(1.0, 0.8, 0.25)]
@@ -111,4 +112,15 @@ func _run() -> void:
 			view.handle_event(e)
 		view.render(1.0, 1.0 / Config.TICK_RATE)
 	await _shot("arena.png")
+
+	# The menu page where the figure is chosen.
+	cfg.character = 3
+	var menu := TuningMenu.new()
+	root.add_child(menu)
+	menu.setup(cfg)
+	menu.open_menu()
+	menu._show_page(3)
+	for frame in 50:
+		await process_frame
+	await _shot("menu.png")
 	quit()
