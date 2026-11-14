@@ -17,7 +17,7 @@ extends RefCounted
 ##   snapshot packet (see snapshot_packet)  unreliable
 ## input = [move.x, move.y, aim.x, aim.y, flags]   flags: bit 0 aim_held, bit 1 dash
 
-const VERSION := 1
+const VERSION := 2
 const DEFAULT_PORT := 24565
 
 const T_HELLO := 1

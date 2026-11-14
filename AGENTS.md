@@ -195,16 +195,17 @@ missing, with a recommendation, and let the people choose.
   templates, JDK 17 and the Android SDK configured in Godot's editor settings). Tests: `tests/run.sh` (needs `godot` on the
   PATH; ~70 s, nearly all of it the netcode suite) runs the headless checks of the simulation and the menus in
   `tests/test_sim.gd`, of the netcode in `tests/test_net.gd` (loopback with fake clock, real ENet on localhost, the
-  real main scene) and of the update notice in `tests/test_update.gd`; `tests/run.sh sim|net|update ...` runs only
+  real main scene), of the update notice in `tests/test_update.gd` and of the toy figures, their poses and the
+  arena geometry in `tests/test_view.gd`; `tests/run.sh sim|net|update|view ...` runs only
   the named suites; it prints only failures and a summary and exits non-zero on a failed check, an engine/script
   error or zero checks. `GAME_DIR=<copy of game/>` runs the tests against a copy and `TEST_PORT_OFFSET=N` shifts the
   localhost ports and the `user://` test file (parallel runs). `tests/run.sh soak` runs a longer bot soak run (~30 s,
   not in CI). `python3 tests/sabotage.py [-j N] [--full] [prefix ...]` breaks the game code on purpose, one change at
   a time, and checks that the tests notice. It works in temporary copies of `game/` outside the repository (the
   working tree is never modified; the script checks that `game/` is identical afterwards), runs only the suite that
-  covers an entry (prefix 1-7 sim, 8 net, 9 update; an entry that needs another suite goes into
+  covers an entry (prefix 1-7 sim, 8 net, 9 update, 0 view; an entry that needs another suite goes into
   `SUITES_OVERRIDE`), stops the net suite after its first failing group, and runs `-j N` entries in parallel
-  (default: half the CPU cores). All 123 entries take about 8 min with 6 workers (no gain beyond that on a 12-thread machine) (the old one-by-one run with the
+  (default: half the CPU cores). All 146 entries take about 8 min with 6 workers (no gain beyond that on a 12-thread machine) (the old one-by-one run with the
   whole suite per entry: about 2.5 h); `--full` runs the whole suite for every entry. When game code is refactored,
   its patterns may go stale (the script reports "pattern count 0" and fails): update them. New testable behaviour
   gets a check in `tests/test_sim.gd` (netcode: `tests/test_net.gd`) and, if sensible, an entry in
@@ -227,6 +228,19 @@ missing, with a recommendation, and let the people choose.
   24565; no hosting is set up); check a running one with
   `godot --headless --path game -s tests/net_probe.gd -- HOST[:PORT] [--lag MS] [--loss PCT]`. Decisions and what is
   not done yet: `docs/PLAN.md` (M2).
+- **Look (toy figures, playroom):** all in `game/view`, view only. `toy_kit.gd`: the shared materials (glossy
+  plastic with clearcoat and rim, plush, wood) and unit meshes; share them, do not create materials per figure.
+  `toy_figure.gd`: builds the four figures (sizes in player radii, +z is the front) and applies the pose;
+  `toy_pose.gd`: pure "sim state -> pose targets" plus the springs (fixed sub-steps); `toy_motion.gd`: follows one
+  player in the sim the view draws it from (online the others come from the display sim) and notices throw,
+  catch, dash end, death, respawn. `playroom.gd`: floor, fence, blocks, crate, box of the arena; arena geometry
+  itself is in `game/sim/config.gd`. Which toy a slot gets: `ArenaView.FIGURE_KINDS`. To add a figure: a new
+  `ToyPose.Kind` with its `CYCLE` entry and gait flavour, a `_build_*` function in `toy_figure.gd` that creates at
+  least the six standard pieces (Body first, Head, ArmL, ArmR, FootL, FootR), its accent in `ACCENTS` and name in
+  `NAMES`; `tests/test_view.gd` then checks it builds and fits the hit circle. **Screenshots cannot be made on the
+  owner's Linux machine:** no X server, no Xvfb, no GL/EGL or Vulkan libraries (Godot's x11 and wayland drivers fail
+  on missing `libXcursor` / `libwayland-client`; headless only has the dummy renderer). The look is checked on the
+  phone; rendering in CI (Xvfb with Mesa on a GitHub runner) would be an option.
 - **Modifiers:** Modifier definitions, German texts and all their numbers live in `game/sim/mods.gd`.
 - **Release:** Testers get APKs from the PUBLIC repository `Joni9993/slice-n-dice-releases` (this one is private).
   How a release is made: (1) add a section `## MAJOR.MINOR.PATCH` to `CHANGELOG.md` (the workflow fails without it;
@@ -241,7 +255,7 @@ missing, with a recommendation, and let the people choose.
   `MAJOR.MINOR.PATCH`; `tools/set-version.sh` writes it to `application/config/version` in `game/project.godot` (what
   the game shows and compares), and `version/name` and `version/code` (= MAJOR*10000 + MINOR*100 + PATCH, so MINOR
   and PATCH stay below 100) in `game/export_presets.cfg`. The committed files hold the version of the NEXT release
-  (now 0.3.0); a test checks that they agree. CI builds of branches use the committed version plus the suffix
+  (now 0.3.1); a test checks that they agree. CI builds of branches use the committed version plus the suffix
   `-dev+<commit>` in `application/config/version` only (set by the `apk` job), so the game shows it is a dev build and
   never offers an update for the same version. How the app finds updates: `game/update/update_check.gd` (pure logic)
   and `main.gd` ask `https://api.github.com/repos/Joni9993/slice-n-dice-releases/releases/latest` once, 3 s after the

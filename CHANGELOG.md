@@ -4,6 +4,21 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.3.1
+
+First look at the toy style: "toys from around the year 2000 come alive".
+
+- **Four toy figures** instead of the placeholder shapes: Gummi-Dino, Aufzieh-Roboter (with a turning wind-up key),
+  Plüschhase and Quietsche-Ente, each in its player's colour. From above you can see where each one looks.
+- **Every action has its own movement**, so you can read what an opponent is about to do: charging winds up more
+  and more and trembles when full, throwing lunges, catching recoils, a dash stretches and leaves a short trail,
+  being pulled to the yo-yo looks like flying, a stunned toy wobbles with stars. A knocked-out toy pops into its
+  parts with confetti, and it drops back in when it returns.
+- **The yo-yos** are now toy yo-yos in the same shiny plastic.
+- **The arena is a children's room** (play carpet, toy fence, wooden blocks, a cardboard box, a tower of blocks
+  that tumbles when it breaks) and is a little bigger: 32 x 14.4 m instead of 28 x 12.6 m.
+- Online, this version only plays with servers of the same version (the arena changed). Your tuned values are kept.
+
 ## 0.3.0
 
 Netcode experiment, third test build.

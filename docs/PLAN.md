@@ -20,7 +20,7 @@ This document is the binding basis for implementation. It collects all decisions
 - **Player count:** 2-8.
 - **Modes:** Free-for-all up to 8 players, and teams (2v2, 3v3, 4v4). Arena size scales with the player count.
 - **Controls** (decided by the owner on 2026-11-13): Two virtual sticks (left moves, right aims and throws) plus controller support. Holding the right stick charges the throw: the longer the hold, the further the throw, and a visible aim line shows direction and landing distance. Releasing throws. While the yo-yo is out, a short tap on the right stick retracts it, and holding the right stick pulls the character to the yo-yo.
-- **Theme and name:** Still open. Placeholder characters are used until decided.
+- **Theme and name:** Name still open. **Look direction** (decided by the owners on 2026-11-13): toys from around the year 2000 come alive. Glossy moulded plastic and loud colours are the base, hits get comic effects, menus get a hologram shine. The figures are invented, generic toy types (no brand, no known character); the first arena is a children's playroom. See "Look" in section 6.
 
 ## 3. The core weapon: the yo-yo
 
@@ -148,6 +148,31 @@ The tuning menu has a "Werte kopieren" button. It copies one compact text block 
     was **not tried in practice**; if the custom code turns out to be too much work, it can still be evaluated.
 - **Biggest technical risk:** Pulling to the yo-yo must feel instant even at 60 ms ping. Test early with artificial lag and packet loss.
 - **Graphics:** Placeholders and free asset packs until the MVP, own high-quality models in the polish phase. Mobile renderer; target devices are ordinary Android phones.
+
+### Look (first step, version 0.3.1)
+
+- **Done:** four toy figures built in code from shared primitive meshes (`game/view/toy_figure.gd`, materials and
+  meshes in `game/view/toy_kit.gd`): Gummi-Dino, Aufzieh-Roboter (wind-up key turning in the back), Plüschhase
+  (floppy ears), Quietsche-Ente. For now player slot 0-3 gets one each (bunny, robot, dino, duck), body in the
+  player colour, a second accent colour per toy. Each has a top silhouette that shows where it faces (dino: spikes
+  from the forehead down the back; robot: antenna in front, key behind; bunny: ears lying back in a V; duck: beak
+  as an arrow). The body's footprint matches the hit circle (`player_radius`).
+- **Done:** body language computed from the sim state the view already reads, with its own tell per action:
+  breathing; walking with a toy-specific gait (dino stomps, robot steps stiffly, bunny hops, duck waddles); charging
+  winds up with the charge (lean back, yo-yo arm behind the shoulder, crouch, trembling at full charge); throw
+  lunge; catch recoil; dash stretch with a short ghost trail and a squash at the stop; stretched flying pose when
+  pulled; dizzy stars when stunned; death pops the toy into flying, bouncing parts with confetti; respawn drops in
+  and bounces. The mapping "state -> pose" is pure (`game/view/toy_pose.gd`), springs with fixed sub-steps so it
+  looks the same at every frame rate; `game/view/toy_motion.gd` follows the same sim the view draws the player
+  from (online: the interpolated display sim for the others).
+- **Done:** the arena is a playroom (`game/view/playroom.gd`) and grew from 28 x 12.6 to 32 x 14.4 m (the old
+  layout scaled by 8/7): muted play carpet on wooden floorboards, low toy fence as the walls, wooden building blocks
+  as obstacles, a cardboard box as the movable crate, a tower of blocks as the breakable box. No colour of the room
+  is a player colour. Blob shadows instead of shadow maps (cheaper on phones).
+- **Placeholder / not done:** the comic hit effects and the hologram menus; aim line, string and HUD are still the earlier
+  simple shapes (the yo-yo heads are already toy yo-yos in the same plastic, with their modifier marks); figure choice per player (slots 5-8 reuse the four toys); sound. **The
+  look has not been seen rendered yet**: the development machine cannot render, so the first real look is on the
+  phone.
 - **Readability:** With 8 players on a phone screen it gets crowded. Check in milestone 2 and limit FFA to 6 if necessary.
 
 ## 7. Hosting
@@ -175,7 +200,7 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
 - The simulation runs on a fixed 60 Hz tick from the start, in pure code separated from the 3D view.
 - A tuning menu with sliders in the prototype, so the owner can adjust values while playing.
 - One arena with walls and a destructible or movable object.
-- Placeholder character with movement and dash.
+- Placeholder character with movement and dash (replaced by the toy figures in 0.3.1).
 - Yo-yo with all six states (Ready, Charging, Flight, Out, Retract, Pull), including pulling to the yo-yo and two yo-yos bouncing off each other. The prototype offers three switchable variants for what the out yo-yo does when the player walks away (see open points).
 - Touch controls with two sticks and controller support.
 - Simple practice enemies.
@@ -322,7 +347,7 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
 
 ## 10. Open points
 
-- Theme, characters and name of the game.
+- Name of the game; more characters and arenas (the look direction is decided, see section 2).
 - What the out yo-yo does when the player walks away. The prototype offers three switchable variants: A: it stays and is dragged along once the string is taut; B: leash, the player cannot move beyond the string length; C: it moves rigidly with the player. The owner decides by playing.
 - Confirmation of defence, harmless string and dash (see section 3).
 - Number of modifier slots (proposal: five).
