@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs the headless test suites (or the bot soak run with "soak").
-# Usage: tests/run.sh [soak | SUITE...]     SUITE is sim, net or update (default: all three).
+# Usage: tests/run.sh [soak | SUITE...]     SUITE is sim, net, update or view (default: all four).
 # Needs `godot` on the PATH (or set GODOT=/path/to/godot).
 # GAME_DIR=/path/to/copy runs the tests against a copy of game/ instead of the repository's (the tests stay
 # the ones in tests/); TEST_PORT_OFFSET=N moves the localhost ports and the user:// file of the tests by N,
@@ -22,13 +22,13 @@ if [ "$1" = "soak" ]; then
 	exit $?
 fi
 
-SUITES=${*:-sim net update}
+SUITES=${*:-sim net update view}
 OUT=""
 GODOT_EXIT=0
 for suite in $SUITES; do
 	case "$suite" in
-		sim | net | update) ;;
-		*) echo "unknown suite '$suite' (sim, net, update, or soak)" >&2; exit 2 ;;
+		sim | net | update | view) ;;
+		*) echo "unknown suite '$suite' (sim, net, update, view, or soak)" >&2; exit 2 ;;
 	esac
 	O=$("$GODOT" --headless --path "$GAME" -s "$ROOT/tests/test_$suite.gd" 2>&1)
 	E=$?

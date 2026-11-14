@@ -1,5 +1,5 @@
 extends SceneTree
-const A := Vector2(28.0, 12.6)
+const A := Config.ARENA_SIZE
 
 func run_soak(label: String, mode: String, seed_v: int, variant := 0) -> void:
 	var cfg := Config.new()

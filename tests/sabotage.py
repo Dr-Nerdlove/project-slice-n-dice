@@ -2,13 +2,13 @@
 # Usage: python3 tests/sabotage.py [-j N] [--full] [name-prefix ...]
 #   Every change is made in a temporary COPY of game/ (outside the repository); the working tree is never touched.
 #   Each entry runs only the suite(s) that cover it: by default the one named by its first character
-#   (1-7 sim, 8 net, 9 update), or the explicit list in the optional fifth field of the entry (see SUITES_OVERRIDE).
+#   (1-7 sim, 8 net, 9 update, 0 view), or the explicit list in the optional fifth field of the entry (see SUITES_OVERRIDE).
 #   --full runs all suites for every entry. -j N: number of parallel workers (default: half of the CPU cores).
 import subprocess, os, sys, shutil, tempfile, threading, queue, time, argparse
 ROOT=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GAME=os.path.join(ROOT,'game')
 RUN=os.path.join(ROOT,'tests','run.sh')
-PREFIX_SUITE={'1':'sim','2':'sim','3':'sim','4':'sim','5':'sim','6':'sim','7':'sim','8':'net','9':'update'}
+PREFIX_SUITE={'1':'sim','2':'sim','3':'sim','4':'sim','5':'sim','6':'sim','7':'sim','8':'net','9':'update','0':'view'}
 # Entries that the suite of their prefix does not catch: name -> suites.
 SUITES_OVERRIDE={}
 PORT_STEP=100   # distance of the localhost port ranges of two workers (each test uses a range of 40)
@@ -261,10 +261,33 @@ SB=[
  ("9 hud: hidden banner still blocks","view/hud.gd","\tif update_banner.visible:\n\t\trects.append","\tif true:\n\t\trects.append"),
  ("9 menu: version not shown","view/tuning_menu.gd",'_version_label.text = "Version %s" % UpdateCheck.running_version()','_version_label.text = ""'),
  ("9 menu: update button never shown","view/tuning_menu.gd","_update_btn.visible = version != \"\"","_update_btn.visible = false"),
+ ("0 pose: charge does not lean back","view/toy_pose.gd","out[LEAN] = 0.04 * clampf(f.fwd_speed, -1.0, 1.0) - 0.34 * c","out[LEAN] = 0.04 * clampf(f.fwd_speed, -1.0, 1.0)"),
+ ("0 pose: charge does not wind the arm up","view/toy_pose.gd","out[ARM] = lerpf(0.3, -1.0, c)","out[ARM] = 0.3"),
+ ("0 pose: no tremble at full charge","view/toy_pose.gd","out[TREMBLE] = 0.08 * smoothstep(0.85, 1.0, c)","out[TREMBLE] = 0.0"),
+ ("0 pose: dash not stretched","view/toy_pose.gd","out[STRETCH] = 1.5","out[STRETCH] = 1.0"),
+ ("0 pose: stun not dizzy","view/toy_pose.gd","out[DIZZY] = 1.0","out[DIZZY] = 0.0"),
+ ("0 pose: pull does not fly","view/toy_pose.gd","out[LIFT] = 0.4","out[LIFT] = 0.0"),
+ ("0 pose: the bunny does not hop","view/toy_pose.gd","out[LIFT] += 0.6 * w * hop","out[LIFT] += 0.07 * w * hop"),
+ ("0 pose: dash wins over charging","view/toy_pose.gd","\tif f.dashing:\n\t\treturn Act.DASH\n\tif f.charging:\n\t\treturn Act.CHARGE","\tif f.charging:\n\t\treturn Act.CHARGE\n\tif f.dashing:\n\t\treturn Act.DASH"),
+ ("0 springs depend on the frame rate","view/toy_pose.gd","var n := maxi(1, ceili(dt / SUBSTEP - 0.001))","var n := 1"),
+ ("0 motion: throw not noticed","view/toy_motion.gd","\t\tfacts.since_throw = 0.0\n\telif","\t\tpass\n\telif"),
+ ("0 motion: catch not noticed","view/toy_motion.gd","\t\tfacts.since_catch = 0.0\n\t_hand = hand","\t\tpass\n\t_hand = hand"),
+ ("0 motion: dash only from dash_t","view/toy_motion.gd","var dashing := p.dash_t > 0.0 or (velocity.length() > ps * DASH_SPEED_FACTOR and not facts.pulling)","var dashing := p.dash_t > 0.0"),
+ ("0 motion: a teleport counts as movement","view/toy_motion.gd","\tif drawn.distance_to(_last) > TELEPORT:\n\t\t_last = drawn","\tif false:\n\t\t_last = drawn"),
+ ("0 motion: death does not pop","view/toy_motion.gd","\t\tpopped = true","\t\tpass"),
+ ("0 motion: no drop on respawn","view/toy_motion.gd","\tfacts.since_spawn = 0.0\n\tfacts.since_throw = 99.0","\tfacts.since_spawn = 99.0\n\tfacts.since_throw = 99.0"),
+ ("0 motion: turns snap","view/toy_motion.gd","yaw += angle_difference(yaw, atan2(face.x, face.y)) * (1.0 - exp(-rate * dt))","yaw += angle_difference(yaw, atan2(face.x, face.y))"),
+ ("0 figure: robot has no key","view/toy_figure.gd",'var key := _piece("Key"','var key := _piece("Crank"'),
+ ("0 figure: pieces do not fly","view/toy_figure.gd","\t\tpc.position = p\n","\n"),
+ ("0 figure: body too small for the hit circle","view/toy_figure.gd","_p(body, ToyKit.sphere(), body_mat, Vector3.ZERO, Vector3(1.75, 1.55, 1.7))","_p(body, ToyKit.sphere(), body_mat, Vector3.ZERO, Vector3(1.25, 1.55, 1.2))"),
+ ("0 view: figures drawn from the predicted sim","view/arena_view.gd","fig.sync(p, src, pos, delta)","fig.sync(sim.players[i], sim, pos, delta)"),
+ ("0 view: two players share a toy","view/arena_view.gd","ToyPose.Kind.DINO, ToyPose.Kind.DUCK]","ToyPose.Kind.DINO, ToyPose.Kind.DINO]"),
+ ("0 arena: a spawn inside a block","sim/config.gd","Vector2(2.8, 7.2), Vector2(29.2, 7.2), Vector2(10.9, 1.5)","Vector2(2.8, 7.2), Vector2(16.0, 7.2), Vector2(10.9, 1.5)"),
+ ("0 arena: box on the crate","sim/config.gd","const BOX_POS := Vector2(16.0, 12.1)","const BOX_POS := Vector2(16.0, 3.0)"),
 ]
 
 def suites_for(name, full):
-    if full: return ['sim','net','update']
+    if full: return ['sim','net','update','view']
     return SUITES_OVERRIDE.get(name) or [PREFIX_SUITE[name[0]]]
 
 def game_snapshot():

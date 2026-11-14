@@ -375,6 +375,14 @@ func measure_other(delay_ms: float, loss: float, smooth: bool, ticks := 720, see
 	var server: ServerCore = rig["server"]
 	if a.get("smooth_others") != null:
 		a.set("smooth_others", smooth)
+	# Where B starts matters for the time matching below: wherever the scripted path doubles back on itself in the
+	# open (the diagonal out, the diagonal back) or in a corner, the nearest true sample is ambiguous and a correct
+	# picture can count as "back in time". In the 28 x 12.6 arena B spawned 2 m above the bottom wall and its loop
+	# slid along that wall and a block; this start gives the same kind of loop in the 32 x 14.4 arena (along the
+	# bottom wall, stopped by the box), clear of the corners.
+	var bp: SimPlayer = server.sim.players[b_slot]
+	bp.pos = Vector2(6.0, Config.ARENA_SIZE.y - 2.0)
+	bp.prev_pos = bp.pos
 	var shown_prev := Vector2.INF
 	var true_prev := server.sim.players[b_slot].pos
 	var d_prev := Vector2.ZERO
@@ -724,10 +732,13 @@ func hit_script(scn: String, t: int) -> SimInput:
 	return inp()
 
 
+## Positions in the lower right part of the arena, clear of the blocks (written for the 28 x 12.6 arena and moved
+## along with its lower right corner when it grew to 32 x 14.4).
+const HIT_SHIFT := Vector2(4.0, 1.8)
 const HIT_SCENARIOS := {
-	"flight": [Vector2(19.0, 11.0), Vector2(25.0, 11.0)],
-	"retract": [Vector2(21.0, 4.86), Vector2(25.0, 6.0)],
-	"shard": [Vector2(18.5, 8.6), Vector2(25.0, 6.0)],
+	"flight": [Vector2(19.0, 11.0) + HIT_SHIFT, Vector2(25.0, 11.0) + HIT_SHIFT],
+	"retract": [Vector2(21.0, 4.86) + HIT_SHIFT, Vector2(25.0, 6.0) + HIT_SHIFT],
+	"shard": [Vector2(18.5, 8.6) + HIT_SHIFT, Vector2(25.0, 6.0) + HIT_SHIFT],
 }
 
 

@@ -7,19 +7,21 @@ enum OutVariant { DRAG, LEASH, RIGID }  # A, B, C
 enum BotMode { OFF, DUMMY, ACTIVE }
 
 # --- Arena layout (fixed) ---
-const ARENA_SIZE := Vector2(28.0, 12.6)
+const ARENA_SIZE := Vector2(32.0, 14.4)   # 20:9 like a phone screen
 const WALL_THICKNESS := 2.0
+## The building blocks: the layout of the first 28 x 12.6 arena scaled by 8/7 (centre block, two point-symmetric
+## blocks, one small block near the top wall).
 const OBSTACLES: Array[Rect2] = [
-	Rect2(12.9, 4.9, 2.2, 2.8),
-	Rect2(5.8, 2.4, 1.6, 1.6),
-	Rect2(20.6, 8.6, 1.6, 1.6),
-	Rect2(18.8, 1.6, 1.2, 1.2),
+	Rect2(14.75, 5.6, 2.5, 3.2),
+	Rect2(6.65, 2.75, 1.8, 1.8),
+	Rect2(23.55, 9.85, 1.8, 1.8),
+	Rect2(21.5, 1.8, 1.4, 1.4),
 ]
-const CRATE_START := Vector2(14.0, 2.0)
-const BOX_POS := Vector2(14.0, 10.6)
+const CRATE_START := Vector2(16.0, 2.3)
+const BOX_POS := Vector2(16.0, 12.1)
 const SPAWNS: Array[Vector2] = [
-	Vector2(2.5, 6.3), Vector2(25.5, 6.3), Vector2(9.5, 1.3), Vector2(18.5, 11.3),
-	Vector2(2.5, 2.0), Vector2(25.5, 10.6), Vector2(2.5, 10.6), Vector2(25.5, 2.0),
+	Vector2(2.8, 7.2), Vector2(29.2, 7.2), Vector2(10.9, 1.5), Vector2(21.1, 12.9),
+	Vector2(2.8, 2.3), Vector2(29.2, 12.1), Vector2(2.8, 12.1), Vector2(29.2, 2.3),
 ]
 
 # --- Sim constants (fixed) ---

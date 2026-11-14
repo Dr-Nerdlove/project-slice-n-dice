@@ -2,6 +2,9 @@ extends SceneTree
 
 var fails := 0
 const Y := SimPlayer.Yo
+## The right and bottom outer walls: checks next to them are written relative to these.
+const RW := Config.ARENA_SIZE.x
+const BW := Config.ARENA_SIZE.y
 
 func check(name: String, ok: bool, info := "") -> void:
 	print(("PASS  " if ok else "FAIL  ") + name + ("  [" + info + "]" if info != "" else ""))
@@ -127,7 +130,7 @@ func _initialize() -> void:
 	s = mk([0]); place(s, 0, Vector2(14, 6.3)); s.cfg.out_variant = 2
 	throw0(s, Vector2.RIGHT, 60)
 	p = s.players[0]
-	s.statics.append(Rect2(23.5, 0, 1, 12.6))
+	s.statics.append(Rect2(23.5, 0, 1, BW))
 	for t in 120: s.step(only0(inp(Vector2.RIGHT)))
 	check("variant C: head stopped by wall", p.head.x < 23.5 - 0.3, "head x=%.2f player x=%.2f" % [p.head.x, p.pos.x])
 
@@ -411,10 +414,10 @@ func _mod_tests() -> void:
 		else:
 			check("no elastic: no fling", absf(p.pos.x - caught_x) < 0.05)
 	check("elastic: pull faster (L3 << none)", (pull_ticks[3] - 12) * 1.8 < (pull_ticks[0] - 12) and pull_ticks[1] < pull_ticks[0], str(pull_ticks))
-	s = mk([0]); place(s, 0, Vector2(18, 6.3)); setm(s, 0, {"elastic": 3})
+	s = mk([0]); place(s, 0, Vector2(RW - 10.0, 6.3)); setm(s, 0, {"elastic": 3})
 	throw_i(s, 0, Vector2.RIGHT, 60)
 	for t in 120: s.step(only0(inp(Vector2.ZERO, Vector2.ZERO, true)))
-	check("elastic L3: fling stopped by wall", s.players[0].pos.x <= 27.5 + 0.01 and s.players[0].pos.x > 26.0 and s.players[0].fling_left == 0.0, "x=%.2f" % s.players[0].pos.x)
+	check("elastic L3: fling stopped by wall", s.players[0].pos.x <= RW - 0.5 + 0.01 and s.players[0].pos.x > RW - 2.0 and s.players[0].fling_left == 0.0, "x=%.2f" % s.players[0].pos.x)
 	# control loss during fling
 	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"elastic": 3})
 	throw_i(s, 0, Vector2.RIGHT, 60)
@@ -473,18 +476,18 @@ func _mod_tests() -> void:
 	# --- 5 Abpraller
 	var land_x := {}
 	for L in [0, 1, 2, 3]:
-		s = mk([0]); place(s, 0, Vector2(22, 6.3)); setm(s, 0, {"bounce": L} if L > 0 else {})
+		s = mk([0]); place(s, 0, Vector2(RW - 6.0, 6.3)); setm(s, 0, {"bounce": L} if L > 0 else {})
 		throw_i(s, 0, Vector2.RIGHT, 60); p = s.players[0]
 		land_x[L] = p.heads[0].pos.x
-	check("bounce: L0 stops at wall, L1 +1.5m, L2 +3m, L3 +5m per bounce", absf(land_x[0] - 27.65) < 0.05 and absf(land_x[1] - 23.8) < 0.15 and absf(land_x[2] - 22.3) < 0.15 and absf(land_x[3] - 20.3) < 0.15, str(land_x))
+	check("bounce: L0 stops at wall, L1 +1.5m, L2 +3m, L3 +5m per bounce", absf(land_x[0] - (RW - 0.35)) < 0.05 and absf(land_x[1] - (RW - 4.2)) < 0.15 and absf(land_x[2] - (RW - 5.7)) < 0.15 and absf(land_x[3] - (RW - 7.7)) < 0.15, str(land_x))
 	var bcount := {}
 	for L in [1, 2, 3]:
-		s = mk([0]); place(s, 0, Vector2(26, 6.3)); setm(s, 0, {"bounce": L})
-		s.statics.append(Rect2(24, 3, 1, 7))
+		s = mk([0]); place(s, 0, Vector2(RW - 2.0, 6.3)); setm(s, 0, {"bounce": L})
+		s.statics.append(Rect2(RW - 4.0, 3, 1, 7))
 		throw_i(s, 0, Vector2.RIGHT, 60)
 		bcount[L] = s.players[0].heads[0].bounces
 	check("bounce: max 1 / 3 / 5 bounces between two walls", bcount[1] == 1 and bcount[2] == 3 and bcount[3] == 5, str(bcount))
-	s = mk([0]); place(s, 0, Vector2(22, 6.3)); setm(s, 0, {"bounce": 3})
+	s = mk([0]); place(s, 0, Vector2(RW - 6.0, 6.3)); setm(s, 0, {"bounce": 3})
 	var spd := 0.0
 	for t in 60: s.step(only0(inp(Vector2.ZERO, Vector2.RIGHT, true)))
 	s.step(only0(inp()))
@@ -493,10 +496,10 @@ func _mod_tests() -> void:
 		if s.players[0].heads[0].bounces == 1: spd = s.players[0].heads[0].speed_mult
 	check("bounce L3: 25% faster after first bounce", absf(spd - 1.25) < 0.001, str(spd))
 	# bounce + pierce: pierce wins for blocks, bounce for the outer wall
-	s = mk([0]); place(s, 0, Vector2(21, 11.0)); setm(s, 0, {"bounce": 1, "pierce": 1})
-	s.statics.append(Rect2(23, 9, 1, 3))
+	s = mk([0]); place(s, 0, Vector2(RW - 7.0, 11.0)); setm(s, 0, {"bounce": 1, "pierce": 1})
+	s.statics.append(Rect2(RW - 5.0, 9, 1, 3))
 	throw_i(s, 0, Vector2.RIGHT, 60)
-	check("bounce+pierce: passes block, bounces off outer wall", s.players[0].heads[0].bounces == 1 and s.players[0].heads[0].pos.x > 23.0 and s.players[0].heads[0].pos.x < 27.0, "x=%.2f b=%d" % [s.players[0].heads[0].pos.x, s.players[0].heads[0].bounces])
+	check("bounce+pierce: passes block, bounces off outer wall", s.players[0].heads[0].bounces == 1 and s.players[0].heads[0].pos.x > RW - 5.0 and s.players[0].heads[0].pos.x < RW - 1.0, "x=%.2f b=%d" % [s.players[0].heads[0].pos.x, s.players[0].heads[0].bounces])
 
 	# --- 6 Bogenwurf
 	# L3 circle
@@ -551,9 +554,9 @@ func _mod_tests() -> void:
 	s.statics.append(Rect2(6, 5, 1, 3))
 	throw_i(s, 0, Vector2.RIGHT, 8)
 	check("pierce L1: landing inside a block continues to the far side", s.players[0].heads[0].state == HS.OUT and s.players[0].heads[0].pos.x >= 7.34 and s.players[0].heads[0].pos.x < 7.6, "x=%.2f" % s.players[0].heads[0].pos.x)
-	s = mk([0]); place(s, 0, Vector2(22, 6.3)); setm(s, 0, {"pierce": 3})
+	s = mk([0]); place(s, 0, Vector2(RW - 6.0, 6.3)); setm(s, 0, {"pierce": 3})
 	throw_i(s, 0, Vector2.RIGHT, 60)
-	check("pierce L3: never through the outer wall", s.players[0].heads[0].pos.x <= 27.65 + 0.01 and s.players[0].heads[0].state == HS.OUT)
+	check("pierce L3: never through the outer wall", s.players[0].heads[0].pos.x <= RW - 0.35 + 0.01 and s.players[0].heads[0].state == HS.OUT)
 	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"pierce": 1}); s.crate_pos = Vector2(8, 6.3)
 	throw_i(s, 0, Vector2.RIGHT, 60)
 	var cx1 := s.players[0].heads[0].pos.x
@@ -604,7 +607,7 @@ func _mod_tests() -> void:
 		check("shards L%d: victim %.1fm behind the head %s" % [c[0], c[1], "dies" if c[2] else "survives"], (s.players[1].deaths == 1) == c[2])
 	var travel := {}
 	for L in [1, 3]:
-		s = mk([0]); place(s, 0, Vector2(19.75, 6.3)); setm(s, 0, {"shards": L})
+		s = mk([0]); place(s, 0, Vector2(RW - 8.25, 6.3)); setm(s, 0, {"shards": L})
 		throw_i(s, 0, Vector2.RIGHT, 21); tap_i(s, 0)
 		var sh0: SimShard = null
 		for sh in s.shards:
@@ -617,7 +620,7 @@ func _mod_tests() -> void:
 			dist_t += sh0.pos.distance_to(sh0.prev_pos)
 		travel[L] = dist_t
 	check("shards L3 bounce once off the wall, L1 stop at it", travel[1] > 2.0 and travel[1] < 3.3 and travel[3] > 7.0 and travel[3] < 8.2, str(travel))
-	s = mk([0]); place(s, 0, Vector2(3, 10.6)); setm(s, 0, {"shards": 1}); s.box_active = true
+	s = mk([0]); place(s, 0, Vector2(Config.BOX_POS.x - 11.0, Config.BOX_POS.y)); setm(s, 0, {"shards": 1}); s.box_active = true
 	throw_i(s, 0, Vector2.RIGHT, 60); tap_i(s, 0); many(s, 30, idle4())
 	check("shards break the box", not s.box_active)
 	s = mk([0, 1]); place(s, 0, Vector2(3, 6.3)); place(s, 1, Vector2(11.0, 2.0)); setm(s, 0, {"shards": 1}); s.statics.append(Rect2(10, 3.5, 3, 1.0))
@@ -647,7 +650,7 @@ func _mod_tests() -> void:
 		tap_i(s, 0) 
 		for e in s.events: if e["type"] == "explosion": ex += 1
 		check("warhead L%d: %d explosion(s), radius %.1f in event" % [L, 1 if L == 1 else 2, rad[L]], ex == (1 if L == 1 else 2) and absf(rr - rad[L]) < 0.001, "ex=%d" % ex)
-	s = mk([0]); place(s, 0, Vector2(10, 10.6)); setm(s, 0, {"warhead": 1}); s.box_active = true
+	s = mk([0]); place(s, 0, Vector2(Config.BOX_POS.x - 4.0, Config.BOX_POS.y)); setm(s, 0, {"warhead": 1}); s.box_active = true
 	throw_i(s, 0, Vector2.RIGHT, 21)
 	check("warhead breaks the box", not s.box_active)
 
@@ -767,7 +770,7 @@ func dist_to_path(q: Vector2, pts: PackedVector2Array) -> float:
 # two-pin setup: player (22,10) throws diagonally down-right with bounce level L
 func two_pin_sim(L: int, extra := {}) -> Sim:
 	var s := mk([0, 1])
-	place(s, 0, Vector2(22, 10)); place(s, 1, Vector2(2, 2))
+	place(s, 0, Vector2(RW - 6.0, BW - 2.6)); place(s, 1, Vector2(2, 2))
 	s.players[1].alive = false; s.players[1].respawn_t = 9999.0
 	var m := {"bounce": L}
 	m.merge(extra)
@@ -781,13 +784,13 @@ func _new_tests() -> void:
 	var h: SimHead
 
 	# ---------------- 1 Abpraller: pins recorded, distance per bounce already in the adapted check
-	s = mk([0]); place(s, 0, Vector2(22, 6.3)); setm(s, 0, {"bounce": 2})
+	s = mk([0]); place(s, 0, Vector2(RW - 6.0, 6.3)); setm(s, 0, {"bounce": 2})
 	throw_i(s, 0, Vector2.RIGHT, 60); h = s.players[0].heads[0]
-	check("bounce L2: one pin at the wall, string path length = 8 + 3", h.pins.size() == 1 and absf(h.pins[0].x - 27.65) < 0.05 and absf(Sim.path_length(s.string_path(s.players[0], h)) - 11.0) < 0.2, "pins=%s len=%.2f" % [h.pins, Sim.path_length(s.string_path(s.players[0], h))])
+	check("bounce L2: one pin at the wall, string path length = 8 + 3", h.pins.size() == 1 and absf(h.pins[0].x - (RW - 0.35)) < 0.05 and absf(Sim.path_length(s.string_path(s.players[0], h)) - 11.0) < 0.2, "pins=%s len=%.2f" % [h.pins, Sim.path_length(s.string_path(s.players[0], h))])
 	for L in [1, 2, 3]:
-		s = mk([0]); place(s, 0, Vector2(22, 6.3)); setm(s, 0, {"bounce": L})
+		s = mk([0]); place(s, 0, Vector2(RW - 6.0, 6.3)); setm(s, 0, {"bounce": L})
 		throw_i(s, 0, Vector2.RIGHT, 60); h = s.players[0].heads[0]
-		var back := 27.65 - h.pos.x
+		var back := RW - 0.35 - h.pos.x
 		check("bounce L%d: flies %.1f m back after the wall (2.35 + bonus)" % [L, 2.35 + Mods.n("bounce", "bonus_dist", L)], absf(back - (2.35 + [1.5, 3.0, 5.0][L - 1])) < 0.15, "back=%.2f" % back)
 
 	# ---------------- 2 Bogenwurf: curved throw
@@ -823,7 +826,7 @@ func _new_tests() -> void:
 	check("no arc modifier: aim line stays straight (2 points)", s.aim_path(p).size() == 2)
 	# curved throw that hits a wall lands there (no bounce) / pins stay empty
 	s = mk([0]); place(s, 0, Vector2(20, 6.3)); setm(s, 0, {"arc": 2}); p = s.players[0]
-	s.statics.append(Rect2(23, 0, 1, 12.6))
+	s.statics.append(Rect2(23, 0, 1, BW))
 	throw_i(s, 0, Vector2.RIGHT, 60)
 	check("arc throw stopped by a wall lies there, no bounce, curve pins before the wall", p.heads[0].state == HS.OUT and p.heads[0].pos.x < 23.0 and p.heads[0].bounces == 0 and p.heads[0].pins.size() >= 1, "x=%.2f pins=%d" % [p.heads[0].pos.x, p.heads[0].pins.size()])
 
@@ -838,7 +841,7 @@ func _new_tests() -> void:
 	for t in 200:
 		s.step(idle4())
 		var hp := p.heads[0].pos
-		if hp.x < -0.01 or hp.y < -0.01 or hp.x > 28.01 or hp.y > 12.61: left_arena = true
+		if hp.x < -0.01 or hp.y < -0.01 or hp.x > RW + 0.01 or hp.y > BW + 0.01: left_arena = true
 		if p.heads[0].circ_left > 0.0: saw_circle = true
 		var a_now := (hp - p.pos).angle()
 		total += absf(angle_difference(ang_prev, a_now)); ang_prev = a_now
@@ -943,7 +946,7 @@ func _new_tests() -> void:
 			check("shards+warhead: shard blast kills a victim beside the shard's end", s.players[1].deaths == 1)
 		if wl == 0:
 			check("shards alone: the same victim survives", s.players[1].deaths == 0)
-	s = mk([0]); place(s, 0, Vector2(21, 6.3)); setm(s, 0, {"shards": 1, "warhead": 1}); p = s.players[0]
+	s = mk([0]); place(s, 0, Vector2(RW - 7.0, 6.3)); setm(s, 0, {"shards": 1, "warhead": 1}); p = s.players[0]
 	throw_i(s, 0, Vector2.RIGHT, 40); h = p.heads[0]
 	var wall_blast := Vector2.ZERO
 	var evs0 := tap_ev(s, 0)
@@ -951,8 +954,8 @@ func _new_tests() -> void:
 		s.step(idle4())
 		evs0.append_array(s.events)
 	for e in evs0:
-		if e["type"] == "explosion" and absf((e["radius"] as float) - 0.8) < 0.001 and (e["pos"] as Vector2).x > 27.0: wall_blast = e["pos"]
-	check("shards+warhead: a shard hitting the wall explodes at the wall", wall_blast.x > 27.5 and wall_blast.x < 28.0, "pos=%s" % wall_blast)
+		if e["type"] == "explosion" and absf((e["radius"] as float) - 0.8) < 0.001 and (e["pos"] as Vector2).x > RW - 1.0: wall_blast = e["pos"]
+	check("shards+warhead: a shard hitting the wall explodes at the wall", wall_blast.x > RW - 0.5 and wall_blast.x < RW, "pos=%s" % wall_blast)
 	# shards + pierce
 	for pl in [0, 1, 2]:
 		s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"shards": 1, "pierce": pl} if pl > 0 else {"shards": 1}); p = s.players[0]
@@ -977,7 +980,7 @@ func _new_tests() -> void:
 		check("shards+pierce L%d: shard %s the crate" % [pl, "stops at" if pl == 1 else "passes"], (maxx2 < 13.4) if pl == 1 else (maxx2 > 14.8), "maxx=%.2f" % maxx2)
 	# shards + bounce
 	for bl in [0, 1, 3]:
-		s = mk([0]); place(s, 0, Vector2(19.75, 6.3)); setm(s, 0, {"shards": 1, "bounce": bl} if bl > 0 else {"shards": 1}); p = s.players[0]
+		s = mk([0]); place(s, 0, Vector2(RW - 8.25, 6.3)); setm(s, 0, {"shards": 1, "bounce": bl} if bl > 0 else {"shards": 1}); p = s.players[0]
 		throw_i(s, 0, Vector2.RIGHT, 21); tap_i(s, 0)
 		var sh0: SimShard = null
 		for sh in s.shards: if sh.dir.x > 0.9: sh0 = sh
@@ -1035,7 +1038,7 @@ func _new_tests() -> void:
 	# ---------------- 5 String follows the bounce path
 	s = two_pin_sim(2); p = s.players[0]; h = p.heads[0]
 	var P0 := Vector2.ZERO; var P1 := Vector2.ZERO
-	check("polyline: two pins recorded in order from the player outwards, path length 14", h.pins.size() == 2 and absf(h.pins[0].y - 12.25) < 0.1 and absf(h.pins[1].x - 27.65) < 0.1 and absf(Sim.path_length(s.string_path(p, h)) - 14.0) < 0.3, "pins=%s len=%.2f" % [h.pins, Sim.path_length(s.string_path(p, h))])
+	check("polyline: two pins recorded in order from the player outwards, path length 14", h.pins.size() == 2 and absf(h.pins[0].y - (BW - 0.35)) < 0.1 and absf(h.pins[1].x - (RW - 0.35)) < 0.1 and absf(Sim.path_length(s.string_path(p, h)) - 14.0) < 0.3, "pins=%s len=%.2f" % [h.pins, Sim.path_length(s.string_path(p, h))])
 	if h.pins.size() == 2:
 		P0 = h.pins[0]; P1 = h.pins[1]
 	var path0 := s.string_path(p, h)
@@ -1235,10 +1238,10 @@ func _path_tests() -> void:
 		check("pull L%d after a curved throw: player follows the curve at constant speed and catches the head" % L, pulled and h.state == HS.HAND and off < 0.2 and wspeed > 0.95 and bspeed < 1.0001, "off=%.3f speed=%.3f..%.3f" % [off, wspeed, bspeed])
 
 	# arc + bounce records both parts
-	var s3 := curved_sim(2, Vector2(21, 6.3), {"bounce": 1}); var p3 := s3.players[0]; var h3 := p3.heads[0]
+	var s3 := curved_sim(2, Vector2(RW - 7.0, 6.3), {"bounce": 1}); var p3 := s3.players[0]; var h3 := p3.heads[0]
 	var bpin := -1
 	for k in h3.pins.size():
-		if h3.pins[k].x > 27.3: bpin = k
+		if h3.pins[k].x > RW - 0.7: bpin = k
 	var curve_dev := 0.0
 	for k in h3.pins.size(): curve_dev = maxf(curve_dev, absf(h3.pins[k].y - 6.3))
 	check("arc + bounce: pins on the curve before the bounce and the bounce point itself", h3.bounces == 1 and bpin >= 3 and curve_dev > 1.0, "pins=%d bpin=%d dev=%.2f head=%s" % [h3.pins.size(), bpin, curve_dev, h3.pos])
@@ -1284,7 +1287,7 @@ func _circle_run(label: String, pos: Vector2, charge: int, walk: bool) -> void:
 	var s := mk([0]); place(s, 0, pos); setm(s, 0, {"arc": 3}); var p := s.players[0]; var h := p.heads[0]
 	throw_i(s, 0, Vector2.RIGHT, charge)
 	var npins := h.pins.size()
-	var rmax := minf(4.0, minf(minf(pos.x, 28.0 - pos.x), minf(pos.y, 12.6 - pos.y)) - 0.35)
+	var rmax := minf(4.0, minf(minf(pos.x, RW - pos.x), minf(pos.y, BW - pos.y)) - 0.35)
 	rmax = maxf(rmax, 1.5)
 	tap_i(s, 0)
 	var started := false; var cticks := 0; var swept := 0.0; var rworst := 0.0; var start_d := 0.0
@@ -1293,7 +1296,7 @@ func _circle_run(label: String, pos: Vector2, charge: int, walk: bool) -> void:
 	for t in 400:
 		s.step(only0(inp(mvi)))
 		var hp := h.pos
-		if hp.x < -0.01 or hp.y < -0.01 or hp.x > 28.01 or hp.y > 12.61: out_of_arena = true
+		if hp.x < -0.01 or hp.y < -0.01 or hp.x > RW + 0.01 or hp.y > BW + 0.01: out_of_arena = true
 		if h.circ_left > 0.0 or (started and cticks > 0 and h.circ_left <= 0.0 and false):
 			if not started:
 				started = true; start_d = hp.distance_to(p.pos); pins_at_start = h.pins.size(); a_prev = (hp - p.pos).angle()
