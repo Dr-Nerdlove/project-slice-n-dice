@@ -19,8 +19,11 @@ var box_active := true
 var box_timer := 0.0
 var wires: Array[SimWire] = []
 var shards: Array[SimShard] = []
+## The toy train: position of the locomotive along `TrainTrack` (metres) and its value one tick earlier.
+var train_s := 0.0
+var prev_train_s := 0.0
 ## Events of the last tick (dictionaries with "type"): kill, bounce, ricochet, box_break, respawn,
-## explosion, wire, stun.
+## explosion, wire, stun. A kill by the train has "killer": -1 and "cause": "train".
 var events: Array = []
 
 var _hit := false  # scratch flag set by head sweeps
@@ -119,6 +122,7 @@ func step(inputs: Array) -> void:
 		if players[i].enabled:
 			_step_player(players[i], inputs[i], dt)
 	_separate_players()
+	_step_train(dt)
 	_collide_heads()
 	_step_shards(dt)
 	_step_wires(dt)
@@ -1242,13 +1246,49 @@ func _check_kills() -> void:
 					_kill(v, a)
 
 
+## `killer` null = the train: a death for the victim, a kill for nobody.
 func _kill(victim: SimPlayer, killer: SimPlayer) -> void:
 	victim.alive = false
 	victim.deaths += 1
-	killer.kills += 1
+	if killer != null:
+		killer.kills += 1
 	victim.respawn_t = cfg.respawn_time
 	_reset_yoyo(victim)
-	events.append({"type": "kill", "pos": victim.pos, "victim": victim.id, "killer": killer.id})
+	var e := {"type": "kill", "pos": victim.pos, "victim": victim.id, "killer": -1 if killer == null else killer.id}
+	if killer == null:
+		e["cause"] = "train"
+	events.append(e)
+
+
+## Moves the train along its loop. The cars shove the crate aside and run living players over; yo-yo heads,
+## strings, wires and shards pass over them. Speed 0 = no train at all.
+func _step_train(dt: float) -> void:
+	if cfg.train_speed <= 0.0:
+		prev_train_s = train_s
+		return
+	prev_train_s = train_s
+	train_s += cfg.train_speed * dt
+	if train_s >= TrainTrack.LENGTH:
+		train_s -= TrainTrack.LENGTH
+		prev_train_s -= TrainTrack.LENGTH
+	var reach := TrainTrack.CAR_RADIUS + cfg.player_radius * Config.TRAIN_HIT_SHARE
+	for k in TrainTrack.CARS:
+		var c := TrainTrack.point(TrainTrack.car_s(train_s, k))
+		_crate_vs_circle(c, TrainTrack.CAR_RADIUS, 1.0)
+		for v in players:
+			if v.enabled and v.alive and v.pos.distance_to(c) < reach:
+				_kill(v, null)
+
+
+## True when a player standing at `pos` would be run over right now.
+func train_unsafe(pos: Vector2) -> bool:
+	if cfg.train_speed <= 0.0:
+		return false
+	var reach := TrainTrack.CAR_RADIUS + cfg.player_radius * Config.TRAIN_HIT_SHARE
+	for k in TrainTrack.CARS:
+		if pos.distance_to(TrainTrack.point(TrainTrack.car_s(train_s, k))) < reach:
+			return true
+	return false
 
 
 func _reset_yoyo(p: SimPlayer) -> void:
@@ -1286,6 +1326,8 @@ func _respawn(p: SimPlayer) -> void:
 				if h.lethal():
 					nearest = minf(nearest, s.distance_to(h.pos))
 		var score := nearest + rng.randf() * Config.SPAWN_NOISE
+		if train_unsafe(s):
+			score -= 1000.0
 		if score > best_score:
 			best_score = score
 			best = s

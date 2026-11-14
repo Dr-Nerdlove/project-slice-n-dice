@@ -12,6 +12,11 @@ Netcode experiment, third test build.
   roly-poly doll, spinning top and teddy. Each walks in its own way (march, hop, stomp, pitter-patter ...). They
   differ only in looks; size and speed are the same for all. Choose yours in the settings on the new tab "Figur";
   other players see it online. The body colour stays the player colour.
+- **New arena, the playroom:** a play carpet framed by wooden beams, building blocks as obstacles, a toy chest
+  on wheels (push it) and a wrapped present (smash it). The layout of the blocks is unchanged.
+- **Watch out for the toy train:** it runs a loop through the middle of the arena and runs over every figure in
+  its way (a death, but a point for nobody). It shoves the toy chest aside; yo-yos fly over it. Its speed can be
+  set in the settings ("Eisenbahn-Tempo", 0 switches it off).
 - **The yo-yo throw has a real animation:** the figure holds the yo-yo in its hand, winds up while the throw is
   charged, flicks it out, and the string runs from the hand. The yo-yo flies out in a flat arc and climbs back
   into the hand.

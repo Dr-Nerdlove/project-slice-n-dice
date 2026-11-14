@@ -10,6 +10,7 @@ func check(name: String, ok: bool, info := "") -> void:
 
 func mk(only: Array, walls_only := true) -> Sim:
 	var cfg := Config.new()
+	cfg.train_speed = 0.0 # the train has its own checks; the other tests want an empty track
 	var s := Sim.new(cfg, 1)
 	for i in 4:
 		s.set_player_enabled(i, i in only)
@@ -282,6 +283,7 @@ func _initialize() -> void:
 	_mod_tests()
 	_new_tests()
 	_path_tests()
+	_train_tests()
 
 var _frames := 0
 func _process(_delta: float) -> bool:
@@ -1365,3 +1367,184 @@ func _circle_run(label: String, pos: Vector2, charge: int, walk: bool) -> void:
 	var rlim := rmax + 0.1 + (0.35 if walk else 0.0)
 	var wall_case := pos.x < 5.0
 	check("arc L3 circle (%s): ~1.1 s, radius <= %.2f, full 360 deg, then home" % [label, rmax], started and absf(tsec - 1.1) < 0.12 and rworst <= rlim and swept >= TAU - 0.35 and home and not stuck and not out_of_arena and start_d <= rmax + 0.001 and start_d > rmax - 0.6 and pins_at_start < npins, "t=%.2fs r=%.2f/%.2f swept=%.2f start_d=%.2f pins %d->%d home=%s stuck=%s out=%s" % [tsec, rworst, rmax, swept, start_d, npins, pins_at_start, home, stuck, out_of_arena])
+
+
+# ---------------------------------------------------------------- toy train
+
+func car_pos(s: Sim, k: int) -> Vector2:
+	return TrainTrack.point(TrainTrack.car_s(s.train_s, k))
+
+func train_sim(only: Array, speed := 5.0) -> Sim:
+	var s := mk(only)
+	s.cfg.train_speed = speed
+	return s
+
+## Steps until player `i` is dead (at most n ticks); returns the kill events seen on the way.
+func run_until_dead(s: Sim, i: int, n: int) -> Array:
+	var kills := []
+	for _t in n:
+		s.step(idle4())
+		for e: Dictionary in s.events:
+			if e["type"] == "kill":
+				kills.append(e)
+		if not s.players[i].alive:
+			break
+	return kills
+
+func rect_dist(q: Vector2, r: Rect2) -> float:
+	return q.distance_to(Vector2(clampf(q.x, r.position.x, r.end.x), clampf(q.y, r.position.y, r.end.y)))
+
+func _train_tests() -> void:
+	var dt := 1.0 / 60.0
+	var s := train_sim([0])
+	place(s, 0, Vector2(2, 2))
+	s.step(idle4())
+	check("train: advances by speed * dt per tick and remembers the step before", is_equal_approx(s.train_s, 5.0 * dt) and is_equal_approx(s.prev_train_s, 0.0), "s=%f prev=%f" % [s.train_s, s.prev_train_s])
+	s.train_s = TrainTrack.LENGTH - 0.01
+	s.prev_train_s = s.train_s - 5.0 * dt
+	s.step(idle4())
+	check("train: wraps at the loop length and prev / current stay one step apart", s.train_s < 0.2 and is_equal_approx(s.train_s - s.prev_train_s, 5.0 * dt) and is_equal_approx(s.train_s, 5.0 * dt - 0.01), "s=%f prev=%f" % [s.train_s, s.prev_train_s])
+	s.cfg.train_speed = 10.0
+	s.step(idle4())
+	check("train: the speed is read every tick (tuning slider)", is_equal_approx(s.train_s - s.prev_train_s, 10.0 * dt))
+	check("train: default speed is 5 m/s and the tuning page has a slider for it", Config.DEFAULTS["train_speed"] == 5.0 and (func() -> bool:
+		for d: Array in TuningMenu.SLIDERS:
+			if d[0] == "train_speed" and d[1] == "Eisenbahn-Tempo" and d[2] == 0.0 and d[3] == 10.0:
+				return true
+		return false).call())
+
+	# speed 0: nothing moves, nobody is run over (player right on a car)
+	s = train_sim([0], 0.0)
+	place(s, 0, TrainTrack.point(0.0))
+	s.crate_pos = TrainTrack.point(12.0)
+	var crate0 := s.crate_pos
+	run(s, 120, func(_t: int) -> Array: return idle4())
+	check("train: speed 0 freezes it, kills nobody and moves no crate", s.train_s == 0.0 and s.prev_train_s == 0.0 and s.players[0].alive and s.players[0].deaths == 0 and s.crate_pos == crate0)
+
+	# a player standing on the rails
+	s = train_sim([0, 1])
+	place(s, 0, TrainTrack.point(3.0)); place(s, 1, Vector2(2, 10))
+	var ev := run_until_dead(s, 0, 120)
+	var e0: Dictionary = ev[0] if ev.size() == 1 else {}
+	check("train: runs a player over (death +1, no kill for anybody)", not s.players[0].alive and s.players[0].deaths == 1 and s.players[0].kills == 0 and s.players[1].kills == 0 and s.players[1].deaths == 0 and s.players[1].alive)
+	check("train: kill event has victim, killer -1 and cause train", e0.get("type") == "kill" and e0.get("victim") == 0 and e0.get("killer") == -1 and e0.get("cause") == "train" and e0.has("pos"), str(ev))
+	check("train: the victim respawns later like after any kill", (func() -> bool:
+		run(s, 120, func(_t: int) -> Array: return idle4())
+		return s.players[0].alive).call())
+	# the whole train is deadly, not only the locomotive
+	s = train_sim([0, 1])
+	s.train_s = 0.0
+	place(s, 0, TrainTrack.point(-2.0 * TrainTrack.CAR_GAP + 0.1)); place(s, 1, Vector2(2, 10))
+	ev = run_until_dead(s, 0, 120)
+	check("train: the last car kills too (a player sitting on it, the others are farther away)", not s.players[0].alive and s.players[0].deaths == 1)
+
+	# just outside / just inside the hit distance (straight piece: the train runs along y = 3.15)
+	var reach := TrainTrack.CAR_RADIUS + s.cfg.player_radius * Config.TRAIN_HIT_SHARE
+	var line_y := TrainTrack.point(0.0).y
+	s = train_sim([0])
+	place(s, 0, Vector2(13.0, line_y + reach + 0.05))
+	run(s, 150, func(_t: int) -> Array: return idle4())
+	check("train: a player just outside the hit distance survives the whole train", s.players[0].alive and s.players[0].deaths == 0 and s.train_s > 5.0)
+	s = train_sim([0])
+	place(s, 0, Vector2(13.0, line_y + reach - 0.05))
+	run_until_dead(s, 0, 150)
+	check("train: a player just inside the hit distance is run over", not s.players[0].alive)
+	s = train_sim([0])
+	s.players[0].enabled = false
+	place(s, 0, TrainTrack.point(2.0))
+	run(s, 60, func(_t: int) -> Array: return idle4())
+	check("train: a disabled player is not touched", s.players[0].deaths == 0)
+
+	# the dash across the rails is judged on the positions of the same tick
+	s = train_sim([0])
+	place(s, 0, Vector2(13.0, line_y + 2.5)); s.train_s = 13.0 - TrainTrack.point(0.0).x - 0.3
+	s.prev_train_s = s.train_s
+	s.step(only0(inp(Vector2(0, -1), Vector2.ZERO, false, true)))
+	for _t in 15:
+		s.step(only0(inp(Vector2(0, -1))))
+		if not s.players[0].alive: break
+	check("train: a player dashing in front of the locomotive is run over", not s.players[0].alive or s.players[0].deaths == 1)
+
+	# the crate
+	s = train_sim([0])
+	place(s, 0, Vector2(2, 2))
+	s.crate_pos = Vector2(13.0, line_y); s.prev_crate_pos = s.crate_pos
+	var overlap := false
+	var moved := false
+	for _t in 450:
+		s.step(idle4())
+		if s.crate_pos.distance_to(Vector2(13.0, line_y)) > 0.5: moved = true
+		for k in TrainTrack.CARS:
+			if Collide.push_out_rect(car_pos(s, k), TrainTrack.CAR_RADIUS, s.crate_rect()).length() > 0.02:
+				overlap = true
+	check("train: the crate is pushed off the track and never overlaps a car (a whole lap)", moved and not overlap, "moved=%s overlap=%s crate=%s" % [moved, overlap, s.crate_pos])
+
+	# a yo-yo head lying on the rails is not touched
+	s = train_sim([0])
+	place(s, 0, Vector2(6, line_y))
+	var h := s.players[0].heads[0]
+	h.state = HS.OUT; h.pos = Vector2(13.0, line_y); h.prev_pos = h.pos
+	s.step(idle4())
+	var hp := h.pos
+	run(s, 90, func(_t: int) -> Array: return idle4())
+	check("train: a yo-yo head lying on the track is neither moved nor removed", h.state == HS.OUT and h.pos == hp and s.players[0].alive and s.train_s > 6.0)
+
+	# respawn: never into a car. Big players make several spawn points unsafe for a car standing near them.
+	var bad := 0
+	var checked := 0
+	for seed_i in 60:
+		s = train_sim([0])
+		s.cfg.player_radius = 3.0
+		s.rng.seed = seed_i + 1
+		s.players[0].alive = false; s.players[0].respawn_t = 0.0
+		s.train_s = 0.0; s.prev_train_s = 0.0
+		var cars: Array[Vector2] = []
+		for k in TrainTrack.CARS: cars.append(car_pos(s, k))
+		s.step(idle4())
+		var rp := Vector2.INF
+		for e: Dictionary in s.events:
+			if e["type"] == "respawn": rp = e["pos"]
+		var r_reach := TrainTrack.CAR_RADIUS + 3.0 * Config.TRAIN_HIT_SHARE
+		checked += 1
+		for c in cars:
+			if rp == Vector2.INF or rp.distance_to(c) < r_reach: bad += 1
+	check("train: no respawn inside a car's hit distance (60 seeds, a spawn point made unsafe)", checked == 60 and bad == 0, "bad=%d" % bad)
+
+	# a bot standing on the rails ahead of the train gets out of the way
+	var all_alive := true
+	for bs in 6:
+		s = train_sim([0])
+		place(s, 0, TrainTrack.point(3.0 + bs * 0.4))
+		var b := Bot.new(0, s.cfg, 40 + bs)
+		var fell := false
+		for _t in 900:
+			s.step([b.think(s, dt), inp(), inp(), inp()])
+			if not s.players[0].alive: fell = true; break
+		if fell or s.players[0].deaths > 0: all_alive = false
+	check("train: a bot on the rails ahead of the train steps aside and survives two laps (6 starts)", all_alive)
+
+	# snapshot round trip
+	s = train_sim([0])
+	s.train_s = 7.3; s.prev_train_s = 7.3 - 5.0 * dt
+	var s2 := train_sim([0])
+	s2.load_state(s.save_state())
+	check("train: save_state / load_state carry the position", s2.train_s == 7.3 and is_equal_approx(s2.prev_train_s, 7.3 - 5.0 * dt))
+	var back: Dictionary = bytes_to_var(var_to_bytes(s.save_state()))
+	check("train: the state survives var_to_bytes", back["train_s"] == 7.3 and back.has("prev_train_s"))
+
+	# geometry: the rails keep clear of obstacles and walls, the spawn points keep clear of the rails
+	var min_obst := 1e9
+	var min_wall := 1e9
+	var min_spawn := 1e9
+	var n := int(TrainTrack.LENGTH / 0.02)
+	for i in n:
+		var q := TrainTrack.point(i * 0.02)
+		for o in Config.OBSTACLES:
+			min_obst = minf(min_obst, rect_dist(q, o))
+		min_wall = minf(min_wall, minf(minf(q.x, Config.ARENA_SIZE.x - q.x), minf(q.y, Config.ARENA_SIZE.y - q.y)))
+		for sp in Config.SPAWNS:
+			min_spawn = minf(min_spawn, q.distance_to(sp))
+	check("train: every point of the track is at least a car radius from every obstacle", min_obst >= TrainTrack.CAR_RADIUS, "min=%.3f" % min_obst)
+	check("train: every point of the track is at least a car radius from the outer walls", min_wall >= TrainTrack.CAR_RADIUS, "min=%.3f" % min_wall)
+	check("train: all spawn points are farther from the track than the hit distance plus the spawn noise", min_spawn > reach + Config.SPAWN_NOISE, "min=%.3f need>%.3f" % [min_spawn, reach + Config.SPAWN_NOISE])
+	check("train: a loop is closed (the point after one length is the start)", TrainTrack.point(TrainTrack.LENGTH).distance_to(TrainTrack.point(0.0)) < 1e-4)

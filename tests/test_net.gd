@@ -27,11 +27,16 @@ func inp(move := Vector2.ZERO, aim := Vector2.ZERO, held := false, dash := false
 # ---------------------------------------------------------------- rig
 
 ## Loopback hub + server + n clients. delay_ms is per direction.
-func make_rig(delay_ms: float, loss: float, n_clients: int, seed := 1, with_bots := false) -> Dictionary:
+## The train is off unless `with_train` (it has its own checks; the clock of the world it runs on is the server's, so
+## a client is never "equal to a purely local sim" while it runs).
+func make_rig(delay_ms: float, loss: float, n_clients: int, seed := 1, with_bots := false, with_train := false) -> Dictionary:
 	var hub := LoopbackHub.new(seed)
 	hub.delay_ms = delay_ms
 	hub.loss_pct = loss
-	var server := ServerCore.new(Config.new(), hub.server, 7, with_bots)
+	var cfg := Config.new()
+	if not with_train:
+		cfg.train_speed = 0.0
+	var server := ServerCore.new(cfg, hub.server, 7, with_bots)
 	var clients: Array[ClientCore] = []
 	for i in n_clients:
 		clients.append(ClientCore.new(hub.connect_client()))
@@ -213,6 +218,39 @@ func test_snapshot() -> void:
 	var st1 := s2.save_state()
 	s2.players[0].pos = Vector2(1, 1)
 	check("snapshot: dump is a deep copy", st1["players"][0]["pos"] != Vector2(1, 1))
+
+
+# ---------------------------------------------------------------- train
+
+func test_train() -> void:
+	var rig := make_rig(60.0, 0.0, 1, 5, false, true)
+	check("train: client joins", warm_up(rig))
+	var cl: ClientCore = rig["clients"][0]
+	var server: ServerCore = rig["server"]
+	var idle := func(_k: int) -> SimInput: return SimInput.new()
+	check("train: the client got the train speed with the server config", is_equal_approx(cl.cfg.train_speed, 5.0))
+	for _t in 60:
+		step_rig(rig, idle)
+	var step_m := 5.0 / 60.0
+	var ahead := cl.sim.tick - server.sim.tick
+	var expect := fposmod(server.sim.train_s + ahead * step_m, TrainTrack.LENGTH)
+	var diff := minf(absf(cl.sim.train_s - expect), TrainTrack.LENGTH - absf(cl.sim.train_s - expect))
+	check("train: the predicted train is where the server's would be at the client's tick (%d ticks ahead, off by %.4f m)" % [ahead, diff], diff < 0.01 and ahead >= 0 and ahead < 30)
+	check("train: the client's step is one step of the server's speed", is_equal_approx(cl.sim.train_s - cl.sim.prev_train_s, step_m) or cl.sim.train_s < step_m)
+	# the player is put on the rails in front of the locomotive; the kill must arrive as an event on the client
+	var me := server.sim.players[cl.slot]
+	me.pos = TrainTrack.point(server.sim.train_s + 3.5); me.prev_pos = me.pos
+	var seen := []
+	var errors_free := true
+	for _t in 150:
+		step_rig(rig, idle)
+		for e: Dictionary in cl.events:
+			if e["type"] == "kill":
+				seen.append(e)
+				errors_free = errors_free and e.has("pos") and e.has("victim") and e.has("killer")
+	check("train: the server ran the player over (a death, no kill for anybody)", me.deaths == 1 and server.sim.players.all(func(p: SimPlayer) -> bool: return p.kills == 0))
+	check("train: the kill arrives at the client as an event with killer -1 and cause train", seen.size() == 1 and seen[0]["killer"] == -1 and seen[0]["cause"] == "train" and seen[0]["victim"] == cl.slot and errors_free, str(seen))
+	check("train: the client's own copy counts the death too", cl.sim.players[cl.slot].deaths == 1 and cl.sim.players[cl.slot].kills == 0)
 
 
 # ---------------------------------------------------------------- prediction
@@ -1925,7 +1963,7 @@ func _initialize() -> void:
 	# TEST_STOP_ON_FAIL=1 (set by tests/sabotage.py): stop after the first test group that fails.
 	var stop_early := OS.get_environment("TEST_STOP_ON_FAIL") == "1"
 	var groups: Array[Callable] = [
-		test_snapshot, test_prediction, test_one_shot_inputs, test_skin, test_skin_delayed, test_interpolation, test_view_others,
+		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
 		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_client_rules, test_lag_tool,
 		test_address_parse, test_enet, test_menu_online, test_main_scene,

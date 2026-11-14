@@ -34,6 +34,7 @@ const CRATE_PUSH_RATIO := 0.3      # share of a player's push that moves the cra
 const BOX_RESPAWN_TIME := 6.0
 const PLAYER_SEPARATION_SHARE := 0.5
 const SPAWN_NOISE := 0.5
+const TRAIN_HIT_SHARE := 0.6       # share of the player radius that counts when a train car hits (a little forgiving)
 const HEAD_BOUNCE_EXTRA := 0.6     # extra knock distance when two heads collide
 const CATCH_MARGIN := 0.1
 const MAX_ACCUMULATED_TIME := 0.25
@@ -54,6 +55,8 @@ const BOT_PULL_HOLD_EXTRA := 0.6
 const BOT_DASH_CHANCE := 0.004      # per tick while idle
 const BOT_ATTACK_RANGE_FACTOR := 1.2
 const BOT_MARGIN := 1.8
+const BOT_TRAIN_AVOID_DIST := 3.0   # bots steer away from a train car (or the rails ahead of it) closer than this
+const BOT_TRAIN_AVOID_WEIGHT := 3.0
 
 # --- Feel / presentation (fixed) ---
 const HITSTOP_TIME := 0.07
@@ -98,6 +101,7 @@ var aim_deadzone: float
 var accidental_hold_time: float
 var out_variant: int
 var bot_mode: int
+var train_speed: float
 ## Sandbox modifier levels (modifier id -> 0..3): one set for the human player, one shared by all bots.
 var mods_you: Dictionary = Mods.empty_levels()
 var mods_bots: Dictionary = Mods.empty_levels()
@@ -126,6 +130,7 @@ const DEFAULTS := {
 	"accidental_hold_time": 0.07,
 	"out_variant": OutVariant.DRAG,
 	"bot_mode": BotMode.ACTIVE,
+	"train_speed": 5.0,
 }
 
 

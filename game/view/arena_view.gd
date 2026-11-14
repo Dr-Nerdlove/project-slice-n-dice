@@ -49,8 +49,7 @@ var _wire_glow: Array[MeshInstance3D] = []
 var _shard_nodes: Array[MeshInstance3D] = []
 var _aim_marks: Array[MeshInstance3D] = []
 var _ring: MeshInstance3D
-var _crate: MeshInstance3D
-var _box: MeshInstance3D
+var _room: Playroom
 var _spin := 0.0
 var _time := 0.0
 var _shake_t := 0.0
@@ -100,10 +99,10 @@ func _box_mesh(size3: Vector3, m: Material) -> MeshInstance3D:
 func _build_environment() -> void:
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.07, 0.08, 0.1)
+	env.background_color = Color(0.16, 0.12, 0.1)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.7, 0.72, 0.8)
-	env.ambient_light_energy = 0.6
+	env.ambient_light_color = Color(0.82, 0.78, 0.8)
+	env.ambient_light_energy = 0.7
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
@@ -129,24 +128,9 @@ func _build_environment() -> void:
 
 
 func _build_arena() -> void:
-	var a := Config.ARENA_SIZE
-	var floor_mi := _box_mesh(Vector3(a.x, 0.2, a.y), _mat(Color(0.2, 0.22, 0.26)))
-	floor_mi.position = Vector3(a.x * 0.5, -0.1, a.y * 0.5)
-	add_child(floor_mi)
-	for i in sim.statics.size():
-		var r := sim.statics[i]
-		var h := 1.2 if i < sim.wall_count else 1.5
-		var col := Color(0.38, 0.4, 0.46) if i < sim.wall_count else Color(0.5, 0.45, 0.4)
-		var mi := _box_mesh(Vector3(r.size.x, h, r.size.y), _mat(col))
-		mi.position = Vector3(r.get_center().x, h * 0.5, r.get_center().y)
-		add_child(mi)
-	var ch := Config.CRATE_HALF * 2.0
-	_crate = _box_mesh(Vector3(ch, ch, ch), _mat(Color(0.65, 0.45, 0.2)))
-	add_child(_crate)
-	var bh := Config.BOX_HALF * 2.0
-	_box = _box_mesh(Vector3(bh, bh, bh), _mat(Color(0.8, 0.3, 0.7)))
-	_box.position = Vector3(Config.BOX_POS.x, Config.BOX_HALF, Config.BOX_POS.y)
-	add_child(_box)
+	_room = Playroom.new()
+	add_child(_room)
+	_room.setup(sim)
 
 
 func _build_players() -> void:
@@ -340,7 +324,8 @@ func handle_event(e: Dictionary) -> void:
 		"ricochet":
 			burst(pos, MARK_BOUNCE, 6, 3.0)
 		"box_break":
-			burst(pos, Color(0.8, 0.3, 0.7), 20, 5.0)
+			burst(pos, Playroom.PRESENT, 20, 5.0)
+			burst(pos, Playroom.RIBBON, 14, 6.5)
 		"explosion":
 			_explosion(pos, e["radius"] as float)
 			shake(Config.SHAKE_STRENGTH * 0.5, Config.SHAKE_TIME * 0.6)
@@ -601,9 +586,7 @@ func render(alpha: float, delta: float) -> void:
 	_render_wires()
 	_render_shards(alpha)
 
-	var cp := sim.prev_crate_pos.lerp(sim.crate_pos, alpha)
-	_crate.position = Vector3(cp.x, Config.CRATE_HALF, cp.y)
-	_box.visible = sim.box_active
+	_room.render(sim, alpha, delta)
 
 	if _shake_t > 0.0:
 		_shake_t -= delta
