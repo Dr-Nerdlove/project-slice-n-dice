@@ -43,6 +43,7 @@ func _init(config: Config, seed_value: int) -> void:
 	for i in Config.NUM_PLAYERS:
 		var p := SimPlayer.new()
 		p.id = i
+		p.skin = i
 		p.pos = Config.SPAWNS[i]
 		p.dash_charges = cfg.dash_charges
 		p.prev_pos = p.pos

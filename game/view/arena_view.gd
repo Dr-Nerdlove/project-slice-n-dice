@@ -5,9 +5,10 @@ extends Node3D
 
 const PLAYER_COLORS: Array[Color] = [
 	Color(0.25, 0.55, 1.0), Color(1.0, 0.35, 0.3), Color(0.35, 0.85, 0.4), Color(1.0, 0.8, 0.25)]
-const BODY_HEIGHT := 1.8
 const HEAD_Y := 0.35
-const HAND_Y := 0.7
+const HAND_LIFT := 0.1            # a yo-yo in the hand sits this far above the hand
+const FLIGHT_ARC := 0.3           # extra height in the middle of a throw
+const CATCH_RISE_DIST := 2.5      # a returning yo-yo climbs to the hand over this distance
 const STRING_WIDTH := 0.05
 const STRING_Y := 0.6
 const ELASTIC_STRING_WIDTH := 0.13
@@ -18,9 +19,6 @@ const WIRE_LETHAL_COLOR := Color(1.0, 0.1, 0.08)
 const WIRE_BLINK_TIME := 0.8
 const SHARD_COLOR := Color(1.0, 0.95, 0.5)
 const EXPLOSION_COLOR := Color(1.0, 0.55, 0.15)
-const WOBBLE_SPEED := 45.0
-const WOBBLE_ANGLE := 0.25
-const FLASH_PERIOD := 0.08
 const HAND_SPREAD := 0.6          # sideways spacing of several yo-yos in the hand (in head radii)
 const MARK_BOUNCE := Color(1, 1, 1)
 const MARK_PIERCE := Color(0.5, 0.95, 1.0)
@@ -38,13 +36,13 @@ var _local_slot := 0
 var cfg: Config
 var camera: Camera3D
 
-var _bodies: Array[Node3D] = []
+var _bodies: Array[CharacterRig] = []
+var _hand_counts: Array[int] = []   # per player: yo-yos in the hand last frame (throw / catch flick)
 var _heads: Array = []     # per player: Array[Node3D]
 var _string_segs: Array[MeshInstance3D] = []   # pool: one box per string segment, reused every frame
 var _aim_segs: Array[MeshInstance3D] = []      # pool: segments of the aim lines
 var _seg_cursor := 0
 var _aim_cursor := 0
-var _body_mats: Array[StandardMaterial3D] = []
 var _lethal_discs: Array[MeshInstance3D] = []
 var _wire_core: Array[MeshInstance3D] = []
 var _wire_glow: Array[MeshInstance3D] = []
@@ -154,21 +152,11 @@ func _build_arena() -> void:
 func _build_players() -> void:
 	for i in sim.players.size():
 		var col := PLAYER_COLORS[i]
-		var body := Node3D.new()
-		var cap := MeshInstance3D.new()
-		var cm := CapsuleMesh.new()
-		cm.radius = 1.0
-		cm.height = BODY_HEIGHT
-		cap.mesh = cm
-		var bmat := _mat(col)
-		cap.material_override = bmat
-		_body_mats.append(bmat)
-		body.add_child(cap)
-		var nose := _box_mesh(Vector3(0.3, 0.3, 0.5), _mat(Color(1, 1, 1)))
-		nose.name = "Nose"
-		body.add_child(nose)
+		var body := CharacterRig.new()
+		body.setup(sim.players[i].skin, col)
 		add_child(body)
 		_bodies.append(body)
+		_hand_counts.append(-1)
 
 		var disc_l := MeshInstance3D.new()
 		var dl := CylinderMesh.new()
@@ -215,16 +203,38 @@ func _build_players() -> void:
 ## A head in unit size (radius 1) with one cheap marker per modifier, shown or hidden each frame.
 func _make_head(col: Color) -> Node3D:
 	var head := Node3D.new()
-	var disc := MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = 1.0
-	cyl.bottom_radius = 1.0
-	cyl.height = 0.5
-	disc.mesh = cyl
-	disc.material_override = _mat(col.lightened(0.3))
-	head.add_child(disc)
-	var bar := _box_mesh(Vector3(1.7, 0.6, 0.3), _mat(Color(0.1, 0.1, 0.12)))
+	# Two shells with a groove for the string, and a stripe and cap on top that show the spin.
+	var shell := _mat(col.lightened(0.3))
+	for side: float in [-1.0, 1.0]:
+		var half := MeshInstance3D.new()
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = 1.0 if side < 0.0 else 0.78
+		cyl.bottom_radius = 0.78 if side < 0.0 else 1.0
+		cyl.height = 0.2
+		half.mesh = cyl
+		half.material_override = shell
+		half.position = Vector3(0.0, 0.15 * side, 0.0)
+		head.add_child(half)
+	var axle := MeshInstance3D.new()
+	var am := CylinderMesh.new()
+	am.top_radius = 0.45
+	am.bottom_radius = 0.45
+	am.height = 0.12
+	axle.mesh = am
+	axle.material_override = _mat(Color(0.1, 0.1, 0.12))
+	head.add_child(axle)
+	var bar := _box_mesh(Vector3(1.5, 0.08, 0.26), _mat(col.darkened(0.45)))
+	bar.position = Vector3(0.0, 0.26, 0.0)
 	head.add_child(bar)
+	var cap := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.3
+	cm.bottom_radius = 0.36
+	cm.height = 0.14
+	cap.mesh = cm
+	cap.material_override = _mat(Color(1, 1, 1))
+	cap.position = Vector3(0.0, 0.3, 0.0)
+	head.add_child(cap)
 	# Abpraller: white ring around the rim.
 	var ring := MeshInstance3D.new()
 	var tm := TorusMesh.new()
@@ -490,6 +500,7 @@ func render(alpha: float, delta: float) -> void:
 		var p := src.players[i]
 		var body := _bodies[i]
 		var vis := p.enabled and p.alive
+		var appeared := vis and not body.visible
 		body.visible = vis
 		_aim_marks[i].visible = false
 		_lethal_discs[i].visible = false
@@ -498,30 +509,36 @@ func render(alpha: float, delta: float) -> void:
 			(heads[k] as Node3D).visible = false
 		if not vis:
 			continue
+		if body.kind != posmod(p.skin, CharacterRig.KIND_COUNT):
+			body.setup(p.skin, PLAYER_COLORS[i])
 		var hr := src.head_r(p)
 		var pos := p.prev_pos.lerp(p.pos, a)
-		body.position = Vector3(pos.x, BODY_HEIGHT * 0.5, pos.y)
-		var cap := body.get_child(0) as MeshInstance3D
-		(cap.mesh as CapsuleMesh).radius = pr
-		(cap.mesh as CapsuleMesh).height = BODY_HEIGHT
+		body.position = Vector3(pos.x, 0.0, pos.y)
 		var face := p.aim_dir if p.charging else p.facing
 		body.rotation.y = atan2(face.x, face.y)
-		(body.get_child(1) as Node3D).position = Vector3(0, 0.5, pr)
 		var ring := body.get_node_or_null("LocalRing") as Node3D
 		if ring != null:
 			ring.scale = Vector3(pr * 1.5, 1.0, pr * 1.5)
-			ring.position = Vector3(0, -BODY_HEIGHT * 0.5 + 0.03, 0)
-			ring.rotation.y = -body.rotation.y
-		# Stumbling: wobble and flash.
-		var base_col := PLAYER_COLORS[i]
-		if p.stun_t > 0.0:
-			body.rotation.z = sin(_time * WOBBLE_SPEED) * WOBBLE_ANGLE
-			body.rotation.x = cos(_time * WOBBLE_SPEED * 0.8) * WOBBLE_ANGLE * 0.6
-			_body_mats[i].albedo_color = Color(1, 1, 1) if int(_time / FLASH_PERIOD) % 2 == 0 else base_col
-		else:
-			body.rotation.z = 0.0
-			body.rotation.x = 0.0
-			_body_mats[i].albedo_color = base_col
+			ring.position = Vector3(0, 0.03, 0)
+		# The figure: walk cycle from the real movement, wind-up from the charge, the hand follows the string.
+		var hand_n := p.count_state(SimHead.S.HAND)
+		if appeared:
+			body.pop()
+		elif _hand_counts[i] >= 0 and hand_n != _hand_counts[i]:
+			body.throw_flick(hand_n < _hand_counts[i])
+		_hand_counts[i] = hand_n
+		var string_dir := Vector2.ZERO
+		if hand_n == 0:
+			for h in p.heads:
+				var to: Vector2 = (h.pins[0] if h.pins.size() > 0 else h.prev_pos.lerp(h.pos, a)) - pos
+				if to.length() > 0.05:
+					string_dir = to.normalized()
+					break
+		var vel := (p.pos - p.prev_pos) * Config.TICK_RATE
+		var charge := clampf(p.charge_t / maxf(cfg.charge_time, 0.01), 0.0, 1.0) if p.charging else 0.0
+		body.animate(delta, pr, vel, cfg.player_speed, p.dash_t > 0.0 or p.body_is_moving_weapon(), charge,
+				p.stun_t > 0.0, string_dir)
+		var hand3 := body.hand_world()
 		# Lethal body (Gummiband).
 		var br := src.body_lethal_r(p)
 		if br > 0.0:
@@ -531,7 +548,6 @@ func render(alpha: float, delta: float) -> void:
 			ld.scale = Vector3(br + Mods.BODY_LETHAL_MARGIN, 1.0, br + Mods.BODY_LETHAL_MARGIN)
 
 		var elastic := src.lv(p, "elastic") > 0
-		var hand_n := p.count_state(SimHead.S.HAND)
 		var hand_k := 0
 		for k in p.heads.size():
 			var h := p.heads[k]
@@ -544,10 +560,12 @@ func render(alpha: float, delta: float) -> void:
 			var hs := hr
 			if not out_like:
 				var side := Vector2(face.y, -face.x)
-				hp = pos + face * (pr + hr * 0.4) + side * (hand_k - (hand_n - 1) * 0.5) * hr * HAND_SPREAD * 2.0
+				hp = Vector2(hand3.x, hand3.z) + side * (hand_k - (hand_n - 1) * 0.5) * hr * HAND_SPREAD * 2.0
 				hand_k += 1
-				hy = HAND_Y
+				hy = hand3.y + HAND_LIFT
 				hs = hr * 0.7
+			else:
+				hy = _head_height(h, hp.distance_to(pos), hand3.y)
 			node.position = Vector3(hp.x, hy, hp.y)
 			node.scale = Vector3(hs, hs * 0.5, hs)
 			node.rotation.y = _spin if out_like else _spin * 0.3
@@ -558,12 +576,12 @@ func render(alpha: float, delta: float) -> void:
 					width = ELASTIC_STRING_WIDTH * (1.0 + 0.3 * src.lv(p, "elastic") / Mods.MAX_LEVEL)
 					scol = ELASTIC_STRING_COLOR
 				# The string is a polyline: player -> bounce points (pins) -> head.
-				var prev3 := Vector3(pos.x, STRING_Y, pos.y)
+				var prev3 := hand3
 				for pin in h.pins:
 					var pin3 := Vector3(pin.x, STRING_Y, pin.y)
 					_string_segment(prev3, pin3, width, scol)
 					prev3 = pin3
-				_string_segment(prev3, Vector3(hp.x, HEAD_Y + 0.1, hp.y), width, scol)
+				_string_segment(prev3, Vector3(hp.x, hy, hp.y), width, scol)
 		if p.charging:
 			var path := src.aim_path(p)
 			var acol := PLAYER_COLORS[i].lightened(0.4)
@@ -595,6 +613,19 @@ func render(alpha: float, delta: float) -> void:
 	else:
 		camera.h_offset = 0.0
 		camera.v_offset = 0.0
+
+
+## Height of a yo-yo that is out: it leaves the hand in a flat arc, lies low while it is out and climbs back
+## to the hand on its way home. Presentation only (hits are decided on the ground plane).
+func _head_height(h: SimHead, dist: float, hand_y: float) -> float:
+	match h.state:
+		SimHead.S.FLIGHT:
+			var t := clampf(h.flown / maxf(h.flight_dist, 0.01), 0.0, 1.0)
+			return lerpf(hand_y, HEAD_Y, minf(t * 2.5, 1.0)) + sin(t * PI) * FLIGHT_ARC
+		SimHead.S.RETRACT:
+			var t := clampf(1.0 - dist / CATCH_RISE_DIST, 0.0, 1.0)
+			return lerpf(HEAD_Y, hand_y, t * t)
+	return HEAD_Y
 
 
 ## Tripwires on the ground in the owner's colour (polylines along the string); lethal ones glow red and pulse.

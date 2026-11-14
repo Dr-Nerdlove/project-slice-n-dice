@@ -9,6 +9,7 @@ const STATE_SKIP := ["head", "prev_head", "ystate"]
 enum Yo { READY, CHARGING, FLIGHT, OUT, RETRACT, PULL }
 
 var id := 0
+var skin := 0               # which figure is shown (CharacterRig.Kind); presentation only
 var enabled := true
 var alive := true
 var respawn_t := 0.0
