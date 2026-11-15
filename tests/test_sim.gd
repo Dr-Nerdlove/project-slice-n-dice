@@ -381,6 +381,17 @@ func _mod_tests() -> void:
 	check("figure: float value is accepted", cfgd.character == 2)
 	cfgd.from_dict({})
 	check("figure: old file without the key gives 0", cfgd.character == 0)
+	var cfgt := Config.new()
+	check("target score: default 10", cfgt.target_score == 10 and cfgt.to_dict()["target_score"] == 10)
+	cfgt.target_score = 20
+	var cfgu := Config.new()
+	cfgu.from_dict(JSON.parse_string(JSON.stringify(cfgt.to_dict())))
+	check("target score: survives the JSON round trip", cfgu.target_score == 20)
+	cfgu.reset()
+	check("target score: reset leaves it", cfgu.target_score == 20)
+	for garbage in [7, -3, "x", null, 1e30]:
+		cfgu.from_dict({"target_score": garbage})
+		check("target score: garbage %s gives the default" % str(garbage), cfgu.target_score == 10)
 	s = mk([0, 1])
 	check("figure: new sim shows figure = slot (wrapped)", s.players[0].skin == 0 % Config.SKIN_COUNT and s.players[1].skin == 1 % Config.SKIN_COUNT)
 	s.set_skin(1, Config.SKIN_COUNT - 1)

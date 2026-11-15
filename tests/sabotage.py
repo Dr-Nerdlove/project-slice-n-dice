@@ -487,7 +487,7 @@ SB=[
  ("8 play: the chosen figure is not carried over","main.gd","\tc.character = train_cfg.character\n\tc.bot_mode","\tc.bot_mode"),
  ("8 play: the host runs on the tuned values","main.gd","host.start(play_cfg, with_bots, local_port)","host.start(train_cfg, with_bots, local_port)"),
  ("8 play: a join sends the Training config","main.gd","\tplay_cfg = _make_play_cfg()\n\t_use_config_for_session(play_cfg, false)","\t_use_config_for_session(train_cfg, true)"),
- ("8 play: solo uses the tuned config","main.gd","\ttraining = false\n\tplay_cfg = _make_play_cfg()\n\t_new_sim(play_cfg)\n\t_set_screen(Screen.GAME)","\ttraining = false\n\t_new_sim(train_cfg)\n\t_set_screen(Screen.GAME)"),
+ ("8 play: solo uses the tuned config","main.gd","\ttraining = false\n\tplay_cfg = _make_play_cfg()\n\t_new_sim(play_cfg)\n\tsim.start_match(play_cfg.target_score)\n\t_set_screen(Screen.GAME)","\ttraining = false\n\t_new_sim(train_cfg)\n\tsim.start_match(play_cfg.target_score)\n\t_set_screen(Screen.GAME)"),
  ("8 training: runs on the default values","main.gd","\ttraining = true\n\t_new_sim(train_cfg)","\ttraining = true\n\t_new_sim(_make_play_cfg())"),
  ("8 play: a host accepts client modifiers","net/local_host.gd","\tcore.accept_client_mods = false","\tpass"),
  ("8 server: fixed values still take client modifiers","net/server_core.gd","\t\t\tif not accept_client_mods:\n\t\t\t\tpass","\t\t\tif false:\n\t\t\t\tpass"),
@@ -532,6 +532,18 @@ SB=[
  ("2 match start without two players","sim/sim.gd","\tif n < 2:\n\t\treturn false","\tif n < 1:\n\t\treturn false"),
  ("2 match arena not reset","sim/sim.gd","\twires.clear()\n\tshards.clear()\n\tcrate_pos = Config.CRATE_START","\tcrate_pos = Config.CRATE_START"),
  ("8 match lock in hello","net/server_core.gd","\tif match_locked():\n\t\t_log","\tif false:\n\t\t_log"),
+ ("8 match: solo starts no match","main.gd","\tsim.start_match(play_cfg.target_score)\n\t_set_screen(Screen.GAME)","\t_set_screen(Screen.GAME)"),
+ ("8 match: the lobby target is not copied to Play","main.gd","\tc.target_score = train_cfg.target_score\n","\n"),
+ ("8 match: the lobby target is not saved","ui/play_lobby.gd","\tcfg.target_score = points\n","\tpass\n"),
+ ("8 match: a joiner enters the game before the start","main.gd","if _from_local and not training and client.sim.mode.phase == MatchMode.Phase.OFF:\n\t\tif screen","if false:\n\t\tif screen"),
+ ("8 match: the lobby client never follows the start","main.gd","if screen == Screen.LOBBY and _from_local and not training and shown.mode.phase != MatchMode.Phase.OFF:","if false:"),
+ ("8 match: Start match does nothing","main.gd","local_host.core.start_match(train_cfg.target_score)","false"),
+ ("8 match: rematch does not restart (solo)","main.gd","\t\tsim.start_match(sim.mode.target)","\t\tpass"),
+ ("8 match: rematch does not restart (host)","main.gd","local_host.core.start_match(client.sim.mode.target)","pass"),
+ ("8 match: the overlay shows nothing in the countdown","ui/match_overlay.gd","\t\tif m.phase == MatchMode.Phase.COUNTDOWN:\n\t\t\tctext","\t\tif false:\n\t\t\tctext"),
+ ("8 match: the overlay shows the result at once","ui/match_overlay.gd","m.phase_t >= PANEL_DELAY and","true and"),
+ ("8 match: the scoreboard is not sorted","ui/match_overlay.gd","slots.sort_custom(","slots.map("),
+ ("7 config: target score not validated","sim/config.gd","and MatchMode.TARGETS.has(int(ts))","and true"),
 ]
 
 def suites_for(name, full):

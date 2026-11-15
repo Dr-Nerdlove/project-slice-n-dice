@@ -13,6 +13,8 @@ signal join_local_requested(ip: String, port: int)
 signal join_code_requested(code: String)
 signal stop_requested
 signal figure_chosen(index: int)
+signal target_chosen(points: int)
+signal start_match_requested
 
 var cfg: Config                 # the saved config; only `character` is touched
 ## How the figure choice is persisted (a test replaces this so it never writes the real settings file).
@@ -21,6 +23,9 @@ var back_btn: Button
 var solo_btn: Button
 var mode_card: PanelContainer
 var figure_buttons: Array[Button] = []
+var target_buttons: Array[Button] = []   # First to 10 / 15 / 20
+var start_btn: Button           # host only: begins the match for everybody in the lobby
+var wait_label: Label           # joiner only: waits for the host
 var figure_preview: FigurePreview   # live 3D picture of the chosen figure
 
 var _preview_cfg := Config.new()   # the picture is drawn with the standard sizes, as in a real game
@@ -109,6 +114,7 @@ func setup(c: Config) -> void:
 	pad.mouse_filter = Control.MOUSE_FILTER_PASS
 	right.add_child(pad)
 	_mark_figure()
+	_mark_target()
 
 
 func _build_mode_card() -> Control:
@@ -122,7 +128,19 @@ func _build_mode_card() -> Control:
 	mode_card.add_child(box)
 	box.add_child(UiKit.eyebrow("Mode"))
 	box.add_child(UiKit.heading("Last Standing", 26))
-	box.add_child(UiKit.body("No respawns yet: rounds and points follow soon."))
+	box.add_child(UiKit.body("Last one standing scores. No respawns within a round."))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	box.add_child(row)
+	for i in MatchMode.TARGETS.size():
+		var pts: int = MatchMode.TARGETS[i]
+		var b := UiKit.button("First to %d" % pts, "paper")
+		b.toggle_mode = true
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.custom_minimum_size.y = 52.0
+		b.pressed.connect(func() -> void: _choose_target(pts))
+		row.add_child(b)
+		target_buttons.append(b)
 	return mode_card
 
 
@@ -231,6 +249,13 @@ func _build_together() -> Control:
 	_status = UiKit.label("Not connected", 22, UiKit.INK, true)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(_status)
+	start_btn = UiKit.button("Start match", "main")
+	start_btn.visible = false
+	start_btn.pressed.connect(func() -> void: start_match_requested.emit())
+	col.add_child(start_btn)
+	wait_label = UiKit.heading("Waiting for the host to start", 22)
+	wait_label.visible = false
+	col.add_child(wait_label)
 	return panel
 
 
@@ -243,6 +268,18 @@ func _choose_figure(i: int) -> void:
 	figure_chosen.emit(i)
 
 
+func _choose_target(points: int) -> void:
+	cfg.target_score = points
+	_mark_target()
+	save_fn.call(cfg)
+	target_chosen.emit(points)
+
+
+func _mark_target() -> void:
+	for i in target_buttons.size():
+		target_buttons[i].set_pressed_no_signal(MatchMode.TARGETS[i] == cfg.target_score)
+
+
 func _mark_figure() -> void:
 	for i in figure_buttons.size():
 		figure_buttons[i].set_pressed_no_signal(i == cfg.character)
@@ -253,6 +290,7 @@ func _mark_figure() -> void:
 ## Shows the lobby (the figure shown follows the saved choice) / hides it.
 func open() -> void:
 	_mark_figure()
+	_mark_target()
 	visible = true
 
 
@@ -289,6 +327,14 @@ func set_session(hosting: bool, connected: bool, code: String, players: int) -> 
 			_players_label.text = "Players: %d of %d" % [players, Config.NUM_PLAYERS]
 	if not hosting:
 		_shown = ""
+
+
+## The start controls of a connected lobby: the host sees "Start match" (enabled when `can_start`), a joiner sees
+## that the host has to start. Not connected: neither.
+func set_start(hosting: bool, connected: bool, can_start: bool) -> void:
+	start_btn.visible = hosting and connected
+	start_btn.disabled = not can_start
+	wait_label.visible = connected and not hosting
 
 
 ## Looks for games while it makes sense; closes the listener otherwise.
