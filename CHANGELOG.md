@@ -4,6 +4,21 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.5.0
+
+Play with friends without a server: one phone hosts, the others join.
+
+- **New tab "Lokal"** in the settings. The host presses **Spiel eröffnen** (with the check box **Mit Bots auffüllen**,
+  on by default) and sees a big code and the number of players. The match uses the host's settings.
+- **Everyone must be in the same Wi-Fi, or in the hotspot of one of the phones.** The hotspot has to be switched on by
+  hand in the phone's settings; the app cannot do that.
+- **Joining:** the other phones open **Lokal** and press the game under **Gefundene Spiele**. If nothing shows up
+  (some networks block this), type the code and press **Beitreten**.
+- **The match ends when the host leaves** the game or closes the app; the others are then back in the offline game.
+- The tab **Online** (join a server by address) works as before.
+- The Android app now also asks for the permissions to read the Wi-Fi state and to receive broadcasts (needed for
+  the list of found games). After installing, the update goes over the old app as usual.
+
 ## 0.4.2
 
 A new Schnapp-Dino and a rolling Würfel, the toy train blocks yo-yos, and a lying yo-yo can be picked up by walking

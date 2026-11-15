@@ -1,7 +1,8 @@
 class_name TuningMenu
 extends CanvasLayer
-## Overlay with two pages: "Werte" (sliders for the main tuning values) and "Modifikatoren"
-## (sandbox: modifier levels for the player and the bots). German labels, big touch targets.
+## Overlay with pages: "Werte" (sliders for the main tuning values), "Modifikatoren" (sandbox: modifier levels
+## for the player and the bots), "Online" (join a server by address, lag tool), "Lokal" (host or join a match on the
+## same network) and "Figur". German labels, big touch targets.
 
 signal closed
 signal connect_requested(address: String)
@@ -9,6 +10,10 @@ signal disconnect_requested
 signal lag_changed(delay_ms: float, loss_pct: float)
 signal smoothing_changed(on: bool)
 signal update_requested
+signal host_requested(with_bots: bool)
+signal join_local_requested(ip: String, port: int)
+signal join_code_requested(code: String)
+signal local_stop_requested
 
 # name, German label, min, max, step, unit
 const SLIDERS: Array = [
@@ -56,6 +61,27 @@ var _figure_page: ScrollContainer
 var _figure_buttons: Array[Button] = []
 var _figure_preview: FigurePreview   # live 3D picture of the chosen figure
 var _online_page: ScrollContainer
+var _tab_local: Button
+var _local_page: ScrollContainer
+var _local_bots_check: CheckButton
+var _local_host_btn: Button
+var _local_stop_btn: Button
+var _local_join_btn: Button
+var _local_code_edit: LineEdit
+var _local_status: Label
+var _local_hosting_box: Control
+var _local_code_label: Label
+var _local_players_label: Label
+var _local_found_box: VBoxContainer
+var _local_empty_label: Label
+var _local_found_buttons := {}   # "ip:port" -> Button
+var _local_hosting := false
+var _local_connected := false
+var _local_shown := ""           # what the hosting box shows now (to touch the labels only on a change)
+## Looking for games: the listener runs only while the page "Lokal" is open and the player is neither hosting nor connected.
+var discovery_port := LanBeacon.PORT
+var clock: Callable = Time.get_ticks_msec   # a test replaces this with a fake clock
+var _listener: LanBeacon
 var _address_edit: LineEdit
 var _connect_btn: Button
 var _disconnect_btn: Button
@@ -137,6 +163,10 @@ func setup(c: Config) -> void:
 	_tab_online.toggle_mode = true
 	_tab_online.pressed.connect(func() -> void: _show_page(2))
 	tabs.add_child(_tab_online)
+	_tab_local = _button("Lokal")
+	_tab_local.toggle_mode = true
+	_tab_local.pressed.connect(func() -> void: _show_page(4))
+	tabs.add_child(_tab_local)
 	_tab_figure = _button("Figur")
 	_tab_figure.toggle_mode = true
 	_tab_figure.pressed.connect(func() -> void: _show_page(3))
@@ -151,6 +181,9 @@ func setup(c: Config) -> void:
 	_online_page = _make_scroll()
 	root.add_child(_online_page)
 	_build_online_page(_online_page)
+	_local_page = _make_scroll()
+	root.add_child(_local_page)
+	_build_local_page(_local_page)
 	_figure_page = _make_scroll()
 	root.add_child(_figure_page)
 	_build_figure_page(_figure_page)
@@ -193,16 +226,18 @@ func _make_scroll() -> ScrollContainer:
 	return scroll
 
 
-## 0 = values, 1 = modifiers, 2 = online, 3 = figure.
+## 0 = values, 1 = modifiers, 2 = online, 3 = figure, 4 = local.
 func _show_page(page: int) -> void:
 	_values_page.visible = page == 0
 	_mods_page.visible = page == 1
 	_online_page.visible = page == 2
 	_figure_page.visible = page == 3
+	_local_page.visible = page == 4
 	_tab_values.set_pressed_no_signal(page == 0)
 	_tab_mods.set_pressed_no_signal(page == 1)
 	_tab_online.set_pressed_no_signal(page == 2)
 	_tab_figure.set_pressed_no_signal(page == 3)
+	_tab_local.set_pressed_no_signal(page == 4)
 
 
 ## The choice of the player's figure: a preview placeholder on top, then one toggle button per figure.
@@ -327,6 +362,167 @@ func _build_online_page(scroll: ScrollContainer) -> void:
 	pad.custom_minimum_size = Vector2(0, 80)
 	pad.mouse_filter = Control.MOUSE_FILTER_PASS
 	col.add_child(pad)
+
+
+## Play on the same network: one device hosts, the others pick the game from a list or type its code.
+func _build_local_page(scroll: ScrollContainer) -> void:
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 14)
+	scroll.add_child(col)
+	var info := _desc_label("Alle müssen im selben WLAN sein – oder im Hotspot eines der Handys. Den Hotspot schaltest du selbst in den Einstellungen des Handys ein, das kann die App nicht. Gespielt wird mit den Werten dessen, der das Spiel eröffnet. Das Spiel endet, wenn er die App verlässt.")
+	col.add_child(info)
+	_local_bots_check = CheckButton.new()
+	_local_bots_check.text = "Mit Bots auffüllen"
+	_local_bots_check.button_pressed = true
+	_local_bots_check.custom_minimum_size = Vector2(0, SLIDER_HEIGHT)
+	_local_bots_check.add_theme_font_size_override("font_size", FONT_SIZE)
+	col.add_child(_local_bots_check)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	col.add_child(row)
+	_local_host_btn = _button("Spiel eröffnen")
+	_local_host_btn.custom_minimum_size = Vector2(260, 56)
+	_local_host_btn.pressed.connect(func() -> void: host_requested.emit(_local_bots_check.button_pressed))
+	row.add_child(_local_host_btn)
+	_local_stop_btn = _button("Beenden")
+	_local_stop_btn.disabled = true
+	_local_stop_btn.pressed.connect(func() -> void: local_stop_requested.emit())
+	row.add_child(_local_stop_btn)
+	# Shown while hosting: the code in big letters and the player count.
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	box.visible = false
+	col.add_child(box)
+	_local_hosting_box = box
+	box.add_child(_desc_label("Dein Spiel ist offen. Die anderen tippen diesen Code ein oder wählen dein Spiel in der Liste:"))
+	_local_code_label = Label.new()
+	_local_code_label.add_theme_font_size_override("font_size", 84)
+	_local_code_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	box.add_child(_local_code_label)
+	_local_players_label = Label.new()
+	_local_players_label.add_theme_font_size_override("font_size", 26)
+	_local_players_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	box.add_child(_local_players_label)
+	var found_title := Label.new()
+	found_title.text = "Gefundene Spiele"
+	found_title.add_theme_font_size_override("font_size", 26)
+	found_title.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(found_title)
+	_local_found_box = VBoxContainer.new()
+	_local_found_box.add_theme_constant_override("separation", 8)
+	col.add_child(_local_found_box)
+	_local_empty_label = _desc_label("Noch kein Spiel gefunden")
+	_local_found_box.add_child(_local_empty_label)
+	var cap := Label.new()
+	cap.text = "Oder Code eingeben"
+	cap.add_theme_font_size_override("font_size", FONT_SIZE)
+	cap.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(cap)
+	var join_row := HBoxContainer.new()
+	join_row.add_theme_constant_override("separation", 10)
+	col.add_child(join_row)
+	_local_code_edit = LineEdit.new()
+	_local_code_edit.custom_minimum_size = Vector2(300, SLIDER_HEIGHT)
+	_local_code_edit.add_theme_font_size_override("font_size", FONT_SIZE)
+	_local_code_edit.max_length = 16
+	join_row.add_child(_local_code_edit)
+	_local_join_btn = _button("Beitreten")
+	_local_join_btn.pressed.connect(func() -> void: join_code_requested.emit(_local_code_edit.text))
+	join_row.add_child(_local_join_btn)
+	_local_status = Label.new()
+	_local_status.text = "Nicht verbunden"
+	_local_status.add_theme_font_size_override("font_size", 26)
+	_local_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_local_status.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(_local_status)
+	var pad := Control.new()
+	pad.custom_minimum_size = Vector2(0, 80)
+	pad.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(pad)
+
+
+func _desc_label(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.add_theme_font_size_override("font_size", DESC_FONT_SIZE)
+	l.modulate = Color(1, 1, 1, 0.85)
+	l.mouse_filter = Control.MOUSE_FILTER_PASS
+	return l
+
+
+## Status line of the page "Lokal" (results of connections started there).
+func set_local_status(text: String) -> void:
+	_local_status.text = text
+
+
+## What the page shows about the running session: hosting (with the code, "" = no usable address) and/or connected
+## (connecting counts). Called often; it touches the widgets only when something changed.
+func set_local_session(hosting: bool, connected: bool, code: String, players: int) -> void:
+	_local_hosting = hosting
+	_local_connected = connected
+	_local_host_btn.disabled = hosting or connected
+	_local_join_btn.disabled = hosting or connected
+	_local_stop_btn.disabled = not (hosting or connected)
+	_local_hosting_box.visible = hosting
+	var shown := "%s|%d" % [code, players]
+	if hosting and shown != _local_shown:
+		_local_shown = shown
+		if code == "":
+			_local_code_label.text = ""
+			_local_players_label.text = "Keine Netzwerk-Adresse gefunden: Dieses Gerät ist in keinem WLAN und hat keinen Hotspot an. Die anderen können so nicht beitreten."
+			_local_players_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		else:
+			_local_code_label.text = LanCode.grouped(code)
+			_local_players_label.text = "Spieler: %d von %d" % [players, Config.NUM_PLAYERS]
+	if not hosting:
+		_local_shown = ""
+
+
+## Looks for games while it makes sense; closes the listener otherwise.
+func _process(_delta: float) -> void:
+	var want := visible and _local_page != null and _local_page.visible and not _local_hosting and not _local_connected
+	if want and _listener == null:
+		_listener = LanBeacon.new()
+		if _listener.start_listening(discovery_port) != OK:
+			_listener = null   # no list, the code still works
+			want = false
+	elif not want and _listener != null:
+		_listener.close()
+		_listener = null
+		_show_found([])
+	if _listener != null:
+		_show_found(_listener.poll(int(clock.call())))
+
+
+func _exit_tree() -> void:
+	if _listener != null:
+		_listener.close()
+		_listener = null
+
+
+## Makes the list buttons match `games` (a button is created or removed only when its game appears or vanishes).
+func _show_found(games: Array) -> void:
+	var seen := {}
+	for g: Dictionary in games:
+		var key := "%s:%d" % [g["ip"], g["port"]]
+		seen[key] = true
+		var text := "Spiel %s – %d/%d Spieler" % [LanCode.grouped(g["code"]), g["players"], g["max"]]
+		var b: Button = _local_found_buttons.get(key)
+		if b == null:
+			b = _button(text)
+			var ip: String = g["ip"]
+			var port: int = g["port"]
+			b.pressed.connect(func() -> void: join_local_requested.emit(ip, port))
+			_local_found_box.add_child(b)
+			_local_found_buttons[key] = b
+		b.text = text
+	for key: String in _local_found_buttons.keys():
+		if not seen.has(key):
+			(_local_found_buttons[key] as Button).queue_free()
+			_local_found_buttons.erase(key)
+	_local_empty_label.visible = games.is_empty()
 
 
 func _plain_slider(lo: float, hi: float, step: float) -> HSlider:
@@ -632,6 +828,8 @@ func _queue_save() -> void:
 ## Each page resets its own content: the values page the tuning values, the modifier page the levels,
 ## the online page the lag tool.
 func _on_reset() -> void:
+	if _local_page.visible:
+		return   # nothing to reset there
 	if _online_page.visible:
 		_lag_slider.value = 0.0
 		_loss_slider.value = 0.0

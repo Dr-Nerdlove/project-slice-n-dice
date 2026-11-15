@@ -5,13 +5,11 @@ extends Node
 ## joins, leaves and a status line every 10 seconds.
 
 const STATUS_EVERY_MS := 10000
-const MAX_TICKS_PER_FRAME := 5     # after a long stall the server catches up a little, never in a spiral
 
 var core: ServerCore
 var endpoint: ENetEndpoint
 var port := NetProto.DEFAULT_PORT
 
-var _acc := 0.0
 var _next_status_ms := 0
 var _started_ms := 0
 
@@ -57,12 +55,7 @@ func _log(text: String) -> void:
 func _process(delta: float) -> void:
 	if core == null:
 		return
-	core.pump()
-	var dt := 1.0 / Config.TICK_RATE
-	_acc = minf(_acc + delta, dt * MAX_TICKS_PER_FRAME)
-	while _acc >= dt:
-		_acc -= dt
-		core.tick()
+	core.run(delta)
 	if Time.get_ticks_msec() >= _next_status_ms:
 		_next_status_ms += STATUS_EVERY_MS
 		_log("status: %d player(s), tick %d, dropped packets %d, underruns %d, stale inputs %d" % [
