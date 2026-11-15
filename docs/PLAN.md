@@ -16,7 +16,7 @@ This document is the binding basis for implementation. It collects all decisions
 
 - **Perspective:** Top-down, high-quality 3D presentation.
 - **Round:** 20-40 seconds, last man standing, one hit kills.
-- **Match:** Points for placement and kills. The shop opens between rounds. The first to reach the target score wins. Target match length 8-12 minutes.
+- **Match:** In the first mode ("Last Standing") only the last survivor of a round scores a point (section 5). The shop opens between rounds. The first to reach the target score wins. Target match length 8-12 minutes.
 - **Player count:** 2-8.
 - **Modes:** Free-for-all up to 8 players, and teams (2v2, 3v3, 4v4). Arena size scales with the player count.
 - **Controls** (decided by the owner on 2026-11-13): Two virtual sticks (left moves, right aims and throws) plus controller support. Holding the right stick charges the throw: the longer the hold, the further the throw, and a visible aim line shows direction and landing distance. Releasing throws. While the yo-yo is out, a short tap on the right stick retracts it, and holding the right stick pulls the character to the yo-yo.
@@ -130,17 +130,56 @@ On a retract the head first returns along the string until its straight distance
 
 The tuning menu has a "Werte kopieren" button. It copies one compact text block with every tuning value (config keys, values changed from the default marked with `*`), the out variant, the bot mode and the modifier levels for the player and the bots to the clipboard and shows it in a read-only text box, so it can be pasted to a developer. "Zurücksetzen" resets only the page it is on (values or modifier levels).
 
-## 5. Shop, coins and catching up
+## 5. Match, shop, coins and catching up
 
-- **System:** Shop with coins, saving and interest.
-- **Income:** A base amount per round, plus kills, placement and bonuses.
-- **Shop phase:** 15-20 seconds, all players at the same time, four random offers, reroll for coins, upgrades can be levelled up.
-- **Interest:** Bonus on saved coins, capped.
-- **Catching up (explicitly demanded by the owner):**
-  - Bounty on the leaders: visibly marked, grows with their lead.
-  - Bonuses for skill plays: double kill, bounce hit, kill while pulling in, ending an opponent's streak.
-- **Hard requirement:** The game must not snowball. A good play by a trailing player must noticeably bring them back into the match.
-- **Known tension:** Interest tends to reward the leader. Bounty and skill bonuses must therefore pay clearly more than interest. Keep all values in one central, easily changed configuration.
+Decided by the owner on 2026-11-15 (the M3 match loop). The genre's party brawlers (e.g. Boomerang Fu) are the
+model for rhythm and feel only; nothing of an existing game is copied (see section 1).
+
+### Two separate areas: "Spiel" and "Training"
+
+- **Training:** everything the prototype has today (tuning sliders, modifier sandbox, bots, out variants, lag tool)
+  moves into a menu area "Training", unchanged. Only there can values be changed and tried out.
+- **Spiel (the real game):** fixed values (the `Config` defaults, never the tuned values saved for Training), no
+  sliders, no free modifier levels. Modifiers come only from the shop. Saved Training values must never leak into
+  a real match (also online: the server's config counts).
+
+### Mode "Last Standing" (the first mode; more modes come later)
+
+- A round: everybody spawns, no respawn; the last player alive wins the round and gets **1 point**. Nothing else
+  gives points.
+- Target score **10** by default, selectable **10 / 15 / 20** before the match. The first to reach it wins the match.
+- The mode is its own unit in the code, so later modes (e.g. teams, kill count) can plug in their own rules for
+  "round over", "who scores" and "match over".
+
+### Shop between rounds
+
+- After every round (not after the deciding one) all players shop **at the same time**, with a time limit.
+- **3 offers** per player, random from the modifiers. **Reroll** for coins. Modifiers are kept for the whole match;
+  buying the same modifier again levels it up (copies per level: `Mods.COPIES_FOR_LEVEL`).
+- Coins can be saved for later rounds.
+
+### Coins
+
+Every player gets coins automatically at the end of every round, whatever their place, plus:
+- coins per **kill**,
+- coins for being the round's **survivor**,
+- **catch-up coins** for the **underdog** (the player in last place),
+- extra coins for **killing the leader** (the player in first place).
+
+Rewards for good play and activity, while the catch-up coins keep trailing players in the match (hard requirement:
+no snowballing).
+
+### Proposals not yet confirmed by the owner
+
+Numbers, to be tuned in play (all in one central table, like `game/sim/mods.gd`):
+- Round time limit 60 s; if nobody is the sole survivor by then, or the last players die at the same moment (for
+  example by their own explosion), the round has no winner and nobody scores.
+- Coins: base 3 per round, +1 per kill, +2 for the survivor, +2 for the underdog (all players tied for last; not
+  while everybody is level), +1 extra for killing a leader (all players tied for first, not while everybody is
+  level). A self-kill gives nothing.
+- Prices per copy: `Mods.PRICES` (3 / 5 / 8 by tier). Reroll 1 coin. Shop time 20 s. No interest for now (interest
+  rewards the leader; the old plan had it).
+- Underdog and leader are decided by points at the start of the round.
 
 ## 6. Technology
 
@@ -348,7 +387,7 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
 
 ### M3: Match loop
 - Rounds, points, target score, winner screen.
-- Shop phase with coins, interest, reroll and upgrading.
+- Shop phase with coins, reroll and upgrading (section 5).
 - Bounty and skill bonuses.
 - 10-15 modifiers across all three categories.
 - **Done when:** A complete match runs through and a trailing player can realistically catch up in test games.
