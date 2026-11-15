@@ -179,3 +179,37 @@ func _wander(sim: Sim, me: SimPlayer, dt: float) -> Vector2:
 		if inside != me.pos:
 			dir += (inside - me.pos).normalized() * 3.0
 	return dir.limit_length(1.0)
+
+
+## The shop for bot slot `i` (called once the shop has been open Economy.BOT_SHOP_DELAY seconds; it only uses the
+## sim's shop commands, so the server stays the judge). Buys what it can afford, a copy of an owned modifier first,
+## then the dearer one; rerolls up to Economy.BOT_REROLLS times while nothing on offer is affordable and a reroll
+## still leaves enough for the cheapest modifier; then it is done.
+static func shop(sim: Sim, i: int) -> void:
+	var m := sim.mode
+	if m.phase != MatchMode.Phase.SHOP or not m.roster[i] or m.shop_ready[i] \
+			or m.phase_t < Economy.BOT_SHOP_DELAY:
+		return
+	var cheapest := 1 << 30
+	for t: int in Mods.PRICES:
+		cheapest = mini(cheapest, Mods.PRICES[t])
+	var rerolls := 0
+	for _guard in 32:
+		var best := -1
+		var best_score := -1
+		for k in m.offers[i].size():
+			var id: String = m.offers[i][k]
+			if id == "" or Mods.price(id) > m.coins[i] or not m.can_take(i, id):
+				continue
+			var score: int = (100 if m.owned[i].has(id) else 0) + Mods.price(id)
+			if score > best_score:
+				best = k
+				best_score = score
+		if best >= 0:
+			sim.shop_buy(i, best, m.shop_seq[i])
+		elif rerolls < Economy.BOT_REROLLS and m.coins[i] >= Economy.REROLL_PRICE + cheapest:
+			rerolls += 1
+			sim.shop_reroll(i, m.shop_seq[i])
+		else:
+			break
+	sim.shop_done(i)

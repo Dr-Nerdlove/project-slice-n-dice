@@ -148,6 +148,9 @@ func _ready() -> void:
 	overlay.setup()
 	overlay.rematch_pressed.connect(_rematch)
 	overlay.main_menu_pressed.connect(_main_menu_pressed)
+	overlay.shop_buy.connect(func(k: int) -> void: _shop(NetProto.SHOP_BUY, k))
+	overlay.shop_reroll.connect(func() -> void: _shop(NetProto.SHOP_REROLL))
+	overlay.shop_done.connect(func() -> void: _shop(NetProto.SHOP_DONE))
 
 	bots = _make_bots()
 	_apply_bot_mode()
@@ -281,6 +284,20 @@ func _rematch() -> void:
 
 
 ## Can this device restart the match: Solo and the host of a local match, not a joiner.
+## A shop press: Solo straight into the sim, online to the server (the host's own client too).
+func _shop(action: int, arg := 0) -> void:
+	if _online:
+		client.send_shop(action, arg)
+	elif not _reconnecting and sim != null:
+		match action:
+			NetProto.SHOP_BUY:
+				sim.shop_buy(0, arg, sim.mode.shop_seq[0])
+			NetProto.SHOP_REROLL:
+				sim.shop_reroll(0, sim.mode.shop_seq[0])
+			NetProto.SHOP_DONE:
+				sim.shop_done(0)
+
+
 func _can_rematch() -> bool:
 	return (not _online and not _reconnecting) or local_host != null
 
@@ -339,10 +356,13 @@ func _apply_bot_mode() -> void:
 
 ## Copies the sandbox modifier choice into the sim (takes effect on the next tick).
 func _sync_mods() -> void:
-	sim.apply_mods(0, cfg.mods_you)
+	var free := sim.mode.phase == MatchMode.Phase.OFF   # in a match the modifiers come from the shop
+	if free:
+		sim.apply_mods(0, cfg.mods_you)
 	sim.set_skin(0, cfg.character)
 	for i in range(1, Config.NUM_PLAYERS):
-		sim.apply_mods(i, cfg.mods_bots)
+		if free:
+			sim.apply_mods(i, cfg.mods_bots)
 		sim.set_skin(i, cfg.character + i)
 
 
@@ -414,6 +434,9 @@ func _process(delta: float) -> void:
 func _tick(dt: float) -> void:
 	var inputs: Array = []
 	inputs.append(router.poll(sim.players[0].pos))
+	if sim.mode.phase == MatchMode.Phase.SHOP:
+		for b in bots:
+			Bot.shop(sim, b.idx)
 	for b in bots:
 		if cfg.bot_mode == Config.BotMode.ACTIVE:
 			inputs.append(b.think(sim, dt))
@@ -641,8 +664,7 @@ func _can_reconnect(reason: String) -> bool:
 		return false
 	if not _from_local or training or local_host != null or _joined.is_empty() or client.sim == null:
 		return false
-	var ph := client.sim.mode.phase
-	return ph == MatchMode.Phase.COUNTDOWN or ph == MatchMode.Phase.PLAY or ph == MatchMode.Phase.RESULT
+	return client.sim.mode.running()
 
 
 ## Keeps the GAME screen with the last state and starts trying to come back (see `_reconnect_step`).

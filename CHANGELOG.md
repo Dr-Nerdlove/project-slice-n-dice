@@ -6,6 +6,14 @@ there is none. Write it for testers, in plain words.
 
 ## Unreleased
 
+- **Shop between rounds in Play**: after the round result, everybody shops at the same time for up to 20 seconds
+  (it closes early when everybody has pressed **Done**). You get three random modifiers with their price (3, 5 or
+  8 coins); **Reroll** (1 coin) shows three new ones. Buying the same modifier again adds a copy: 3 copies make
+  level II, 6 make level III. You can hold up to 5 different modifiers; with all 5 taken, only the ones you have
+  are offered. Your modifiers stay for the whole match and are gone in the next match. Unspent coins are kept.
+  Bots shop too, in Solo and in Together. There is no shop after the deciding round. Training is unchanged (its
+  modifier levels never reach Play). Players with an older version cannot join a game of this version.
+  (Not looked at on a real screen yet.)
 - **Coins in Play**: after every round everybody gets coins, shown as a yellow tag next to each name on the round
   result (what you have and what this round gave), with your own breakdown below the scoreboard. Every round
   gives 3, each kill 1, winning the round 2, being in last place 2, and each kill of the player in first place 1

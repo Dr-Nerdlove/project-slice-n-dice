@@ -177,6 +177,12 @@ func tick() -> void:
 			inp = SimInput.new()
 		current_inputs[i] = inp
 		inputs.append(inp)
+	if sim.mode.phase == MatchMode.Phase.SHOP:
+		for i in slots.size():
+			if slots[i].away:
+				sim.shop_done(i)   # nobody there to shop
+			elif slots[i].peer < 0 and not bots.is_empty():
+				Bot.shop(sim, i)
 	sim.step(inputs)
 	var ph := sim.mode.phase
 	if ph == MatchMode.Phase.MATCH_OVER or ph == MatchMode.Phase.OFF:
@@ -333,8 +339,8 @@ func _on_packet(peer: int, data: PackedByteArray) -> void:
 		NetProto.T_INPUT:
 			_on_input(slots[i], msg)
 		NetProto.T_MODS:
-			if not accept_client_mods:
-				pass   # the match has fixed values: a client's levels are not applied
+			if not accept_client_mods or sim.mode.phase != MatchMode.Phase.OFF:
+				pass   # fixed values, or a match: its modifiers come only from the shop
 			elif msg.size() == 2 and msg[1] is Dictionary:
 				sim.apply_mods(i, Mods.sanitize(msg[1]))
 			else:
@@ -342,6 +348,11 @@ func _on_packet(peer: int, data: PackedByteArray) -> void:
 		NetProto.T_SKIN:
 			if msg.size() == 2 and msg[1] is int and msg[1] >= 0 and msg[1] < Config.SKIN_COUNT:
 				sim.set_skin(i, msg[1])
+			else:
+				dropped_packets += 1
+		NetProto.T_SHOP:
+			if msg.size() == 4 and msg[1] is int and msg[2] is int and msg[3] is int:
+				apply_shop(i, msg[1], msg[2], msg[3])
 			else:
 				dropped_packets += 1
 		NetProto.T_PING:
@@ -353,6 +364,18 @@ func _on_packet(peer: int, data: PackedByteArray) -> void:
 			dropped_packets += 1
 
 
+## One shop action of slot `i` (from the network or the host's own client); the sim checks everything.
+func apply_shop(i: int, action: int, arg: int, seq: int) -> bool:
+	match action:
+		NetProto.SHOP_BUY:
+			return sim.shop_buy(i, arg, seq)
+		NetProto.SHOP_REROLL:
+			return sim.shop_reroll(i, seq)
+		NetProto.SHOP_DONE:
+			return sim.shop_done(i)
+	return false
+
+
 ## Starts a match with the players connected now (false: fewer than two).
 func start_match(target: int) -> bool:
 	return sim.start_match(target)
@@ -360,8 +383,7 @@ func start_match(target: int) -> bool:
 
 ## True while a match is running (countdown, play, result): nobody new may join. Free play and a finished match are open.
 func match_locked() -> bool:
-	var ph := sim.mode.phase
-	return ph == MatchMode.Phase.COUNTDOWN or ph == MatchMode.Phase.PLAY or ph == MatchMode.Phase.RESULT
+	return sim.mode.running()
 
 
 func _on_hello(peer: int, msg: Array) -> void:

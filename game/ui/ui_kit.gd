@@ -168,6 +168,27 @@ static func button(text: String, kind := "paper", hint := "") -> Button:
 	return b
 
 
+## A yellow toy-shop price tag with `text` (coins); the label inside is named "Text".
+static func price_tag(text: String, size := SMALL_SIZE) -> PanelContainer:
+	var tag := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = SUN
+	sb.set_corner_radius_all(6)
+	sb.content_margin_left = 10
+	sb.content_margin_right = 10
+	sb.content_margin_top = 2
+	sb.content_margin_bottom = 2
+	tag.add_theme_stylebox_override("panel", sb)
+	tag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var l := label(text, size, INK, true)
+	l.name = "Text"
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tag.add_child(l)
+	return tag
+
+
 ## A solid panel ("paper" or "ink") that holds one child; the caller adds the content to the returned panel.
 static func panel(kind := "paper") -> PanelContainer:
 	var p := PanelContainer.new()

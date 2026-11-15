@@ -12,3 +12,14 @@ const COINS_KILL := 1
 const COINS_SURVIVOR := 2
 const COINS_UNDERDOG := 2
 const COINS_LEADER_KILL := 1
+
+## The shop between rounds (phase SHOP): everybody shops at the same time for SHOP_TIME seconds or until all are
+## ready. OFFERS random modifiers per player; REROLL_PRICE draws new ones. A player holds at most SLOTS different
+## modifiers; buying one again adds a copy (levels by copies: `Mods.COPIES_FOR_LEVEL`).
+const SHOP_TIME := 20.0
+const OFFERS := 3
+const REROLL_PRICE := 1
+const SLOTS := 5
+## Bots shop this long after the shop opens (so a human sees them in it for a moment), and reroll at most this often.
+const BOT_SHOP_DELAY := 1.5
+const BOT_REROLLS := 2

@@ -1707,6 +1707,60 @@ func test_zone() -> void:
 	check("zone net: the interpolated display sim carries the zone for the others", disp != null and disp.zone_active() and absf(disp.players[0].zone_t - ts) < 0.4, "%s" % disp)
 
 
+func test_shop() -> void:
+	var M := MatchMode.Phase
+	var rig := play_phase_rig(true)
+	var srv: ServerCore = rig["server"]
+	var c0: ClientCore = rig["clients"][0]
+	var c1: ClientCore = rig["clients"][1]
+	for v in [1, 2, 3]:
+		srv.sim._kill(srv.sim.players[v], null)
+	for _t in int(MatchMode.RESULT_TIME * 60.0) + 10:
+		step_rig(rig, idle_input)
+		if srv.sim.mode.phase == M.SHOP: break
+	srv.sim.mode.coins[0] = 20
+	srv.sim.mode.coins[1] = 20
+	for _t in 5:
+		step_rig(rig, idle_input)
+	check("shop net: the client sees the shop and its offers", c0.sim.mode.phase == M.SHOP and c0.sim.mode.offers[0] == srv.sim.mode.offers[0] and c0.sim.mode.coins[0] == 20)
+	var id: String = srv.sim.mode.offers[0][0]
+	c0.send_shop(NetProto.SHOP_BUY, 0)
+	for _t in 5:
+		step_rig(rig, idle_input)
+	check("shop net: a buy from the client is applied by the server", srv.sim.mode.owned[0] == {id: 1} and srv.sim.mode.coins[0] == 20 - Mods.price(id) and srv.sim.lv(srv.sim.players[0], id) == 1)
+	check("shop net: the client gets the build and keeps it on its own figure", c0.sim.mode.owned[0] == {id: 1} and c0.sim.lv(c0.sim.players[0], id) == 1)
+	c0.set_mods(Mods.empty_levels())
+	var lv_mods := Mods.empty_levels(); lv_mods["twin"] = 3
+	c0.set_mods(lv_mods)
+	for _t in 5:
+		step_rig(rig, idle_input)
+	check("shop net: chosen Training levels do not touch a match", srv.sim.lv(srv.sim.players[0], "twin") == srv.sim.mode.levels_of(0).get("twin", 0) and c0.sim.lv(c0.sim.players[0], "twin") == srv.sim.lv(srv.sim.players[0], "twin"))
+	var coins_before: int = srv.sim.mode.coins[0]
+	c0.send_shop(NetProto.SHOP_REROLL)
+	c0.send_shop(NetProto.SHOP_REROLL)   # a double tap before the snapshot: the same counter
+	for _t in 5:
+		step_rig(rig, idle_input)
+	check("shop net: a repeated request is refused (one reroll paid)", srv.sim.mode.coins[0] == coins_before - Economy.REROLL_PRICE, "%d -> %d" % [coins_before, srv.sim.mode.coins[0]])
+	var d0 := srv.dropped_packets
+	srv._on_packet(srv.slots[1].peer, NetProto.pack([NetProto.T_SHOP, NetProto.SHOP_BUY, 0]))
+	srv._on_packet(srv.slots[1].peer, NetProto.pack([NetProto.T_SHOP, NetProto.SHOP_BUY, "0", 0]))
+	srv._on_packet(srv.slots[1].peer, NetProto.pack([NetProto.T_SHOP, 99, 0, int(srv.sim.mode.shop_seq[1])]))
+	check("shop net: malformed shop messages are dropped, unknown actions do nothing", srv.dropped_packets == d0 + 2 and srv.sim.mode.owned[1].is_empty() and srv.sim.mode.coins[1] == 20)
+	for _t in int(Economy.BOT_SHOP_DELAY * 60.0) + 5:
+		step_rig(rig, idle_input)
+	check("shop net: the server's bots shop and are done", srv.sim.mode.shop_ready[2] and srv.sim.mode.shop_ready[3] and not srv.sim.mode.shop_ready[0] and srv.sim.mode.phase == M.SHOP)
+	c1.close()
+	for _t in 5:
+		step_rig(rig, idle_input)
+	check("shop net: an away player counts as done", srv.slots[1].away and srv.sim.mode.shop_ready[1] and srv.sim.mode.phase == M.SHOP)
+	c0.send_shop(NetProto.SHOP_DONE)
+	for _t in 5:
+		step_rig(rig, idle_input)
+	check("shop net: the last one done starts the next round", srv.sim.mode.phase == M.COUNTDOWN and srv.sim.mode.round == 2 and c0.sim.mode.round == 2)
+	check("shop net: the match stays locked during the shop", MatchMode.new().running() == false and (func() -> bool:
+		var mm := MatchMode.new(); mm.phase = M.SHOP; return mm.running()).call())
+
+
 func test_rejoin() -> void:
 	var M := MatchMode.Phase
 	# a drop during PLAY keeps the place: enabled, roster, points; the figure stands (also with bots on)
@@ -2943,7 +2997,7 @@ func test_match_flow() -> void:   # async
 	ov._shown_key = ""
 	await process_frame
 	row0 = ov.rows_box.get_child(0)
-	var tag: Label = row0.get_child(4).get_node("Coins")
+	var tag: Label = row0.get_child(4).get_node("Text")
 	check("match: each row shows the coins and what the round gave", tag.text == "9 ¢  +6", tag.text)
 	check("match: the own coin breakdown is under the scoreboard", ov.coins_label.text == "+3 coins: round 3", ov.coins_label.text)
 	m.last_scorer = -1
@@ -2954,6 +3008,30 @@ func test_match_flow() -> void:   # async
 	ov._shown_key = ""
 	await process_frame
 	check("match: the own score says You", ov.scorer_label.text == "You score!")
+	# the shop
+	m.coins[0] = 10
+	main.sim._open_shop()
+	await process_frame
+	var shop := ov.shop
+	var sid: String = m.offers[0][0]
+	check("shop: the shop shows after the result, the result panel goes", shop.visible and not ov.panel.visible and shop.cards[0]["name"].text == Mods.mod_name(sid) and (shop.coins_tag.get_node("Text") as Label).text == "10 ¢" and shop.time_label.text == "20 s", shop.time_label.text)
+	(shop.cards[0]["buy"] as Button).pressed.emit()
+	await process_frame
+	check("shop: Buy buys in Solo", m.owned[0] == {sid: 1} and main.sim.lv(main.sim.players[0], sid) == 1 and m.coins[0] == 10 - Mods.price(sid) and shop.cards[0]["name"].text == "Sold" and shop.build_label.text.begins_with("Build 1/5"))
+	shop.reroll_btn.pressed.emit()
+	await process_frame
+	check("shop: Reroll rerolls in Solo", m.coins[0] == 9 - Mods.price(sid) and not m.offers[0].has(""))
+	m.coins[0] = 0
+	await process_frame
+	check("shop: what cannot be paid is greyed out", (shop.cards[0]["buy"] as Button).disabled and shop.reroll_btn.disabled)
+	shop.done_btn.pressed.emit()
+	await process_frame
+	check("shop: Done waits for the others", m.shop_ready[0] and shop.wait_label.visible and not shop.done_btn.visible and m.phase == MatchMode.Phase.SHOP)
+	check("shop: Training levels do not reach the Solo match", main.sim.players[0].mods == m.levels_of(0))
+	m.phase_t = Economy.BOT_SHOP_DELAY
+	for _i in 3:
+		await process_frame
+	check("shop: the Solo bots shop, then the next round starts", m.phase == MatchMode.Phase.COUNTDOWN and m.round == 2 and not shop.visible)
 	# match over and rematch
 	m.points[0] = 15
 	m.winner = 0
@@ -3190,7 +3268,7 @@ func _initialize() -> void:
 		test_lan_code, test_pick_address, test_lan_beacon, test_local_host, test_menu_local, test_main_local,
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
-		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_zone, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
+		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_zone, test_shop, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
 		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_touch_menu, test_match_flow, test_main_rejoin,
 	]
 	for g in groups:

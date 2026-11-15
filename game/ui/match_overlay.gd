@@ -1,11 +1,14 @@
 class_name MatchOverlay
 extends CanvasLayer
-## The screens of a Play match over the arena: the 3-2-1-GO countdown, the round result with the scoreboard and
-## the match-over panel. It only READS the match state of the sim it is given each frame (`update`) and reports
+## The screens of a Play match over the arena: the 3-2-1-GO countdown, the round result with the scoreboard, the
+## shop (`ShopPanel`) and the match-over panel. It only READS the match state of the sim it is given each frame (`update`) and reports
 ## button presses; `main.gd` owns the flow. Nothing is shown during PLAY (no UI during a round) and in Training.
 
 signal rematch_pressed
 signal main_menu_pressed
+signal shop_buy(k: int)
+signal shop_reroll
+signal shop_done
 
 const GO_TIME := 0.6        # how long "GO!" stays after the countdown
 const PANEL_DELAY := 0.8    # the result / match-over panel appears this long after the last hit
@@ -20,6 +23,7 @@ var target_label: Label
 var rematch_btn: Button
 var wait_label: Label
 var main_menu_btn: Button
+var shop: ShopPanel
 
 ## Set by main.gd every frame: the connection broke and the game is trying to come back.
 var reconnecting := false
@@ -51,6 +55,12 @@ func setup() -> void:
 	panel.custom_minimum_size.x = 520.0
 	panel.visible = false
 	center.add_child(panel)
+	shop = ShopPanel.new()
+	shop.visible = false
+	shop.buy_pressed.connect(func(k: int) -> void: shop_buy.emit(k))
+	shop.reroll_pressed.connect(func() -> void: shop_reroll.emit())
+	shop.done_pressed.connect(func() -> void: shop_done.emit())
+	center.add_child(shop)
 	reconnect_panel = UiKit.panel("paper")
 	reconnect_panel.visible = false
 	reconnect_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -131,6 +141,9 @@ func update(sim: Sim, own: int, show_it: bool, can_rematch: bool, bots_offline: 
 	countdown_label.visible = ctext != ""
 	var panel_on := show_it and not reconnecting and m.phase_t >= PANEL_DELAY and (m.phase == MatchMode.Phase.RESULT or m.phase == MatchMode.Phase.MATCH_OVER)
 	panel.visible = panel_on
+	shop.visible = show_it and not reconnecting and m.phase == MatchMode.Phase.SHOP and own >= 0 and own < m.roster.size() and m.roster[own]
+	if shop.visible:
+		shop.refresh(sim, own)
 	visible = show_it
 	if not panel_on:
 		_shown_key = ""
@@ -185,18 +198,6 @@ func _fill(sim: Sim, own: int, over: bool, bots_offline: bool) -> void:
 
 ## A yellow price-tag chip with the player's coins and, small, what the last round gave.
 func _coin_tag(total: int, gained: int) -> Control:
-	var tag := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = UiKit.SUN
-	sb.set_corner_radius_all(6)
-	sb.content_margin_left = 10
-	sb.content_margin_right = 10
-	sb.content_margin_top = 2
-	sb.content_margin_bottom = 2
-	tag.add_theme_stylebox_override("panel", sb)
-	tag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var l := UiKit.label("%d ¢  +%d" % [total, gained], UiKit.SMALL_SIZE, UiKit.INK, true)
-	l.name = "Coins"
-	tag.add_child(l)
+	var tag := UiKit.price_tag("%d ¢  +%d" % [total, gained])
 	tag.custom_minimum_size.x = 96.0
 	return tag

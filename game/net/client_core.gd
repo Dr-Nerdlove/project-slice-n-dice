@@ -109,6 +109,14 @@ func set_mods(levels: Dictionary) -> void:
 		_mods_dirty = true
 
 
+## A shop action of the own slot (NetProto.SHOP_*); the server applies it and the next snapshots show the result.
+## It carries the shop counter of the newest snapshot, so a double tap before that arrives is refused there.
+func send_shop(action: int, arg := 0) -> void:
+	if state != State.ONLINE or sim == null:
+		return
+	net.send(1, NetProto.pack([NetProto.T_SHOP, action, arg, int(sim.mode.shop_seq[slot])]), true)
+
+
 ## The figure the local player wants; sent to the server when it changes.
 func set_skin(k: int) -> void:
 	var clean := posmod(k, Config.SKIN_COUNT)
@@ -227,7 +235,8 @@ func _on_snapshot(snap: Dictionary) -> void:
 	acked = snap["acked"]
 	while not pending.is_empty() and pending[0]["seq"] <= acked:
 		pending.pop_front()
-	sim.apply_mods(slot, _wanted_mods)
+	if sim.mode.phase == MatchMode.Phase.OFF:
+		sim.apply_mods(slot, _wanted_mods)   # in a match the modifiers come from the shop (server state)
 	if _wanted_skin >= 0:
 		sim.set_skin(slot, _wanted_skin)
 	for p: Dictionary in pending:
@@ -532,7 +541,8 @@ func tick(local: SimInput) -> void:
 	if _mods_dirty:
 		_mods_dirty = false
 		net.send(1, NetProto.pack([NetProto.T_MODS, _wanted_mods]), true)
-		sim.apply_mods(slot, _wanted_mods)
+		if sim.mode.phase == MatchMode.Phase.OFF:
+			sim.apply_mods(slot, _wanted_mods)
 	if _skin_dirty:
 		_skin_dirty = false
 		net.send(1, NetProto.pack([NetProto.T_SKIN, _wanted_skin]), true)

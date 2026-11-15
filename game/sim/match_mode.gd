@@ -4,7 +4,8 @@ extends RefCounted
 ## the three hooks below (`round_over`, `round_scorer`, `match_winner`), which a subclass overrides.
 ## `Sim` drives the phases; everything here is plain data, so a snapshot (StateIO) carries it.
 
-enum Phase { OFF, COUNTDOWN, PLAY, RESULT, MATCH_OVER }
+## SHOP comes after RESULT (not after the deciding round); it is last so the numbers of the others stay.
+enum Phase { OFF, COUNTDOWN, PLAY, RESULT, MATCH_OVER, SHOP }
 
 const COUNTDOWN_TIME := 3.0
 const RESULT_TIME := 4.0
@@ -40,6 +41,13 @@ var round_kills: Array = []
 var leader_kills: Array = []
 var underdog: Array = []
 var leader: Array = []
+## The shop, per slot: `owned` modifier id -> copies (kept for the match); `offers` the current offers (ids, ""
+## for one already bought); `shop_ready` done shopping; `shop_seq` counts shop actions, so a repeated request
+## (a double tap, a resent message) is refused instead of buying or rerolling twice.
+var owned: Array = []
+var offers: Array = []
+var shop_ready: Array = []
+var shop_seq: Array = []
 
 
 func _init() -> void:
@@ -52,11 +60,36 @@ func _init() -> void:
 		leader_kills.append(0)
 		underdog.append(false)
 		leader.append(false)
+		owned.append({})
+		offers.append([])
+		shop_ready.append(false)
+		shop_seq.append(0)
 
 
-## True while the world stands still (countdown, result screen, match over).
+## True while the world stands still (countdown, result screen, shop, match over).
 func frozen() -> bool:
-	return phase == Phase.COUNTDOWN or phase == Phase.RESULT or phase == Phase.MATCH_OVER
+	return phase == Phase.COUNTDOWN or phase == Phase.RESULT or phase == Phase.MATCH_OVER or phase == Phase.SHOP
+
+
+## True while a match is running and not over (countdown, play, result, shop): nobody new may join.
+func running() -> bool:
+	return phase == Phase.COUNTDOWN or phase == Phase.PLAY or phase == Phase.RESULT or phase == Phase.SHOP
+
+
+## Modifier levels of slot `i` from its copies (id -> 1..3, only the owned ones).
+func levels_of(i: int) -> Dictionary:
+	var d := {}
+	for id: String in owned[i]:
+		d[id] = Mods.level_for_copies(owned[i][id])
+	return d
+
+
+## Can slot `i` take one more copy of `id`? Not beyond the top level, and a new modifier needs a free slot.
+func can_take(i: int, id: String) -> bool:
+	var copies: int = owned[i].get(id, 0)
+	if copies >= Mods.COPIES_FOR_LEVEL[Mods.MAX_LEVEL - 1]:
+		return false
+	return copies > 0 or owned[i].size() < Economy.SLOTS
 
 
 ## Rule hook: has the round ended?

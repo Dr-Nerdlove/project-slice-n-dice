@@ -126,6 +126,11 @@ func start_match(target: int) -> bool:
 		mode.points[i] = 0
 		mode.coins[i] = 0
 		mode.earned[i] = 0
+		mode.owned[i] = {}
+		mode.offers[i] = []
+		mode.shop_ready[i] = false
+		mode.shop_seq[i] = 0
+		apply_mods(i, {})
 	mode.round = 1
 	mode.last_scorer = -1
 	mode.winner = -1
@@ -188,8 +193,84 @@ func _step_match(dt: float) -> void:
 				m.phase_t = 0.0
 		MatchMode.Phase.RESULT:
 			if m.phase_t >= MatchMode.RESULT_TIME:
+				_open_shop()
+		MatchMode.Phase.SHOP:
+			if m.phase_t >= Economy.SHOP_TIME or _all_shopped():
 				m.round += 1
 				_start_round()
+
+
+# ---------------------------------------------------------------- shop
+
+func _open_shop() -> void:
+	var m := mode
+	m.phase = MatchMode.Phase.SHOP
+	m.phase_t = 0.0
+	for i in players.size():
+		m.shop_ready[i] = false
+		m.offers[i] = []
+		if m.roster[i]:
+			_roll_offers(i)
+	events.append({"type": "shop_open", "round": m.round})
+
+
+## True when every roster player still in the game is done.
+func _all_shopped() -> bool:
+	for i in players.size():
+		if mode.roster[i] and players[i].enabled and not mode.shop_ready[i]:
+			return false
+	return true
+
+
+## Draws up to Economy.OFFERS different modifiers slot `i` can take, from the sim's rng (deterministic).
+func _roll_offers(i: int) -> void:
+	var pool: Array[String] = []
+	for id in Mods.ORDER:
+		if mode.can_take(i, id):
+			pool.append(id)
+	var out: Array = []
+	while out.size() < Economy.OFFERS and not pool.is_empty():
+		out.append(pool.pop_at(rng.randi_range(0, pool.size() - 1)))
+	mode.offers[i] = out
+
+
+func _shop_open_for(i: int, seq: int) -> bool:
+	return mode.phase == MatchMode.Phase.SHOP and i >= 0 and i < players.size() and mode.roster[i] \
+			and players[i].enabled and not mode.shop_ready[i] and seq == mode.shop_seq[i]
+
+
+## Buys offer `k` for slot `i`. `seq` must be the slot's current `mode.shop_seq` (a repeated request is refused).
+func shop_buy(i: int, k: int, seq: int) -> bool:
+	if not _shop_open_for(i, seq) or k < 0 or k >= mode.offers[i].size():
+		return false
+	var id: String = mode.offers[i][k]
+	if id == "" or not mode.can_take(i, id) or mode.coins[i] < Mods.price(id):
+		return false
+	mode.coins[i] -= Mods.price(id)
+	mode.owned[i][id] = int(mode.owned[i].get(id, 0)) + 1
+	mode.offers[i][k] = ""
+	mode.shop_seq[i] += 1
+	apply_mods(i, mode.levels_of(i))
+	return true
+
+
+## New offers for Economy.REROLL_PRICE coins.
+func shop_reroll(i: int, seq: int) -> bool:
+	if not _shop_open_for(i, seq) or mode.coins[i] < Economy.REROLL_PRICE:
+		return false
+	mode.coins[i] -= Economy.REROLL_PRICE
+	mode.shop_seq[i] += 1
+	_roll_offers(i)
+	return true
+
+
+## Slot `i` is done shopping (no more buying this shop). The shop closes early when everybody is.
+func shop_done(i: int) -> bool:
+	if mode.phase != MatchMode.Phase.SHOP or i < 0 or i >= players.size() or not mode.roster[i] or mode.shop_ready[i]:
+		return false
+	mode.shop_ready[i] = true
+	mode.shop_seq[i] += 1
+	return true
 
 
 ## After a PLAY tick: ends the round when the mode says so.
