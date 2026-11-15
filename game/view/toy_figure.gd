@@ -30,6 +30,8 @@ const DEBRIS_TIME := 1.15          # how long the pieces of a popped toy fly and
 const DEBRIS_SHRINK := 0.3         # ... of which the last part they shrink away
 const DEBRIS_GRAVITY := 46.0       # radii / s^2
 const GHOSTS := 3
+## The die's cube: side length in player radii.
+const DIE_SIDE := ToyMotion.DIE_SIDE
 
 var kind := 0
 var color := Color.WHITE
@@ -47,7 +49,8 @@ var _foot_r: Node3D
 var _floppy: Array[Node3D] = []     # ears / tail: swing with the EARS channel
 var _key: Node3D
 var _spin: Node3D                   # spinning top: the part that turns
-var _jaw: Node3D                    # snapper dino: the hinged lower jaw
+var _jaw: Node3D                    # snapper dino: the hinged UPPER part of the head (skull, eyes, snout)
+var _cube: Node3D                   # die: all of the cube (shell, pips, face); turned by ToyMotion.tumble
 var _tail: Node3D                   # snapper dino: the tail that swings sideways
 var _wheels: Array[Node3D] = []     # pull-along duck: the four wheels
 var _base: Node3D                   # spinning top: the base (cone and skirt) that turns at its own speed
@@ -176,56 +179,74 @@ func _arm(piece: Node3D, mat: Material, length: float, thick: float, paw_mat: Ma
 		_p(piece, ToyKit.sphere(), paw_mat, Vector3(0, -length * 0.88, 0.02), Vector3.ONE * thick * 1.15)
 
 
-## Wind-up snapper: an angular, chunky dino with a big hinged jaw that snaps in step with its walk, a stiff segmented
-## tail that swings from side to side, spikes down the back and stompy feet.
+## Snapper T-Rex: a round-bellied toy dino in a horizontal posture with a fat tail, back plates and tiny arms. Its
+## head is a crocodile-snapper toy: the LOWER jaw is fixed to the head piece (with tongue and teeth), the UPPER part
+## (skull with eyes, brows, snout, nostrils and upper teeth) is hinged at the back and swings UP with the JAW channel,
+## so from the camera (above and in front) the eyes tip back and the pink mouth opens towards it.
 func _build_dino() -> void:
 	var acc := ToyKit.plastic(ACCENTS[kind])
 	var belly := ToyKit.plastic(Color("fff1c9"))
 	var tooth := ToyKit.plastic(WHITE)
-	var rbox := ToyKit.rounded_box(0.22)
-	var body := _piece("Body", Vector3(0, 0.95, -0.05), true)
-	_p(body, rbox, body_mat, Vector3.ZERO, Vector3(1.9, 1.5, 2.1))
-	_p(body, rbox, belly, Vector3(0, -0.12, 0.5), Vector3(1.3, 1.0, 1.2))
-	var head := _piece("Head", Vector3(0, 1.95, -0.05))
-	_head = head
-	_p(head, rbox, body_mat, Vector3(0, 0.05, 0.0), Vector3(1.75, 1.2, 1.5))
-	_p(head, rbox, body_mat, Vector3(0, -0.02, 0.7), Vector3(1.35, 0.62, 0.95))               # upper jaw / snout
-	_eye(head, Vector3(0.45, 0.4, 0.55), Vector3(0.45, 0.25, 1.0), 0.48)
-	_eye(head, Vector3(-0.45, 0.4, 0.55), Vector3(-0.45, 0.25, 1.0), 0.48)
+	var spot := ToyKit.plastic(color.darkened(0.4))
+	var ink := ToyKit.plastic(INK)
+	var sph := ToyKit.sphere()
+	var cone := ToyKit.cone()
+	var body := _piece("Body", Vector3(0, 1.15, 0), true)
+	_p(body, sph, body_mat, Vector3(0, 0, -0.15), Vector3(1.25, 1.2, 1.9))                       # the shell (footprint)
+	_p(body, sph, belly, Vector3(0, -0.2, 0.3), Vector3(0.9, 0.85, 1.1))
 	for sx in [-1.0, 1.0]:
-		_p(head, rbox, body_mat, Vector3(sx * 0.46, 0.7, 0.45), Vector3(0.6, 0.18, 0.45), Vector3(-0.25, 0, sx * -0.2))   # brow ridge
-		for k in 2:
-			_p(head, ToyKit.cone(), tooth, Vector3(sx * 0.5, -0.38, 0.5 + 0.4 * k), Vector3(0.14, 0.2, 0.14), Vector3(PI, 0, 0))   # upper teeth
-	# The lower jaw hangs on a hinge under the head and swings open with the JAW channel.
+		_p(body, sph, body_mat, Vector3(sx * 0.5, -0.25, -0.2), Vector3(0.5, 0.9, 0.95))         # thick thighs
+	_p(body, sph, spot, Vector3(0.3, 0.48, -0.45), Vector3(0.3, 0.1, 0.36), Vector3(0, 0, -0.45))      # paint spots on the back
+	_p(body, sph, spot, Vector3(-0.3, 0.5, 0.05), Vector3(0.3, 0.1, 0.34), Vector3(0, 0, 0.45))
+	# Back plates along the spine, smaller towards the tail: [z, spine height there, base, height].
+	for sp in [[0.2, 0.56, 0.34, 0.5], [-0.15, 0.6, 0.36, 0.52], [-0.5, 0.56, 0.32, 0.44], [-0.85, 0.4, 0.26, 0.34]]:
+		_p(body, cone, acc, Vector3(0, sp[1] + sp[3] * 0.5 - 0.07, sp[0]), Vector3(sp[2], sp[3], sp[2]), Vector3(-0.35, 0, 0))
+	# Tail: three shrinking ellipsoids and a tip, slightly raised; the whole piece swings sideways.
+	var tail := _piece("Tail", Vector3(0, 0.95, -0.9), true)
+	_p(tail, sph, body_mat, Vector3(0, 0, -0.3), Vector3(0.78, 0.62, 0.9))
+	_p(tail, sph, body_mat, Vector3(0, 0.04, -0.85), Vector3(0.52, 0.42, 0.7))
+	_p(tail, sph, body_mat, Vector3(0, 0.1, -1.2), Vector3(0.32, 0.28, 0.55))
+	_p(tail, cone, acc, Vector3(0, 0.17, -1.42), Vector3(0.2, 0.45, 0.2), Vector3(-PI * 0.5 + 0.3, 0, 0))
+	_p(tail, cone, acc, Vector3(0, 0.27, -0.85), Vector3(0.18, 0.28, 0.18), Vector3(-0.5, 0, 0))
+	_tail = tail
+	# The head: the fixed lower jaw (an underbite: a little wider and longer than the upper one) ...
+	var head := _piece("Head", Vector3(0, 2.0, 0.2))
+	_head = head
+	_p(head, sph, body_mat, Vector3(0, -0.28, 0.56), Vector3(1.0, 0.26, 1.0))                       # lower jaw
+	_p(head, sph, ToyKit.plastic(Color("8f1d3a")), Vector3(0, -0.17, 0.56), Vector3(0.84, 0.12, 0.86))   # inside of the mouth
+	_p(head, sph, ToyKit.plastic(Color("ff6f91")), Vector3(0, -0.12, 0.5), Vector3(0.46, 0.12, 0.6))    # tongue
+	for sx in [-1.0, 1.0]:
+		for z in [0.36, 0.8]:
+			_p(head, cone, tooth, Vector3(sx * 0.4, -0.08, z), Vector3(0.12, 0.2, 0.12))             # lower teeth
+	# ... and the upper part hinged at the back of it: skull with eyes and brows, snout, nostrils, upper teeth.
 	_jaw = Node3D.new()
 	_jaw.name = "Jaw"
-	_jaw.position = Vector3(0, -0.34, 0.1)
+	_jaw.position = Vector3(0, -0.12, 0.1)
 	head.add_child(_jaw)
-	_p(_jaw, rbox, acc, Vector3(0, -0.1, 0.5), Vector3(1.25, 0.28, 1.15))
-	_p(_jaw, ToyKit.sphere(), ToyKit.plastic(Color("e8506a")), Vector3(0, 0.03, 0.5), Vector3(0.8, 0.1, 0.8))   # tongue
+	_p(_jaw, sph, body_mat, Vector3(0, 0.38, 0.25), Vector3(1.2, 0.95, 1.1))                         # skull
+	_p(_jaw, ToyKit.rounded_box(0.5), body_mat, Vector3(0, 0.2, 0.5), Vector3(0.95, 0.42, 0.8))    # snout
 	for sx in [-1.0, 1.0]:
-		for k in 2:
-			_p(_jaw, ToyKit.cone(), tooth, Vector3(sx * 0.46, 0.12, 0.45 + 0.4 * k), Vector3(0.14, 0.2, 0.14))      # lower teeth
-	# Spikes along the middle: a line that points where it looks.
-	for s in [[Vector3(0, 0.62, -0.25), 0.4, -0.35], [Vector3(0, 0.55, -0.6), 0.44, -0.6]]:
-		_p(head, ToyKit.cone(), acc, s[0], Vector3(0.34, s[1], 0.34), Vector3(s[2], 0, 0))
-	for s in [[Vector3(0, 0.78, -0.45), 0.5, -0.8], [Vector3(0, 0.42, -1.0), 0.45, -1.2]]:
-		_p(body, ToyKit.cone(), acc, s[0], Vector3(0.38, s[1], 0.38), Vector3(s[2], 0, 0))
-	# Tail: three stiff blocks in a row, a spiky tip. The whole piece swings sideways.
-	var tail := _piece("Tail", Vector3(0, 0.75, -1.05), true)
-	_p(tail, rbox, body_mat, Vector3(0, 0, -0.35), Vector3(0.9, 0.7, 0.8))
-	_p(tail, rbox, body_mat, Vector3(0, -0.04, -0.95), Vector3(0.62, 0.5, 0.7))
-	_p(tail, ToyKit.cone(), acc, Vector3(0, -0.08, -1.55), Vector3(0.42, 0.7, 0.42), Vector3(-PI * 0.5, 0, 0))
-	_tail = tail
-	_arm_l = _piece("ArmL", Vector3(-0.95, 1.25, 0.45), true)
-	_arm(_arm_l, body_mat, 0.7, 0.34, body_mat)
-	_arm_r = _piece("ArmR", Vector3(0.95, 1.25, 0.45), true)
-	_arm(_arm_r, body_mat, 0.7, 0.34, body_mat)
-	_set_paw(0.65)
+		_eye(_jaw, Vector3(sx * 0.42, 0.72, 0.52), Vector3(sx * 0.5, 0.8, 0.6), 0.5, 1.1, 0.6)
+		_p(_jaw, sph, body_mat, Vector3(sx * 0.4, 0.92, 0.38), Vector3(0.36, 0.14, 0.34), Vector3(-0.2, 0, sx * -0.3))   # brow ridge
+		_p(_jaw, sph, ink, Vector3(sx * 0.16, 0.4, 0.85), Vector3(0.1, 0.06, 0.12))                  # nostril
+		_p(_jaw, cone, tooth, Vector3(sx * 0.36, 0.04, 0.7), Vector3(0.11, 0.18, 0.11), Vector3(PI, 0, 0))   # upper teeth
+	# Tiny T-Rex arms (the right one holds the yo-yo), each with two white claws.
 	for sx in [-1.0, 1.0]:
-		var foot := _piece("FootL" if sx < 0.0 else "FootR", Vector3(sx * 0.5, 0.2, 0.1))
-		_p(foot, rbox, body_mat, Vector3(0, 0, 0.12), Vector3(0.7, 0.45, 0.95))
-		_p(foot, rbox, acc, Vector3(0, -0.05, 0.55), Vector3(0.5, 0.2, 0.22))
+		var arm := _piece("ArmL" if sx < 0.0 else "ArmR", Vector3(sx * 0.55, 1.05, 0.3), true)
+		if sx < 0.0:
+			_arm_l = arm
+		else:
+			_arm_r = arm
+		_arm(arm, body_mat, 0.66, 0.26)
+		for cx in [-1.0, 1.0]:
+			_p(arm, cone, tooth, Vector3(cx * 0.06, -0.66, 0.05), Vector3(0.08, 0.2, 0.08), Vector3(PI, 0, cx * 0.25))
+	_set_paw(0.64)
+	# Three-toed feet with white claws, stomping.
+	for sx in [-1.0, 1.0]:
+		var foot := _piece("FootL" if sx < 0.0 else "FootR", Vector3(sx * 0.42, 0.2, 0.2))
+		_p(foot, sph, body_mat, Vector3(0, 0.05, 0.1), Vector3(0.5, 0.5, 0.85))
+		for t in [-1.0, 0.0, 1.0]:
+			_p(foot, cone, tooth, Vector3(t * 0.16, -0.03, 0.55), Vector3(0.12, 0.26, 0.12), Vector3(PI * 0.5, 0, 0))
 		if sx < 0.0:
 			_foot_l = foot
 		else:
@@ -424,38 +445,52 @@ func _build_imp() -> void:
 			_foot_r = foot
 
 
-## The die: a big rounded cube with pips, its face on the front, gloves and little shoes.
+## The die: a big rounded cube that really rolls over its edges (ToyMotion.tumble) and always comes to rest with its
+## one face (eyes, smile, blush) to the front; the other five sides carry the pips. Floating gloves, no feet, no cap.
+## The whole cube hangs on the node `_cube` (child of the Body piece, which sits at half a side) so it turns as one.
 func _build_die() -> void:
 	var pip := ToyKit.plastic(ACCENTS[kind])
-	var dark := ToyKit.plastic(Color("39405a"))
-	var body := _piece("Body", Vector3(0, 1.2, 0), true)
-	_p(body, ToyKit.rounded_box(0.22), body_mat, Vector3.ZERO, Vector3(1.85, 1.85, 1.85))
-	for v: Vector2 in [Vector2(0, 0), Vector2(0.46, 0.46), Vector2(-0.46, 0.46), Vector2(0.46, -0.46), Vector2(-0.46, -0.46)]:
-		_p(body, ToyKit.sphere(), pip, Vector3(v.x, 0.86, v.y), Vector3(0.32, 0.1, 0.32))
-	for k in 3:
-		_p(body, ToyKit.sphere(), pip, Vector3(0.86, 0.45 - 0.45 * k, -0.45 + 0.45 * k), Vector3(0.1, 0.3, 0.3))
-	for v: Vector2 in [Vector2(0.42, 0.42), Vector2(-0.42, 0.42), Vector2(0.42, -0.42), Vector2(-0.42, -0.42)]:
-		_p(body, ToyKit.sphere(), pip, Vector3(-0.86, v.x, v.y), Vector3(0.1, 0.3, 0.3))
-	_p(body, ToyKit.sphere(), pip, Vector3(0.4, 0.4, -0.86), Vector3(0.3, 0.3, 0.1))
-	_p(body, ToyKit.sphere(), pip, Vector3(-0.4, -0.4, -0.86), Vector3(0.3, 0.3, 0.1))
-	# The face is painted on the front of the cube; the "head" is only a little cap on top.
-	_p(body, ToyKit.sphere(), ToyKit.plastic(INK), Vector3(0, -0.34, 0.87), Vector3(0.42, 0.16, 0.08))  # smile
+	var half := DIE_SIDE * 0.5
+	var body := _piece("Body", Vector3(0, half, 0), true)
+	_cube = Node3D.new()
+	_cube.name = "Cube"
+	body.add_child(_cube)
+	_p(_cube, ToyKit.rounded_box(0.22), body_mat, Vector3.ZERO, Vector3.ONE * DIE_SIDE)
+	# Pips: raised flat discs (a cylinder is a disc along its y axis; turned to lie on the side it sits on).
+	var disc := Vector3(0.36, 0.09, 0.36)
+	var sides := {                        # side normal -> [rotation of the disc, pip layout in the side's two axes]
+		"top": [Vector3.UP, Vector3.ZERO, [Vector2(0.4, 0.4), Vector2(0, 0), Vector2(-0.4, -0.4)]],
+		"bottom": [Vector3.DOWN, Vector3.ZERO, [Vector2(0.4, 0.4), Vector2(-0.4, 0.4), Vector2(0.4, -0.4), Vector2(-0.4, -0.4)]],
+		"right": [Vector3.RIGHT, Vector3(0, 0, -PI * 0.5), [Vector2(0.4, 0.4), Vector2(-0.4, -0.4)]],
+		"left": [Vector3.LEFT, Vector3(0, 0, PI * 0.5), [Vector2(0.4, 0.4), Vector2(-0.4, 0.4), Vector2(0, 0), Vector2(0.4, -0.4), Vector2(-0.4, -0.4)]],
+		"back": [Vector3.FORWARD, Vector3(-PI * 0.5, 0, 0), [Vector2(0.4, 0.45), Vector2(-0.4, 0.45), Vector2(0.4, 0), Vector2(-0.4, 0), Vector2(0.4, -0.45), Vector2(-0.4, -0.45)]],
+	}
+	for key: String in sides:
+		var n: Vector3 = sides[key][0]
+		var u := Vector3.FORWARD if absf(n.y) > 0.5 else Vector3.UP        # the side's first axis
+		var v := n.cross(u)                                                  # ... and the second
+		for xy: Vector2 in sides[key][2]:
+			_p(_cube, ToyKit.cylinder(), pip, n * half + u * xy.x + v * xy.y, disc, sides[key][1])
+	# The one face, on +z: two big eyes tipped up (the camera looks down), a smile with raised corners, blush.
+	var ink := ToyKit.plastic(INK)
 	for sx in [-1.0, 1.0]:
-		_eye(body, Vector3(sx * 0.38, 0.22, 0.87), Vector3(sx * 0.1, 0.25, 1.0), 0.56, 1.15, 0.5)
-		_blush(body, Vector3(sx * 0.62, -0.2, 0.86), 0.26)
-	var head := _piece("Head", Vector3(0, 2.1, 0.0), true)
+		_eye(_cube, Vector3(sx * 0.37, 0.2, half - 0.05), Vector3(sx * 0.08, 0.3, 1.0), 0.6, 1.15, 0.5)
+		_blush(_cube, Vector3(sx * 0.64, -0.2, half - 0.06), 0.28)
+		_p(_cube, ToyKit.sphere(), ink, Vector3(sx * 0.27, -0.27, half - 0.04), Vector3(0.11, 0.11, 0.08))   # smile corners
+	_p(_cube, ToyKit.sphere(), ink, Vector3(0, -0.35, half - 0.04), Vector3(0.44, 0.15, 0.08))               # smile
+	var head := _piece("Head", Vector3(0, 2.1, 0.0), true)       # (empty: the pose code works on the six standard pieces)
 	_head = head
-	_p(head, ToyKit.sphere(), dark, Vector3(0, 0.0, 0), Vector3(0.5, 0.2, 0.5))
-	_p(head, ToyKit.sphere(), pip, Vector3(0, 0.12, 0), Vector3.ONE * 0.22)
-	_arm_l = _piece("ArmL", Vector3(-1.05, 1.6, 0.1), true)
+	_arm_l = _piece("ArmL", Vector3(-1.1, 1.5, 0.1), true)
 	_glove(_arm_l, ToyKit.plastic(WHITE), 0.42)
-	_arm_r = _piece("ArmR", Vector3(1.05, 1.6, 0.1), true)
+	_arm_r = _piece("ArmR", Vector3(1.1, 1.5, 0.1), true)
 	_glove(_arm_r, ToyKit.plastic(WHITE), 0.42)
 	_set_paw(0.5)
-	_foot_l = _piece("FootL", Vector3(-0.45, 0.18, 0.1))
-	_p(_foot_l, ToyKit.sphere(), dark, Vector3(0, 0, 0.1), Vector3(0.58, 0.38, 0.9))
-	_foot_r = _piece("FootR", Vector3(0.45, 0.18, 0.1))
-	_p(_foot_r, ToyKit.sphere(), dark, Vector3(0, 0, 0.1), Vector3(0.58, 0.38, 0.9))
+	for sx in [-1.0, 1.0]:                                       # no visible feet: it rolls
+		var foot := _piece("FootL" if sx < 0.0 else "FootR", Vector3(sx * 0.45, 0.18, 0.1))
+		if sx < 0.0:
+			_foot_l = foot
+		else:
+			_foot_r = foot
 
 
 ## Roly-poly toy: a painted wooden pear with a heavy round bottom and no legs. It tips into the movement and rocks
@@ -673,7 +708,10 @@ func _apply_pose() -> void:
 	_arm_l.rotation = Vector3(other, twist, 0.15)
 	_feet(s, f)
 	if _jaw != null:
-		_jaw.rotation.x = s[ToyPose.JAW] * 0.9
+		_jaw.rotation.x = -s[ToyPose.JAW] * 0.75     # opens upward, towards the camera
+	if _cube != null:
+		_cube.basis = motion.tumble
+		_cube.position.y = motion.die_height() + motion.die_hop() - DIE_SIDE * 0.5
 	if _tail != null:
 		_tail.rotate_object_local(Vector3.UP, 0.55 * s[ToyPose.STEP] * sin(f.gait) + 0.12 * sin(f.time * 2.3))
 	for w in _wheels:
@@ -816,6 +854,8 @@ func _hide_ghosts() -> void:
 ## The toy pops into its pieces, which fly, bounce and vanish; confetti in the player colour.
 func _pop() -> void:
 	pose_node.transform = Transform3D.IDENTITY
+	if _cube != null:
+		_cube.transform = Transform3D.IDENTITY
 	_stars.visible = false
 	_shadow.visible = false
 	for k in pieces.size():
@@ -864,6 +904,8 @@ func _reset_pieces() -> void:
 	_debris_t = -1.0
 	_shadow.visible = true
 	pose_node.transform = Transform3D.IDENTITY
+	if _cube != null:
+		_cube.transform = Transform3D.IDENTITY
 	for k in pieces.size():
 		pieces[k].transform = _home[k]
 
@@ -912,9 +954,9 @@ func solid_reach() -> float:
 	return reach
 
 
-## Footprint radius of the body shell (the first mesh of the "Body" piece), in player radii: half its larger
+## Footprint radius of the body shell (the first mesh found below the "Body" piece), in player radii: half its larger
 ## horizontal size plus its offset. The hit circle has radius 1.
 func body_footprint() -> float:
-	var shell := (pose_node.get_node("Body") as Node3D).get_child(0) as MeshInstance3D
+	var shell := pose_node.get_node("Body").find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D
 	var ext := shell.transform.basis.get_scale() * 0.5
 	return maxf(absf(shell.position.x) + ext.x, absf(shell.position.z) + ext.z)
