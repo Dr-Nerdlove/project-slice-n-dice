@@ -17,6 +17,14 @@ const OBSTACLES: Array[Rect2] = [
 	Rect2(23.55, 9.85, 1.8, 1.8),
 	Rect2(21.5, 1.8, 1.4, 1.4),
 ]
+## Where the shrinking zone of a match ends up (one of these is drawn per round). y = 0 is the top wall (the top of
+## the screen). Each is ARENA_SIZE / 4 and a "free area": no obstacle, crate start, box or train track in it.
+const ZONE_SPOTS: Array[Rect2] = [
+	Rect2(0.8, 5.4, 8.0, 3.6),      # left middle
+	Rect2(23.2, 5.4, 8.0, 3.6),     # right middle
+	Rect2(0.8, 10.4, 8.0, 3.6),     # left bottom
+	Rect2(23.2, 0.4, 8.0, 3.6),     # right top
+]
 const CRATE_START := Vector2(16.0, 2.3)
 const BOX_POS := Vector2(16.0, 12.1)
 const SPAWNS: Array[Vector2] = [
@@ -56,6 +64,7 @@ const BOT_NEXT_THROW_WAIT := 0.25
 const BOT_PULL_HOLD_EXTRA := 0.6
 const BOT_DASH_CHANCE := 0.004      # per tick while idle
 const BOT_ATTACK_RANGE_FACTOR := 1.2
+const BOT_ZONE_MARGIN := 1.0        # bots keep this far inside the zone edge (it moves in while it shrinks)
 const BOT_MARGIN := 1.8
 const BOT_TRAIN_AVOID_DIST := 3.0   # bots steer away from a train car (or the rails ahead of it) closer than this
 const BOT_TRAIN_AVOID_WEIGHT := 3.0

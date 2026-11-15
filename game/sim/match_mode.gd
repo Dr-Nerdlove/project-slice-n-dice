@@ -12,6 +12,14 @@ const RESULT_TIME := 4.0
 const TARGETS: Array[int] = [10, 15, 20]
 const DEFAULT_TARGET := 10
 
+## The shrinking zone (Last Standing, phase PLAY only; fixed match rules, not tunable): the whole arena for
+## ZONE_FULL_TIME seconds, then a rectangle shrinks for ZONE_SHRINK_TIME seconds (every edge linearly) to one of
+## `Config.ZONE_SPOTS` and stays. A player whose centre is outside fills a personal timer and dies at ZONE_DEATH_TIME;
+## inside, the timer drains at the same rate.
+const ZONE_FULL_TIME := 20.0
+const ZONE_SHRINK_TIME := 30.0
+const ZONE_DEATH_TIME := 3.0
+
 ## OFF is free play (Training, the warm-up before the host starts): respawns as always, no rounds.
 var phase := Phase.OFF
 var phase_t := 0.0                 # seconds spent in the current phase
@@ -20,6 +28,8 @@ var target := DEFAULT_TARGET
 var points: Array = []             # int per slot
 var roster: Array = []             # bool per slot: who takes part, fixed at match start
 var last_scorer := -1              # who scored the last round (-1: nobody)
+var zone_t := 0.0                  # seconds of PLAY in this round so far (kept through RESULT, reset by the next round)
+var zone_spot := 0                 # index into Config.ZONE_SPOTS: where the zone ends this round
 var winner := -1                   # the match winner once MATCH_OVER (-1: none)
 
 

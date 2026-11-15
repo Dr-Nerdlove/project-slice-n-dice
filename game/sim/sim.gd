@@ -141,6 +141,8 @@ func _start_round() -> void:
 	box_timer = 0.0
 	train_s = 0.0
 	prev_train_s = 0.0
+	mode.zone_t = 0.0
+	mode.zone_spot = rng.randi_range(0, Config.ZONE_SPOTS.size() - 1)
 	var spawns: Array = Config.SPAWNS.duplicate()
 	for k in range(spawns.size() - 1, 0, -1):
 		var j := rng.randi_range(0, k)
@@ -159,6 +161,7 @@ func _start_round() -> void:
 		var at: Vector2 = spawns[next]
 		next += 1
 		p.alive = true
+		p.zone_t = 0.0
 		p.pos = at
 		p.prev_pos = at
 		_reset_yoyo(p)
@@ -224,6 +227,8 @@ func step(inputs: Array) -> void:
 			_step_player(players[i], inputs[i], dt)
 	_separate_players()
 	_step_train(dt)
+	if mode.phase == MatchMode.Phase.PLAY:
+		_step_zone(dt)
 	_collide_heads()
 	_step_shards(dt)
 	_step_wires(dt)
@@ -1400,9 +1405,10 @@ func _check_kills() -> void:
 					_kill(v, a)
 
 
-## `killer` null = a death for the victim, a kill for nobody; `cause` then says why ("train" or "self").
+## `killer` null = a death for the victim, a kill for nobody; `cause` then says why ("train", "self" or "zone").
 func _kill(victim: SimPlayer, killer: SimPlayer, cause := "train") -> void:
 	victim.alive = false
+	victim.zone_t = 0.0
 	victim.deaths += 1
 	if killer != null:
 		killer.kills += 1
@@ -1432,6 +1438,46 @@ func _push_train(pos: Vector2, r: float) -> Vector2:
 		else:
 			pos = c + d / sqrt(l2) * reach
 	return pos
+
+
+## True while a shrinking zone exists: in a match (any phase but OFF). Free play has none.
+func zone_active() -> bool:
+	return mode.phase != MatchMode.Phase.OFF
+
+
+## The safe rectangle now: the whole arena in free play and for the first ZONE_FULL_TIME seconds of a round, then
+## every edge moves linearly to the round's final spot over ZONE_SHRINK_TIME seconds and stays there.
+func zone_rect() -> Rect2:
+	var full := Rect2(Vector2.ZERO, Config.ARENA_SIZE)
+	if not zone_active():
+		return full
+	var k := clampf((mode.zone_t - MatchMode.ZONE_FULL_TIME) / MatchMode.ZONE_SHRINK_TIME, 0.0, 1.0)
+	var f: Rect2 = Config.ZONE_SPOTS[clampi(mode.zone_spot, 0, Config.ZONE_SPOTS.size() - 1)]
+	if k >= 1.0:
+		return f
+	var a := full.position.lerp(f.position, k)
+	var b := full.end.lerp(f.end, k)
+	return Rect2(a, b - a)
+
+
+func _outside_zone(pos: Vector2, z: Rect2) -> bool:
+	return pos.x < z.position.x or pos.y < z.position.y or pos.x > z.end.x or pos.y > z.end.y
+
+
+## PLAY only: advances the zone clock and every living player's personal timer; the timer filling up is a death
+## for the victim and a kill for nobody (cause "zone").
+func _step_zone(dt: float) -> void:
+	mode.zone_t += dt
+	var z := zone_rect()
+	for p in players:
+		if not (p.enabled and p.alive):
+			continue
+		if _outside_zone(p.pos, z):
+			p.zone_t += dt
+			if p.zone_t >= MatchMode.ZONE_DEATH_TIME:
+				_kill(p, null, "zone")
+		else:
+			p.zone_t = maxf(0.0, p.zone_t - dt)
 
 
 ## Moves the train along its loop. The cars shove the crate aside, run living players over and are solid for
@@ -1514,6 +1560,7 @@ func _respawn(p: SimPlayer) -> void:
 			best_score = score
 			best = s
 	p.alive = true
+	p.zone_t = 0.0
 	p.pos = best
 	p.prev_pos = best
 	_reset_yoyo(p)

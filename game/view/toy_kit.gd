@@ -31,6 +31,11 @@ static func unshaded(c: Color) -> StandardMaterial3D:
 	return _material("unshaded", c)
 
 
+## Flat translucent marking on the floor (the colour's alpha counts): unshaded, shared per colour.
+static func overlay(c: Color) -> StandardMaterial3D:
+	return _material("overlay", c)
+
+
 ## A new (not shared) plastic material, for parts whose colour changes at run time (a figure's body flashes).
 static func new_plastic(c: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -71,6 +76,9 @@ static func _setup(m: StandardMaterial3D, kind: String, c: Color) -> void:
 			m.metallic_specular = 0.35
 		"unshaded":
 			m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		"overlay":
+			m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 
 
 static func sphere() -> Mesh:

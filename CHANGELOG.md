@@ -4,6 +4,15 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## Unreleased
+
+- **Shrinking zone in Play**: every round, the whole arena is safe for the first 20 seconds. Then a bright line
+  closes in from all sides over 30 seconds and stops on a small area (a quarter of the arena's width and height)
+  that is chosen at random each round. Outside the line the floor is darker. Anyone whose middle is outside the
+  line gets a red ring on the floor under their figure that fills over 3 seconds; when it is full, they are out
+  (no point for anybody). Back inside, the ring empties again. Bots stay inside the line. Training has no zone.
+  (Not looked at on a real screen yet.)
+
 ## 0.6.0
 
 The game has a new name and a new start screen: **Spinback Rumble**.
