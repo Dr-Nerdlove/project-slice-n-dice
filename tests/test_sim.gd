@@ -13,6 +13,7 @@ func check(name: String, ok: bool, info := "") -> void:
 
 func mk(only: Array, walls_only := true) -> Sim:
 	var cfg := Config.new()
+	cfg.train_speed = 0.0 # the train has its own checks; the other tests want an empty track
 	var s := Sim.new(cfg, 1)
 	for i in 4:
 		s.set_player_enabled(i, i in only)
@@ -285,6 +286,7 @@ func _initialize() -> void:
 	_mod_tests()
 	_new_tests()
 	_path_tests()
+	_train_tests()
 
 var _frames := 0
 func _process(_delta: float) -> bool:
@@ -344,6 +346,51 @@ func _mod_tests() -> void:
 	var cfgy := Config.new()
 	cfgy.from_dict(JSON.parse_string(JSON.stringify(cfgx.to_dict())))
 	check("sandbox choice survives JSON round trip", cfgy.mods_you["pierce"] == 2 and cfgy.mods_bots["twin"] == 3 and cfgy.mods_you["twin"] == 0)
+
+	# --- figure choice (presentation only)
+	check("figure: skin count agrees in sim and view", Config.SKIN_COUNT == ToyFigure.NAMES.size())
+	var cfgc := Config.new()
+	check("figure: default is the first one", cfgc.character == 0 and cfgc.to_dict()["character"] == 0)
+	cfgc.character = Config.SKIN_COUNT - 1
+	var cfgd := Config.new()
+	cfgd.from_dict(JSON.parse_string(JSON.stringify(cfgc.to_dict())))
+	check("figure: choice survives JSON round trip", cfgd.character == Config.SKIN_COUNT - 1)
+	cfgd.reset()
+	check("figure: reset leaves the choice", cfgd.character == Config.SKIN_COUNT - 1)
+	for garbage: Variant in ["x", null, [3], {"a": 1}, NAN, INF, true]:
+		cfgd.character = 1
+		cfgd.from_dict({"character": garbage})
+		check("figure: garbage value %s gives 0" % str(garbage), cfgd.character == 0)
+	cfgd.from_dict({"character": Config.SKIN_COUNT + 1})
+	check("figure: too large value wraps into range", cfgd.character == 1)
+	cfgd.from_dict({"character": -1})
+	check("figure: negative value wraps into range", cfgd.character == Config.SKIN_COUNT - 1)
+	cfgd.from_dict({"character": 2.0})
+	check("figure: float value is accepted", cfgd.character == 2)
+	cfgd.from_dict({})
+	check("figure: old file without the key gives 0", cfgd.character == 0)
+	s = mk([0, 1])
+	check("figure: new sim shows figure = slot (wrapped)", s.players[0].skin == 0 % Config.SKIN_COUNT and s.players[1].skin == 1 % Config.SKIN_COUNT)
+	s.set_skin(1, Config.SKIN_COUNT - 1)
+	check("figure: set_skin sets it", s.players[1].skin == Config.SKIN_COUNT - 1 and s.players[0].skin == 0)
+	s.set_skin(1, Config.SKIN_COUNT + 2)
+	check("figure: set_skin wraps too large", s.players[1].skin == 2 % Config.SKIN_COUNT)
+	s.set_skin(1, -1)
+	check("figure: set_skin wraps negative", s.players[1].skin == Config.SKIN_COUNT - 1)
+	var sa := Sim.new(Config.new(), 7)
+	var sb := Sim.new(Config.new(), 7)
+	for k in Config.NUM_PLAYERS:
+		sb.set_skin(k, Config.SKIN_COUNT - 1 - k)
+	for tk in 120:
+		var ia := idle4()
+		ia[0] = inp(Vector2(1, 0.3), Vector2(1, 0), tk % 50 < 25, tk == 40)
+		ia[1] = inp(Vector2(-1, 0.2), Vector2(-1, 0), tk % 70 < 30, tk == 70)
+		sa.step(ia)
+		sb.step(ia)
+	var same := true
+	for k in Config.NUM_PLAYERS:
+		same = same and sa.players[k].pos == sb.players[k].pos and sa.players[k].heads[0].pos == sb.players[k].heads[0].pos
+	check("figure: a different skin does not change the simulation", same and sa.players[0].pos != Config.SPAWNS[0] and sa.players[0].skin != sb.players[0].skin)
 
 	# --- 1 Stolperdraht
 	for L in [1, 2, 3]:
@@ -1166,6 +1213,24 @@ func _menu_tests() -> void:
 	menu._show_page(0)
 	menu._on_reset()
 	check("menu: reset on the values page resets the values but not the levels", cfgm.player_speed == Config.DEFAULTS["player_speed"] and cfgm.mods_you["shards"] == 1)
+	menu._show_page(3)
+	check("menu: figure tab shows only the figure page", menu._figure_page.visible and not menu._values_page.visible and not menu._mods_page.visible and not menu._online_page.visible and menu._tab_figure.button_pressed)
+	check("menu: figure page has one button per figure named after it and a preview area first", menu._figure_buttons.size() == Config.SKIN_COUNT and menu._figure_buttons[Config.SKIN_COUNT - 1].text == ToyFigure.NAMES[Config.SKIN_COUNT - 1] and menu._figure_preview.get_index() == 0 and menu._figure_buttons[0].button_pressed and not menu._figure_buttons[1].button_pressed)
+	check("menu: the preview shows the configured figure at the start", menu._figure_preview.figure != null and menu._figure_preview.figure.kind == 0)
+	menu._figure_buttons[2].pressed.emit()
+	check("menu: pressing a figure button sets the choice", cfgm.character == 2)
+	check("menu: only the chosen figure shows pressed", menu._figure_buttons[2].button_pressed and menu._figure_buttons.filter(func(b: Button) -> bool: return b.button_pressed).size() == 1)
+	check("menu: the preview shows the pressed figure", menu._figure_preview.figure != null and menu._figure_preview.figure.kind == 2)
+	menu._figure_buttons[Config.SKIN_COUNT - 1].pressed.emit()
+	check("menu: ... and changes with the next button", menu._figure_preview.figure.kind == Config.SKIN_COUNT - 1 and cfgm.character == Config.SKIN_COUNT - 1)
+	menu._figure_buttons[2].pressed.emit()
+	menu._on_reset()
+	check("menu: reset on the figure page leaves the figure", cfgm.character == 2 and menu._figure_buttons[2].button_pressed)
+	cfgm.character = 1
+	menu.refresh()
+	check("menu: refresh shows the choice from the config", menu._figure_buttons[1].button_pressed and not menu._figure_buttons[2].button_pressed)
+	check("menu: refresh also moves the preview", menu._figure_preview.figure.kind == 1)
+	menu._show_page(0)
 	menu._on_export()
 	check("menu: export shows the text and the confirmation", menu._export_panel.visible and menu._export_text.text == cfgm.export_text() and menu._export_status.text == "In die Zwischenablage kopiert" and not menu._export_text.editable)
 	menu.queue_free()
@@ -1310,3 +1375,231 @@ func _circle_run(label: String, pos: Vector2, charge: int, walk: bool) -> void:
 	var rlim := rmax + 0.1 + (0.35 if walk else 0.0)
 	var wall_case := pos.x < 5.0
 	check("arc L3 circle (%s): ~1.1 s, radius <= %.2f, full 360 deg, then home" % [label, rmax], started and absf(tsec - 1.1) < 0.12 and rworst <= rlim and swept >= TAU - 0.35 and home and not stuck and not out_of_arena and start_d <= rmax + 0.001 and start_d > rmax - 0.6 and pins_at_start < npins, "t=%.2fs r=%.2f/%.2f swept=%.2f start_d=%.2f pins %d->%d home=%s stuck=%s out=%s" % [tsec, rworst, rmax, swept, start_d, npins, pins_at_start, home, stuck, out_of_arena])
+
+
+# ---------------------------------------------------------------- toy train
+
+func car_pos(s: Sim, k: int) -> Vector2:
+	return TrainTrack.point(TrainTrack.car_s(s.train_s, k))
+
+func train_sim(only: Array, speed := Config.DEFAULTS["train_speed"]) -> Sim:
+	var s := mk(only)
+	s.cfg.train_speed = speed
+	return s
+
+## Steps until player `i` is dead (at most n ticks); returns the kill events seen on the way.
+func run_until_dead(s: Sim, i: int, n: int) -> Array:
+	var kills := []
+	for _t in n:
+		s.step(idle4())
+		for e: Dictionary in s.events:
+			if e["type"] == "kill":
+				kills.append(e)
+		if not s.players[i].alive:
+			break
+	return kills
+
+func rect_dist(q: Vector2, r: Rect2) -> float:
+	return q.distance_to(Vector2(clampf(q.x, r.position.x, r.end.x), clampf(q.y, r.position.y, r.end.y)))
+
+func _train_tests() -> void:
+	var dt := 1.0 / 60.0
+	var spd: float = Config.DEFAULTS["train_speed"]
+	var xm := TrainTrack.CENTER.x   # on the straight piece of the long sides
+	var s := train_sim([0])
+	place(s, 0, Vector2(2, 2))
+	s.step(idle4())
+	check("train: advances by speed * dt per tick and remembers the step before", is_equal_approx(s.train_s, spd * dt) and is_equal_approx(s.prev_train_s, 0.0), "s=%f prev=%f" % [s.train_s, s.prev_train_s])
+	s.train_s = TrainTrack.LENGTH - 0.01
+	s.prev_train_s = s.train_s - spd * dt
+	s.step(idle4())
+	check("train: wraps at the loop length and prev / current stay one step apart", s.train_s < 0.2 and is_equal_approx(s.train_s - s.prev_train_s, spd * dt) and is_equal_approx(s.train_s, spd * dt - 0.01), "s=%f prev=%f" % [s.train_s, s.prev_train_s])
+	s.cfg.train_speed = 10.0
+	s.step(idle4())
+	check("train: the speed is read every tick (tuning slider)", is_equal_approx(s.train_s - s.prev_train_s, 10.0 * dt))
+	check("train: default speed is 5.7 m/s and the tuning page has a slider for it", Config.DEFAULTS["train_speed"] == 5.7 and (func() -> bool:
+		for d: Array in TuningMenu.SLIDERS:
+			if d[0] == "train_speed" and d[1] == "Eisenbahn-Tempo" and d[2] == 0.0 and d[3] == 10.0:
+				return true
+		return false).call())
+
+	# speed 0: nothing moves, nobody is run over (player right on a car)
+	s = train_sim([0], 0.0)
+	place(s, 0, TrainTrack.point(0.0))
+	s.crate_pos = TrainTrack.point(12.0)
+	var crate0 := s.crate_pos
+	run(s, 120, func(_t: int) -> Array: return idle4())
+	check("train: speed 0 freezes it, kills nobody and moves no crate", s.train_s == 0.0 and s.prev_train_s == 0.0 and s.players[0].alive and s.players[0].deaths == 0 and s.crate_pos == crate0)
+
+	# a player standing on the rails
+	s = train_sim([0, 1])
+	place(s, 0, TrainTrack.point(3.0)); place(s, 1, Vector2(2, 10))
+	var ev := run_until_dead(s, 0, 120)
+	var e0: Dictionary = ev[0] if ev.size() == 1 else {}
+	check("train: runs a player over (death +1, no kill for anybody)", not s.players[0].alive and s.players[0].deaths == 1 and s.players[0].kills == 0 and s.players[1].kills == 0 and s.players[1].deaths == 0 and s.players[1].alive)
+	check("train: kill event has victim, killer -1 and cause train", e0.get("type") == "kill" and e0.get("victim") == 0 and e0.get("killer") == -1 and e0.get("cause") == "train" and e0.has("pos"), str(ev))
+	check("train: the victim respawns later like after any kill", (func() -> bool:
+		run(s, 120, func(_t: int) -> Array: return idle4())
+		return s.players[0].alive).call())
+	# the whole train is deadly, not only the locomotive
+	s = train_sim([0, 1])
+	s.train_s = 0.0
+	place(s, 0, TrainTrack.point(-2.0 * TrainTrack.CAR_GAP + 0.1)); place(s, 1, Vector2(2, 10))
+	ev = run_until_dead(s, 0, 120)
+	check("train: the last car kills too (a player sitting on it, the others are farther away)", not s.players[0].alive and s.players[0].deaths == 1)
+
+	# just outside / just inside the hit distance (straight piece: the train runs along the top side)
+	var reach := TrainTrack.CAR_RADIUS + s.cfg.player_radius * Config.TRAIN_HIT_SHARE
+	var line_y := TrainTrack.point(0.0).y
+	s = train_sim([0])
+	place(s, 0, Vector2(xm, line_y + reach + 0.05))
+	run(s, 150, func(_t: int) -> Array: return idle4())
+	check("train: a player just outside the hit distance survives the whole train", s.players[0].alive and s.players[0].deaths == 0 and s.train_s > 5.0)
+	s = train_sim([0])
+	place(s, 0, Vector2(xm, line_y + reach - 0.05))
+	run_until_dead(s, 0, 150)
+	check("train: a player just inside the hit distance is run over", not s.players[0].alive)
+	s = train_sim([0])
+	s.players[0].enabled = false
+	place(s, 0, TrainTrack.point(2.0))
+	run(s, 60, func(_t: int) -> Array: return idle4())
+	check("train: a disabled player is not touched", s.players[0].deaths == 0)
+
+	# the dash across the rails is judged on the positions of the same tick
+	s = train_sim([0])
+	place(s, 0, Vector2(xm, line_y + 2.5)); s.train_s = xm - TrainTrack.point(0.0).x - 0.3
+	s.prev_train_s = s.train_s
+	s.step(only0(inp(Vector2(0, -1), Vector2.ZERO, false, true)))
+	for _t in 15:
+		s.step(only0(inp(Vector2(0, -1))))
+		if not s.players[0].alive: break
+	check("train: a player dashing in front of the locomotive is run over", not s.players[0].alive or s.players[0].deaths == 1)
+
+	# the crate
+	s = train_sim([0])
+	place(s, 0, Vector2(2, 2))
+	s.crate_pos = Vector2(xm, line_y); s.prev_crate_pos = s.crate_pos
+	var overlap := false
+	var moved := false
+	for _t in 450:
+		s.step(idle4())
+		if s.crate_pos.distance_to(Vector2(xm, line_y)) > 0.5: moved = true
+		for k in TrainTrack.CARS:
+			if Collide.push_out_rect(car_pos(s, k), TrainTrack.CAR_RADIUS, s.crate_rect()).length() > 0.02:
+				overlap = true
+	check("train: the crate is pushed off the track and never overlaps a car (a whole lap)", moved and not overlap, "moved=%s overlap=%s crate=%s" % [moved, overlap, s.crate_pos])
+
+	# a yo-yo head lying on the rails is not touched
+	s = train_sim([0])
+	place(s, 0, Vector2(2, line_y))
+	var h := s.players[0].heads[0]
+	h.state = HS.OUT; h.pos = Vector2(xm, line_y); h.prev_pos = h.pos
+	s.step(idle4())
+	var hp := h.pos
+	run(s, 90, func(_t: int) -> Array: return idle4())
+	check("train: a yo-yo head lying on the track is neither moved nor removed", h.state == HS.OUT and h.pos == hp and s.players[0].alive and s.train_s > 6.0)
+
+	# respawn: never into a car. Big players make several spawn points unsafe for a car standing near them.
+	var bad := 0
+	var checked := 0
+	var unsafe_spawns := 0
+	for seed_i in 60:
+		s = train_sim([0])
+		s.cfg.player_radius = 4.0
+		s.rng.seed = seed_i + 1
+		s.players[0].alive = false; s.players[0].respawn_t = 0.0
+		s.train_s = 0.0; s.prev_train_s = 0.0
+		for sp in Config.SPAWNS:
+			if s.train_unsafe(sp):
+				unsafe_spawns += 1
+		var cars: Array[Vector2] = []
+		for k in TrainTrack.CARS: cars.append(car_pos(s, k))
+		s.step(idle4())
+		var rp := Vector2.INF
+		for e: Dictionary in s.events:
+			if e["type"] == "respawn": rp = e["pos"]
+		var r_reach := TrainTrack.CAR_RADIUS + 4.0 * Config.TRAIN_HIT_SHARE
+		checked += 1
+		for c in cars:
+			if rp == Vector2.INF or rp.distance_to(c) < r_reach: bad += 1
+	check("train: no respawn inside a car's hit distance (60 seeds, a spawn point made unsafe)", checked == 60 and bad == 0 and unsafe_spawns > 0, "bad=%d unsafe=%d" % [bad, unsafe_spawns])
+
+	# a bot standing on the rails ahead of the train gets out of the way
+	var all_alive := true
+	for bs in 6:
+		s = train_sim([0])
+		place(s, 0, TrainTrack.point(3.0 + bs * 0.4))
+		var b := Bot.new(0, s.cfg, 40 + bs)
+		var fell := false
+		for _t in 900:
+			s.step([b.think(s, dt), inp(), inp(), inp()])
+			if not s.players[0].alive: fell = true; break
+		if fell or s.players[0].deaths > 0: all_alive = false
+	check("train: a bot on the rails ahead of the train steps aside and survives two laps (6 starts)", all_alive)
+
+	# a bot never dashes while a car is within the avoidance distance plus its dash distance
+	var near_ticks := 0
+	var near_dashes := 0
+	for bs in 12:
+		s = train_sim([0], 0.001)
+		place(s, 0, car_pos(s, 0) + Vector2(0, 3.0 + s.cfg.dash_distance * 0.5))
+		var b2 := Bot.new(0, s.cfg, 90 + bs)
+		for _t in 600:
+			var near := false
+			for k in TrainTrack.CARS:
+				near = near or s.players[0].pos.distance_to(car_pos(s, k)) < Config.BOT_TRAIN_AVOID_DIST + s.cfg.dash_distance
+			var bi := b2.think(s, dt)
+			if near:
+				near_ticks += 1
+				if bi.dash:
+					near_dashes += 1
+			s.step([bi, inp(), inp(), inp()])
+	check("train: a bot does not dash while a car is near enough for the dash to reach it", near_ticks > 1000 and near_dashes == 0, "near=%d dashes=%d" % [near_ticks, near_dashes])
+
+	# snapshot round trip
+	s = train_sim([0])
+	s.train_s = 7.3; s.prev_train_s = 7.3 - spd * dt
+	var s2 := train_sim([0])
+	s2.load_state(s.save_state())
+	check("train: save_state / load_state carry the position", s2.train_s == 7.3 and is_equal_approx(s2.prev_train_s, 7.3 - spd * dt))
+	var back: Dictionary = bytes_to_var(var_to_bytes(s.save_state()))
+	check("train: the state survives var_to_bytes", back["train_s"] == 7.3 and back.has("prev_train_s"))
+
+	# geometry: the rails keep clear of obstacles and walls, the spawn points keep clear of the rails
+	var min_obst := 1e9
+	var min_wall := 1e9
+	var min_spawn := 1e9
+	var n := int(TrainTrack.LENGTH / 0.02)
+	for i in n:
+		var q := TrainTrack.point(i * 0.02)
+		for o in Config.OBSTACLES:
+			min_obst = minf(min_obst, rect_dist(q, o))
+		min_wall = minf(min_wall, minf(minf(q.x, Config.ARENA_SIZE.x - q.x), minf(q.y, Config.ARENA_SIZE.y - q.y)))
+		for sp in Config.SPAWNS:
+			min_spawn = minf(min_spawn, q.distance_to(sp))
+	check("train: every point of the track is at least a car radius from every obstacle", min_obst >= TrainTrack.CAR_RADIUS, "min=%.3f" % min_obst)
+	check("train: every point of the track is at least a car radius from the outer walls", min_wall >= TrainTrack.CAR_RADIUS, "min=%.3f" % min_wall)
+	check("train: all spawn points are farther from the track than the hit distance plus the spawn noise", min_spawn > reach + Config.SPAWN_NOISE, "min=%.3f need>%.3f" % [min_spawn, reach + Config.SPAWN_NOISE])
+	check("train: a loop is closed (the point after one length is the start)", TrainTrack.point(TrainTrack.LENGTH).distance_to(TrainTrack.point(0.0)) < 1e-4)
+
+	# a player of the default size fits between the centre block and the rails without being hit (all four sides)
+	var rr: float = s.cfg.player_radius
+	var blk: Rect2 = Config.OBSTACLES[0]
+	var gaps := [
+		Vector2(xm, ((TrainTrack.CENTER.y - TrainTrack.HALF.y) + reach + blk.position.y - rr) * 0.5),
+		Vector2(xm, ((TrainTrack.CENTER.y + TrainTrack.HALF.y) - reach + blk.end.y + rr) * 0.5),
+		Vector2(((TrainTrack.CENTER.x - TrainTrack.HALF.x) + reach + blk.position.x - rr) * 0.5, TrainTrack.CENTER.y),
+		Vector2(((TrainTrack.CENTER.x + TrainTrack.HALF.x) - reach + blk.end.x + rr) * 0.5, TrainTrack.CENTER.y),
+	]
+	var gap_ok := true
+	for g: Vector2 in gaps:
+		var near := 1e9
+		for i in n:
+			near = minf(near, TrainTrack.point(i * 0.02).distance_to(g))
+		gap_ok = gap_ok and near > reach and rect_dist(g, blk) >= rr
+	check("train: a default-size player fits between the centre block and the rails on every side without being hit", gap_ok)
+	s = train_sim([0], Config.DEFAULTS["train_speed"])
+	s.statics.resize(s.wall_count)
+	place(s, 0, gaps[0])
+	run(s, int(TrainTrack.LENGTH / spd * 60.0) + 60, func(_t: int) -> Array: return idle4())
+	check("train: a player standing in the gap above the centre block survives a whole lap", s.players[0].alive and s.players[0].deaths == 0 and s.train_s > 0.0)

@@ -26,6 +26,7 @@ const SLIDERS: Array = [
 	["string_length", "Schnurlänge", 3.0, 16.0, 0.1, "m"],
 	["head_radius", "Jojo-Radius", 0.15, 0.8, 0.01, "m"],
 	["charge_speed_mult", "Tempo beim Aufladen", 0.1, 1.0, 0.05, "×"],
+	["train_speed", "Eisenbahn-Tempo", 0.0, 10.0, 0.1, "m/s"],
 ]
 const VARIANT_NAMES: Array[String] = [
 	"A – Jojo wird hinterhergezogen",
@@ -50,6 +51,10 @@ var _mods_page: ScrollContainer
 var _tab_values: Button
 var _tab_mods: Button
 var _tab_online: Button
+var _tab_figure: Button
+var _figure_page: ScrollContainer
+var _figure_buttons: Array[Button] = []
+var _figure_preview: FigurePreview   # live 3D picture of the chosen figure
 var _online_page: ScrollContainer
 var _address_edit: LineEdit
 var _connect_btn: Button
@@ -132,6 +137,10 @@ func setup(c: Config) -> void:
 	_tab_online.toggle_mode = true
 	_tab_online.pressed.connect(func() -> void: _show_page(2))
 	tabs.add_child(_tab_online)
+	_tab_figure = _button("Figur")
+	_tab_figure.toggle_mode = true
+	_tab_figure.pressed.connect(func() -> void: _show_page(3))
+	tabs.add_child(_tab_figure)
 
 	var scroll := _make_scroll()
 	_values_page = scroll
@@ -142,6 +151,9 @@ func setup(c: Config) -> void:
 	_online_page = _make_scroll()
 	root.add_child(_online_page)
 	_build_online_page(_online_page)
+	_figure_page = _make_scroll()
+	root.add_child(_figure_page)
+	_build_figure_page(_figure_page)
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -181,14 +193,60 @@ func _make_scroll() -> ScrollContainer:
 	return scroll
 
 
-## 0 = values, 1 = modifiers, 2 = online.
+## 0 = values, 1 = modifiers, 2 = online, 3 = figure.
 func _show_page(page: int) -> void:
 	_values_page.visible = page == 0
 	_mods_page.visible = page == 1
 	_online_page.visible = page == 2
+	_figure_page.visible = page == 3
 	_tab_values.set_pressed_no_signal(page == 0)
 	_tab_mods.set_pressed_no_signal(page == 1)
 	_tab_online.set_pressed_no_signal(page == 2)
+	_tab_figure.set_pressed_no_signal(page == 3)
+
+
+## The choice of the player's figure: a preview placeholder on top, then one toggle button per figure.
+func _build_figure_page(scroll: ScrollContainer) -> void:
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 14)
+	scroll.add_child(col)
+	_figure_preview = FigurePreview.new()
+	_figure_preview.custom_minimum_size = Vector2(0, 200)
+	_figure_preview.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(_figure_preview)
+	var cap := Label.new()
+	cap.text = "Deine Figur"
+	cap.add_theme_font_size_override("font_size", FONT_SIZE)
+	cap.mouse_filter = Control.MOUSE_FILTER_PASS
+	col.add_child(cap)
+	var grid := GridContainer.new()
+	grid.columns = 4
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	col.add_child(grid)
+	for i in Config.SKIN_COUNT:
+		var b := _button(ToyFigure.NAMES[i])
+		b.toggle_mode = true
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.pressed.connect(func() -> void: _choose_figure(i))
+		grid.add_child(b)
+		_figure_buttons.append(b)
+	_mark_figure()
+
+
+func _choose_figure(i: int) -> void:
+	cfg.character = i
+	_mark_figure()
+	_queue_save()
+
+
+func _mark_figure() -> void:
+	for i in _figure_buttons.size():
+		_figure_buttons[i].set_pressed_no_signal(i == cfg.character)
+	if _figure_preview.figure == null or _figure_preview.figure.kind != cfg.character:
+		_figure_preview.show_figure(cfg.character, ArenaView.PLAYER_COLORS[0], cfg)
 
 
 ## Connection to a game server plus the artificial lag tool. The lag applies to what this phone sends and
@@ -561,6 +619,7 @@ func refresh() -> void:
 		(_rows[key]["slider"] as HSlider).value = cfg.get(key)
 		_update_label(key)
 	_refresh_mods()
+	_mark_figure()
 	_variant_opt.select(cfg.out_variant)
 	_bot_opt.select(cfg.bot_mode)
 	_suppress = false

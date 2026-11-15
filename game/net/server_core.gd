@@ -277,6 +277,11 @@ func _on_packet(peer: int, data: PackedByteArray) -> void:
 				sim.apply_mods(i, Mods.sanitize(msg[1]))
 			else:
 				dropped_packets += 1
+		NetProto.T_SKIN:
+			if msg.size() == 2 and msg[1] is int and msg[1] >= 0 and msg[1] < Config.SKIN_COUNT:
+				sim.set_skin(i, msg[1])
+			else:
+				dropped_packets += 1
 		NetProto.T_PING:
 			if msg.size() == 2 and (msg[1] is int or (msg[1] is float and is_finite(msg[1]))):
 				net.send(peer, NetProto.pack([NetProto.T_PONG, msg[1]]), false)

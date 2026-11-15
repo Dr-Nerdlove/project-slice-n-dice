@@ -47,8 +47,11 @@ func _initialize() -> void:
 	test_springs()
 	test_motion()
 	await test_figures()
+	await test_figure_details()
 	test_arena_geometry()
 	await test_view_sources()
+	await test_arena_view_figures()
+	await test_playroom_details()
 	await test_main_scene()
 	quit(fails)
 
@@ -107,18 +110,57 @@ func test_pose_mapping() -> void:
 	check("pose: no tremble below 85 % charge", trem_early == 0.0)
 	# Walk flavours over one cycle.
 	var amp := {}
-	for kind in [ToyPose.Kind.DINO, ToyPose.Kind.ROBOT, ToyPose.Kind.BUNNY, ToyPose.Kind.DUCK]:
+	var K := ToyPose.Kind
+	for kind in range(ToyFigure.NAMES.size()):
 		var lift := 0.0
 		var roll := 0.0
+		var lean := 0.0
 		for k in 32:
 			var f := facts(A.WALK, kind)
 			f.gait = TAU * k / 32.0
 			var o := pose_of(f)
 			lift = maxf(lift, o[ToyPose.LIFT])
 			roll = maxf(roll, absf(o[ToyPose.ROLL]))
-		amp[kind] = [lift, roll]
-	check("pose: the bunny hops (lift far above the others)", amp[ToyPose.Kind.BUNNY][0] > 4.0 * maxf(amp[ToyPose.Kind.DINO][0], maxf(amp[ToyPose.Kind.ROBOT][0], amp[ToyPose.Kind.DUCK][0])), str(amp))
-	check("pose: the duck waddles (most roll), the robot stays stiff (least)", amp[ToyPose.Kind.DUCK][1] > amp[ToyPose.Kind.DINO][1] and amp[ToyPose.Kind.ROBOT][1] < amp[ToyPose.Kind.DINO][1] * 0.6, str(amp))
+			lean += o[ToyPose.LEAN] / 32.0
+		amp[kind] = [lift, roll, lean]
+	check("pose: eight kinds, and a walk cycle for each", K.size() == 8 and ToyPose.CYCLE.size() == 8 and ToyFigure.NAMES.size() == 8 and ToyFigure.ACCENTS.size() == 8)
+	check("pose: the bunny hops (lift far above the walkers)", amp[K.BUNNY][0] > 4.0 * maxf(amp[K.DINO][0], maxf(amp[K.ROBOT][0], amp[K.DUCK][0])), str(amp))
+	var walkers := [K.DINO, K.ROBOT, K.DUCK, K.DIE, K.DOLL, K.TOP]
+	var low := 0.0
+	for kind in walkers:
+		low = maxf(low, amp[kind][0])
+	check("pose: the imp bounces on its spring (lift far above the walkers and above the bunny)", amp[K.IMP][0] > 4.0 * low and amp[K.IMP][0] > 1.2 * amp[K.BUNNY][0], str(amp))
+	check("pose: the duck waddles (more roll than the dino), the robot stays stiff (least)", amp[K.DUCK][1] > amp[K.DINO][1] and amp[K.ROBOT][1] < amp[K.DINO][1] * 0.6, str(amp))
+	var others_roll := 0.0
+	for kind in [K.DINO, K.ROBOT, K.BUNNY, K.DUCK, K.IMP, K.DOLL, K.TOP]:
+		others_roll = maxf(others_roll, amp[kind][1])
+	check("pose: the die tumbles from edge to edge (the largest roll of all)", amp[K.DIE][1] > 1.1 * others_roll and amp[K.DIE][1] > 0.25, str(amp))
+	var most_lean := -1.0
+	for kind in [K.DINO, K.ROBOT, K.BUNNY, K.DUCK, K.IMP, K.DIE, K.DOLL]:
+		most_lean = maxf(most_lean, amp[kind][2])
+	check("pose: the top leans far into its walk (the largest mean lean)", amp[K.TOP][2] > most_lean + 0.05, str(amp))
+	# The doll rocks in circles: roll and lean a quarter cycle apart.
+	var d0 := facts(A.WALK, K.DOLL)
+	d0.gait = 0.0
+	var d1 := facts(A.WALK, K.DOLL)
+	d1.gait = PI * 0.5
+	var p0 := pose_of(d0)
+	var p1 := pose_of(d1)
+	check("pose: the doll's roll peaks where its lean is average, and the other way round (a quarter cycle apart)",
+			absf(p0[ToyPose.ROLL]) > 0.15 and absf(p1[ToyPose.ROLL]) < 0.05 and p1[ToyPose.LEAN] - p0[ToyPose.LEAN] > 0.15, "%s %s" % [p0, p1])
+	# Standing still: the doll sways and the top wobbles, the dino does not.
+	var sway := {}
+	for kind in [K.DINO, K.DOLL, K.TOP]:
+		var lo := INF
+		var hi := -INF
+		for k in 60:
+			var f := facts(A.IDLE, kind)
+			f.time = k * 0.1
+			var r := pose_of(f)[ToyPose.ROLL]
+			lo = minf(lo, r)
+			hi = maxf(hi, r)
+		sway[kind] = hi - lo
+	check("pose: the doll sways at rest and the top wobbles, the dino stands still", sway[K.DOLL] > 0.08 and sway[K.TOP] > 0.06 and sway[K.DINO] < 0.001, str(sway))
 	var both := facts(A.CHARGE)
 	both.dashing = true
 	check("pose: a dash while charging shows the dash (the faster tell wins)", ToyPose.act_of(both) == A.DASH)
@@ -251,8 +293,9 @@ func test_figures() -> void:
 	var holder := Node3D.new()
 	root.add_child(holder)
 	await process_frame
-	var extras := {ToyPose.Kind.DINO: ["Tail"], ToyPose.Kind.ROBOT: ["Key"], ToyPose.Kind.BUNNY: ["Head/EarL", "Head/EarR", "Tail"], ToyPose.Kind.DUCK: ["Tail"]}
-	for kind in [ToyPose.Kind.DINO, ToyPose.Kind.ROBOT, ToyPose.Kind.BUNNY, ToyPose.Kind.DUCK]:
+	var extras := {ToyPose.Kind.DINO: ["Tail"], ToyPose.Kind.ROBOT: ["Key"], ToyPose.Kind.BUNNY: ["Head/EarL", "Head/EarR", "Tail"], ToyPose.Kind.DUCK: ["Tail"],
+			ToyPose.Kind.IMP: [], ToyPose.Kind.DIE: [], ToyPose.Kind.DOLL: [], ToyPose.Kind.TOP: []}
+	for kind in range(ToyFigure.NAMES.size()):
 		var fig := ToyFigure.new(kind, Color("ff2e88"))
 		holder.add_child(fig)
 		var missing := []
@@ -278,6 +321,136 @@ func test_figures() -> void:
 		for _k in 90:
 			fig.sync(p, s, p.pos, 1.0 / 60.0)
 		check("figure %s: stands at the player, scaled to the radius; pops into flying pieces and vanishes" % ToyFigure.NAMES[kind], ok_pos and flew and not fig.visible)
+	holder.queue_free()
+	await process_frame
+
+
+func world_xz(v: Vector3) -> Vector2:
+	return Vector2(v.x, v.z)
+
+
+## Blink, spring coils, spinning top and the paw, on figures that stand in the tree.
+func test_figure_details() -> void:
+	var holder := Node3D.new()
+	root.add_child(holder)
+	await process_frame
+	var dt := 1.0 / 60.0
+	var K := ToyPose.Kind
+	var blink_ok := true
+	var paw_ok := true
+	var rest_ok := []
+	var wound_ok := []
+	var reach_ok := []
+	for kind in range(ToyFigure.NAMES.size()):
+		var fig := ToyFigure.new(kind, Color("2ec4ff"))
+		holder.add_child(fig)
+		var s := one_player()
+		var p := s.players[0]
+		for _k in 60:
+			fig.sync(p, s, p.pos, dt)
+		var pos: Vector2 = p.pos
+		var face := Vector2.RIGHT
+		# --- blink: closes for a moment and opens again (forced, then by itself over ten seconds)
+		if fig._eyes.is_empty():
+			blink_ok = false
+		else:
+			fig._blink = 0.005
+			fig.sync(p, s, p.pos, dt)
+			fig.sync(p, s, p.pos, dt)
+			var closed := (fig._eyes[0] as Node3D).basis.get_scale().y
+			fig._blink = -ToyFigure.BLINK_TIME - 0.001
+			fig.sync(p, s, p.pos, dt)
+			var opened := (fig._eyes[0] as Node3D).basis.get_scale().y
+			blink_ok = blink_ok and closed < 0.3 and opened > 0.9 and fig._blink > 1.0
+			var shut := 0
+			for _k in 600:
+				fig.sync(p, s, p.pos, dt)
+				if (fig._eyes[0] as Node3D).basis.get_scale().y < 0.3:
+					shut += 1
+			blink_ok = blink_ok and shut >= 3 and shut < 120
+		# --- the paw: hand_point is the paw (plus the documented offset)
+		var hr := s.head_r(p)
+		var hp := fig.hand_point(pos, face, hr, 0.5)
+		paw_ok = paw_ok and fig._paw != null and hp.is_equal_approx(fig._paw.global_position + Vector3(0, hr * 0.3, 0))
+		# at rest it is in front of the body
+		var rel := world_xz(hp) - pos
+		if rel.dot(face) <= 0.1:
+			rest_ok.append(kind)
+		# wound up for a throw: behind the body, above the shoulder
+		p.charging = true
+		p.aim_dir = face
+		p.charge_t = s.cfg.charge_time
+		for _k in 60:
+			fig.sync(p, s, p.pos, dt)
+		var wp := fig.hand_point(pos, face, hr, 0.5)
+		if not ((world_xz(wp) - pos).dot(face) < 0.0 and wp.y > fig._arm_r.global_position.y):
+			wound_ok.append(kind)
+		p.charging = false
+		for _k in 60:
+			fig.sync(p, s, p.pos, dt)
+		# a yo-yo out to the side: the hand lies on that side (and so does the arm)
+		p.heads[0].state = SimHead.S.FLIGHT
+		var lateral := {}
+		for dirv in [Vector2.UP, Vector2.DOWN, Vector2.RIGHT]:
+			fig.string_dir = dirv
+			for _k in 40:
+				fig.sync(p, s, p.pos, dt)
+			lateral[dirv] = world_xz(fig.hand_point(pos, face, hr, 0.5)) - pos
+		# The yo-yo arm is the figure's right one (towards UP here): that side is reached, the far side only
+		# half way across the body, but the hand still moves towards it.
+		if not (lateral[Vector2.UP].dot(Vector2.UP) > 0.3 and lateral[Vector2.DOWN].dot(Vector2.DOWN) > lateral[Vector2.UP].dot(Vector2.DOWN) + 0.3 and lateral[Vector2.RIGHT].dot(Vector2.RIGHT) > 0.2):
+			reach_ok.append([kind, lateral])
+		fig.string_dir = Vector2.ZERO
+		p.heads[0].state = SimHead.S.HAND
+		fig.queue_free()
+		await process_frame
+	check("figure: every kind has eyes that close for a moment and open again, by themselves too", blink_ok)
+	check("figure: hand_point is the paw of the yo-yo arm (plus the documented offset)", paw_ok)
+	check("figure: at rest the hand is in front of the body", rest_ok.is_empty(), str(rest_ok))
+	check("figure: wound up for a throw the hand is behind the body and above the shoulder", wound_ok.is_empty(), str(wound_ok))
+	check("figure: with the yo-yo out the hand follows the direction of the string", reach_ok.is_empty(), str(reach_ok))
+	var fb := ToyFigure.new(K.DINO, Color.WHITE)       # not in the tree: the old formula
+	var hpf := fb.hand_point(Vector2(10, 7), Vector2.RIGHT, 0.3, 0.5)
+	check("figure: outside the tree hand_point falls back to the formula", hpf.x > 10.0 and absf(hpf.y - 0.5) < 0.01, str(hpf))
+	fb.free()
+
+	# --- the imp's spring stays on the floor while it hops
+	var imp := ToyFigure.new(K.IMP, Color("2ec4ff"))
+	holder.add_child(imp)
+	var si := one_player()
+	imp.sync(si.players[0], si, si.players[0].pos, dt)
+	imp.motion.shown[ToyPose.LIFT] = 0.0
+	imp._apply_pose()
+	var floor_y := imp._coils[0].global_position.y
+	imp.motion.shown[ToyPose.LIFT] = 0.8
+	imp._apply_pose()
+	var pr := si.cfg.player_radius
+	var coil_low := imp._coils[0].global_position.y
+	var coil_top := imp._coils[3].global_position.y
+	check("figure Springteufel: the lowest coil stays near the floor at the top of a hop (%.2f, rest %.2f)" % [coil_low, floor_y],
+			imp._coils.size() == 4 and absf(coil_low - floor_y) < 0.25 * pr and coil_top > coil_low + 0.5 * pr)
+	imp.queue_free()
+
+	# --- the top's spinning part turns while it moves, and much more slowly while it stands
+	var top := ToyFigure.new(K.TOP, Color("2ec4ff"))
+	holder.add_child(top)
+	var st := one_player()
+	var pt := st.players[0]
+	for _k in 30:
+		top.sync(pt, st, pt.pos, dt)
+	var a0 := top._spin.rotation.y
+	for _k in 30:
+		top.sync(pt, st, pt.pos, dt)
+	var idle_turn := absf(angle_difference(a0, top._spin.rotation.y))
+	var pos2: Vector2 = pt.pos
+	var moved_turn := 0.0
+	for _k in 30:
+		var before: float = top._spin.rotation.y
+		pos2 += Vector2.RIGHT * st.cfg.player_speed * dt
+		top.sync(pt, st, pos2, dt)
+		moved_turn += absf(angle_difference(before, top._spin.rotation.y))
+	check("figure Kreisel: its spinning part turns while it runs (%.2f rad, standing %.2f)" % [moved_turn, idle_turn], top._spin != null and moved_turn > 2.0 and moved_turn > 3.0 * idle_turn)
+	top.queue_free()
 	holder.queue_free()
 	await process_frame
 
@@ -353,6 +526,144 @@ func test_view_sources() -> void:
 	for f in view._figures:
 		kinds[f.kind] = true
 	check("view: four players, four different toys", view._figures.size() == 4 and kinds.size() == 4)
+	view.queue_free()
+	await process_frame
+
+
+## The arena view: figure kind from the skin, the string from the hand, the height of a yo-yo that is out.
+func test_arena_view_figures() -> void:
+	var cfg := Config.new()
+	var sm := Sim.new(cfg, 1)
+	for k in 4:
+		sm.set_player_enabled(k, k < 2)
+		sm.players[k].alive = true
+		sm.players[k].prev_pos = sm.players[k].pos
+	var view := ArenaView.new()
+	root.add_child(view)
+	await process_frame
+	view.setup(sm)
+	view.use_sim(sm, 0)
+	for _k in 5:
+		view.render(1.0, 1.0 / 60.0)
+	var old_kind: int = view._figures[1].kind
+	sm.players[1].skin = 5
+	view.render(1.0, 1.0 / 60.0)
+	check("view: a changed skin swaps the figure of that player", old_kind != 5 and view._figures[1].kind == 5 and view._figures[1].get_parent() == view and view._bodies[1] == view._figures[1] and view._figures[1].name == "Toy5")
+	var toys := view.find_children("Toy*", "Node3D", false, false).size()
+	check("view: ... and no figure is left over", toys == 4)
+	var ring := view.find_child("LocalRing", true, false)
+	check("view: the ring is on the local player's figure", ring != null and ring.get_parent() == view._figures[0])
+	sm.players[0].skin = 6
+	view.render(1.0, 1.0 / 60.0)
+	ring = view.find_child("LocalRing", true, false)
+	check("view: ... and stays there when that figure is swapped", view._figures[0].kind == 6 and ring != null and ring.get_parent() == view._figures[0] and view.find_children("LocalRing", "MeshInstance3D", true, false).size() == 1)
+	sm.players[0].skin = 9
+	view.render(1.0, 1.0 / 60.0)
+	check("view: a skin out of range wraps", view._figures[0].kind == 1)
+	# The yo-yo in the hand and out.
+	var p := sm.players[0]
+	p.pos = Vector2(10, 7)
+	p.prev_pos = p.pos
+	p.facing = Vector2.RIGHT
+	for _k in 90:
+		view.render(1.0, 1.0 / 60.0)
+	var fig: ToyFigure = view._figures[0]
+	var hr := sm.head_r(p)
+	var h := p.heads[0]
+	h.state = SimHead.S.FLIGHT
+	h.throw_dir = Vector2.RIGHT
+	h.flight_dist = 6.0
+	h.flown = 3.0
+	h.pos = Vector2(13, 7)
+	h.prev_pos = h.pos
+	view.render(1.0, 1.0 / 60.0)
+	var node: Node3D = view._heads[0][0]
+	var mid_y := node.position.y
+	check("view: the figure's arm points along the string while a yo-yo is out", fig.string_dir.is_equal_approx(Vector2.RIGHT))
+	var seg: MeshInstance3D = view._string_segs[0]
+	var hand3 := fig.hand_point(p.pos, p.facing, hr, ArenaView.HAND_Y)
+	# The string is a box from the hand to the yo-yo: its centre is half way, its length is the distance.
+	var a3: Vector3 = seg.position - seg.basis.z * 0.5
+	var b3: Vector3 = seg.position + seg.basis.z * 0.5
+	var start: Vector3 = a3 if a3.distance_to(hand3) < b3.distance_to(hand3) else b3
+	check("view: the string's first segment starts at the hand point", seg.visible and start.distance_to(hand3) < 0.05, "%s %s" % [start, hand3])
+	h.state = SimHead.S.OUT
+	h.flown = 6.0
+	view.render(1.0, 1.0 / 60.0)
+	var out_y := node.position.y
+	check("view: a yo-yo in mid-flight is drawn higher than one lying out (%.2f > %.2f)" % [mid_y, out_y], mid_y > out_y + 0.2)
+	h.state = SimHead.S.RETRACT
+	h.pos = p.pos + Vector2(0.4, 0)
+	h.prev_pos = h.pos
+	view.render(1.0, 1.0 / 60.0)
+	hand3 = fig.hand_point(p.pos, p.facing, hr, ArenaView.HAND_Y)
+	var far_y := out_y
+	var near_y := node.position.y
+	check("view: a retracting yo-yo next to the player is near hand height (%.2f, hand %.2f, lying %.2f)" % [near_y, hand3.y, far_y],
+			absf(near_y - hand3.y) < 0.5 * absf(hand3.y - far_y) + 0.05)
+	view.queue_free()
+	await process_frame
+
+
+## The playroom: track, train, present.
+func test_playroom_details() -> void:
+	var sm := Sim.new(Config.new(), 1)
+	var view := ArenaView.new()
+	root.add_child(view)
+	await process_frame
+	view.setup(sm)
+	var pr: Playroom = view.playroom
+	var track := pr.get_node_or_null("Track")
+	var multis := track.find_children("*", "MultiMeshInstance3D", false, false).size() if track != null else 0
+	check("playroom: a track of two multimeshes (sleepers and rails) and one car per TrainTrack.CARS", multis == 2 and pr.cars.size() == TrainTrack.CARS and pr.get_node_or_null("Car%d" % (TrainTrack.CARS - 1)) != null)
+	var off := []
+	for s_train in [3.0, 17.5, TrainTrack.LENGTH - 0.5]:
+		sm.train_s = s_train
+		sm.prev_train_s = s_train
+		pr.update(sm, 1.0, 0.016)
+		for k in pr.cars.size():
+			var want := TrainTrack.point(TrainTrack.car_s(s_train, k))
+			if world_xz(pr.cars[k].position).distance_to(want) > 0.01:
+				off.append([s_train, k])
+	check("playroom: the cars sit where the sim has the train (every car, three places on the loop)", off.is_empty(), str(off))
+	sm.prev_train_s = 3.0
+	sm.train_s = 5.0
+	pr.update(sm, 0.5, 0.016)
+	check("playroom: ... between two ticks they are interpolated", world_xz(pr.cars[0].position).distance_to(TrainTrack.point(4.0)) < 0.01)
+	var moved := world_xz(pr.cars[1].position)
+	sm.prev_train_s = 8.0
+	sm.train_s = 8.0
+	pr.update(sm, 1.0, 0.016)
+	check("playroom: ... and follow the sim when it moves the train", world_xz(pr.cars[1].position).distance_to(moved) > 1.0 and pr.cars[0].visible)
+	sm.cfg.train_speed = 0.0
+	pr.update(sm, 1.0, 0.016)
+	var hidden := true
+	for c in pr.cars:
+		hidden = hidden and not c.visible
+	check("playroom: the cars are hidden when the train is switched off", hidden)
+	sm.cfg.train_speed = 5.7
+	pr.update(sm, 1.0, 0.016)
+	check("playroom: ... and back when it is switched on", pr.cars[0].visible and pr.cars[2].visible)
+	# The present bursts and the debris goes away again.
+	var dbg := pr.get_node("BoxDebris") as Node3D
+	check("playroom: the burst pieces are hidden until the present breaks", not dbg.visible and pr._debris.size() >= 5)
+	pr.box_break()
+	check("playroom: the present bursts into pieces", dbg.visible)
+	for _k in 12:
+		pr.update(sm, 1.0, 0.016)
+	var scattered := 0
+	for pt in pr._debris:
+		if pt.position.distance_to((pt.get_meta("home") as Transform3D).origin) > 0.3:
+			scattered += 1
+	check("playroom: ... they fly apart", scattered >= pr._debris.size() / 2 and dbg.visible, str(scattered))
+	var t := 12 * 0.016
+	while t < Playroom.BOX_DEBRIS_TIME - 0.1:
+		pr.update(sm, 1.0, 0.05)
+		t += 0.05
+	var still_shown := dbg.visible
+	for _k in 6:
+		pr.update(sm, 1.0, 0.05)
+	check("playroom: ... and are hidden again after BOX_DEBRIS_TIME", still_shown and not dbg.visible)
 	view.queue_free()
 	await process_frame
 

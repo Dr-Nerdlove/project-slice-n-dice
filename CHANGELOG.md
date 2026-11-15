@@ -4,6 +4,22 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.4.0
+
+A toy train, four more figures, and you pick your own.
+
+- **A toy train** runs a loop around the middle of the room. It runs over anyone in its way (nobody gets the kill)
+  and shoves the toy chest aside; yo-yos pass over it. Nobody respawns in front of it, and the bots dodge it. Its
+  speed is a slider in the settings ("Eisenbahn-Tempo", 0 switches it off).
+- **Eight figures** now: Gummi-Dino, Aufzieh-Roboter, Plüschhase and Quietsche-Ente are joined by Springteufel,
+  Würfel, Stehauf-Püppchen and Kreisel.
+- **Choose your figure** in the new settings tab "Figur", with a live picture of it. The choice is kept, also after
+  "Zurücksetzen", and online the others see it too. Bots get the other figures.
+- **The room got a makeover**: wooden floor, a chequered play carpet framed by wooden beams with crayons and marbles
+  on them, building blocks with letters, a toy chest on wheels, and a wrapped present that bursts open when it
+  breaks.
+- Online, this version only plays with servers of the same version. Your tuned values are kept.
+
 ## 0.3.1
 
 First look at the toy style: "toys from around the year 2000 come alive".

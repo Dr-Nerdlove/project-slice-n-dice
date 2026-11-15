@@ -14,6 +14,8 @@ var alive := true
 var respawn_t := 0.0
 var kills := 0
 var deaths := 0
+## Which figure is drawn (index into the view's figure list). Presentation only: the simulation never reads it.
+var skin := 0
 
 var pos := Vector2.ZERO
 var prev_pos := Vector2.ZERO

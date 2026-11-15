@@ -78,6 +78,8 @@ var _interp_shards: Array = []     # the interpolated shards of display_sim
 var _vis := {}                     # player * 8 + head -> {kind, shown, off, step, left}: visual offset of a displayed head
 var _wanted_mods: Dictionary = Mods.empty_levels()
 var _mods_dirty := true
+var _wanted_skin := -1   # -1: never chosen, keep the server's default
+var _skin_dirty := false
 var _time_ms := 0.0
 var _connect_elapsed := 0.0
 var _peak_age := 0
@@ -101,6 +103,14 @@ func set_mods(levels: Dictionary) -> void:
 	if clean != _wanted_mods:
 		_wanted_mods = clean
 		_mods_dirty = true
+
+
+## The figure the local player wants; sent to the server when it changes.
+func set_skin(k: int) -> void:
+	var clean := posmod(k, Config.SKIN_COUNT)
+	if clean != _wanted_skin:
+		_wanted_skin = clean
+		_skin_dirty = true
 
 
 ## Leaves the game (or gives up connecting) and releases the socket. Safe to call in any state.
@@ -207,6 +217,8 @@ func _on_snapshot(snap: Dictionary) -> void:
 	while not pending.is_empty() and pending[0]["seq"] <= acked:
 		pending.pop_front()
 	sim.apply_mods(slot, _wanted_mods)
+	if _wanted_skin >= 0:
+		sim.set_skin(slot, _wanted_skin)
 	for p: Dictionary in pending:
 		sim.step(_inputs_with(p["input"]))
 	snapshots_applied += 1
@@ -510,6 +522,10 @@ func tick(local: SimInput) -> void:
 		_mods_dirty = false
 		net.send(1, NetProto.pack([NetProto.T_MODS, _wanted_mods]), true)
 		sim.apply_mods(slot, _wanted_mods)
+	if _skin_dirty:
+		_skin_dirty = false
+		net.send(1, NetProto.pack([NetProto.T_SKIN, _wanted_skin]), true)
+		sim.set_skin(slot, _wanted_skin)
 	sim.step(_inputs_with(inp))
 	events = sim.events.duplicate()
 	_time_ms += 1000.0 / Config.TICK_RATE
