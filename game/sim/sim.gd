@@ -934,6 +934,7 @@ func _sweep_retract(pos: Vector2, delta: Vector2, r: float, pass_level: int) -> 
 			_break_box()
 		if pass_level < 2:
 			pos = _crate_vs_circle(pos, r, 1.0)
+			pos = _push_train(pos, r)
 		pos = _push_statics(pos, r, count)
 	return pos
 
@@ -1007,6 +1008,7 @@ func _resolve_head(pos: Vector2, r: float, breaks_box: bool, pass_level := 0) ->
 				pos += c
 	if pass_level < 2:
 		pos += Collide.push_out_rect(pos, r, crate_rect())
+		pos = _push_train(pos, r)
 	return _push_statics(pos, r, count)
 
 
@@ -1283,8 +1285,29 @@ func _kill(victim: SimPlayer, killer: SimPlayer) -> void:
 	events.append(e)
 
 
-## Moves the train along its loop. The cars shove the crate aside and run living players over; yo-yo heads,
-## strings, wires and shards pass over them. Speed 0 = no train at all.
+## Pushes a circle out of every train car (the cars are solid for yo-yo heads, like the crate). Unchanged when
+## the train is off. Identical centres are pushed along the car's travel direction.
+func _push_train(pos: Vector2, r: float) -> Vector2:
+	if cfg.train_speed <= 0.0:
+		return pos
+	for k in TrainTrack.CARS:
+		var cs := TrainTrack.car_s(train_s, k)
+		var c := TrainTrack.point(cs)
+		var d := pos - c
+		var reach := TrainTrack.CAR_RADIUS + r
+		var l2 := d.length_squared()
+		if l2 >= reach * reach:
+			continue
+		if l2 < 1e-12:
+			pos = c + TrainTrack.dir(cs) * reach
+		else:
+			pos = c + d / sqrt(l2) * reach
+	return pos
+
+
+## Moves the train along its loop. The cars shove the crate aside, run living players over and are solid for
+## yo-yo heads (a flying head stops or bounces, a retracting one lies down, a lying one is shoved aside; the
+## shove can kill). Strings, wires and shards pass over them. Speed 0 = no train at all.
 func _step_train(dt: float) -> void:
 	if cfg.train_speed <= 0.0:
 		prev_train_s = train_s
@@ -1301,6 +1324,16 @@ func _step_train(dt: float) -> void:
 		for v in players:
 			if v.enabled and v.alive and v.pos.distance_to(c) < reach:
 				_kill(v, null)
+		for v in players:
+			if not (v.enabled and v.alive):
+				continue
+			var hr := head_r(v)
+			for h in v.heads:
+				if h.state != HS.OUT:
+					continue
+				var pushed := _push_train(h.pos, hr)
+				if pushed != h.pos:
+					h.pos = _sweep_head(h.pos, pushed - h.pos, hr, false)
 
 
 ## True when a player standing at `pos` would be run over right now.

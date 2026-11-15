@@ -29,7 +29,7 @@ The prototype arena is a playroom (32 x 14.4 m). A toy train runs a closed loop 
 - The locomotive and two cars follow the rails at a constant speed. Each car is a circle for the game.
 - A car runs over any living player whose centre is closer than the car radius plus a forgiving share of the player radius. That counts as a death for the victim and a kill for nobody (kill event with `killer: -1` and `cause: "train"`).
 - A car shoves the crate completely out of its way; the train itself never leaves its track. Players are not pushed, only killed.
-- Yo-yo heads, strings, wires and shards pass over the train unharmed. Making yo-yos interact with the train (blocking, riding or derailing it) is an open idea, not decided.
+- The cars are solid for yo-yo heads, exactly like the crate: a flying head stops in front of a car (or bounces with the bounce modifier), a retracting head that meets one lies down, and a head lying on the track is shoved aside by the arriving car (the shove can kill). A head with pierce level 2 passes, as it passes the crate. Strings, wires and shards still pass over the train unharmed. Riding or derailing the train is an open idea, not decided.
 - A player never respawns inside a car's hit distance; bots steer away from the cars and do not dash towards them.
 - Numbers: the track (a rounded rectangle, 11 x 7.2 m around the arena centre) and the car size live in `TrainTrack` (`game/sim/train_track.gd`), the speed in `Config.train_speed` (default 5.7 m/s, 0 = no train, a slider in the tuning menu), the hit share in `Config.TRAIN_HIT_SHARE`. The rails keep a car radius clear of walls and obstacles and all spawn points lie farther from the rails than the hit distance plus the spawn noise (tests check both).
 
