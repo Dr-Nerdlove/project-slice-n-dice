@@ -4,6 +4,14 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## Unreleased
+
+- Your own explosions (Sprengkopf, and Splitter + Sprengkopf) now hurt you too. Such a death gives nobody a kill.
+- Extra-Dash level 3 no longer dashes 1.3x as far; instead the dash goes through the obstacle blocks, the crate and
+  the box (never through the outer walls).
+- The default maximum throw range is now 10 m (was 8 m), and the string is 10 m long (was 9 m). Phones that kept
+  their own tuned values keep them; "Zurücksetzen" in the tuning menu picks up the new defaults.
+
 ## 0.4.2
 
 A new Schnapp-Dino and a rolling Würfel, the toy train blocks yo-yos, and a lying yo-yo can be picked up by walking

@@ -138,6 +138,14 @@ SB=[
  ("9 menu: update button never shown","view/tuning_menu.gd","_update_btn.visible = version != \"\"","_update_btn.visible = false"),
 ]
 SB=[
+ ("4 self blast: owner spared","sim/sim.gd",'_kill(v, null, "self")',"pass"),
+ ("4 self blast: owner credited as killer","sim/sim.gd",'_kill(v, null, "self")',"_kill(v, owner)"),
+ ("4 extradash L3 does not phase","sim/mods.gd",'"phase": [0, 0, 1]','"phase": [0, 0, 0]'),
+ ("4 phasing dash still stopped by blocks","sim/sim.gd","phase = dash_phases(p)","phase = false"),
+ ("4 phasing dash passes outer walls","sim/sim.gd","_push_statics(pos + sv, r, wall_count) if phase else","pos + sv if phase else"),
+ ("4 phasing dash does not leave a block it ended in","sim/sim.gd","for dir in [p.dash_dir, -p.dash_dir]:","for dir in []:"),
+ ("1 default max range 10 m","sim/config.gd",'"max_range": 10.0','"max_range": 8.0'),
+ ("1 default string allows 10 m","sim/config.gd",'"string_length": 10.0','"string_length": 9.0'),
  ("1 bounce bonus values","sim/mods.gd",'"bonus_dist": [1.5, 3.0, 5.0]','"bonus_dist": [0.0, 2.0, 4.0]'),
  ("2 throw not curved","sim/sim.gd","h.throw_curved = bulge > 0.0","h.throw_curved = false"),
  ("2 aim line straight","sim/sim.gd","\tif bulge <= 0.0:\n\t\tpts.append(p.pos + p.aim_dir * aim_range(p))","\tif true:\n\t\tpts.append(p.pos + p.aim_dir * aim_range(p))"),
@@ -269,7 +277,7 @@ SB=[
  ("1 train: only the locomotive kills","sim/sim.gd","\tfor k in TrainTrack.CARS:\n\t\tvar c := TrainTrack.point","\tfor k in 1:\n\t\tvar c := TrainTrack.point"),
  ("1 train: kill credited to somebody","sim/sim.gd","\tif killer != null:\n\t\tkiller.kills += 1","\tif true:\n\t\tvictim.kills += 1"),
  ("1 train: victim's death not counted","sim/sim.gd","\tvictim.deaths += 1\n\tif killer != null:","\tif killer != null:"),
- ("1 train: kill event without cause","sim/sim.gd","\t\te[\"cause\"] = \"train\"","\t\tpass"),
+ ("1 train: kill event without cause","sim/sim.gd","\t\te[\"cause\"] = cause","\t\tpass"),
  ("1 train: kill event names a killer","sim/sim.gd","\"killer\": -1 if killer == null else killer.id}","\"killer\": 0 if killer == null else killer.id}"),
  ("1 train: crate not pushed","sim/sim.gd","\t\t_crate_vs_circle(c, TrainTrack.CAR_RADIUS, 1.0)\n","\t\tpass\n"),
  ("1 train: crate only half pushed","sim/sim.gd","\t\t_crate_vs_circle(c, TrainTrack.CAR_RADIUS, 1.0)\n","\t\t_crate_vs_circle(c, TrainTrack.CAR_RADIUS, 0.5)\n"),

@@ -34,6 +34,8 @@ func make_rig(delay_ms: float, loss: float, n_clients: int, seed := 1, with_bots
 	hub.delay_ms = delay_ms
 	hub.loss_pct = loss
 	var cfg := Config.new()
+	cfg.max_range = 8.0      # the scenarios are set up for the old 8 m throw range and 9 m string
+	cfg.string_length = 9.0
 	if not with_train:
 		cfg.train_speed = 0.0
 	var server := ServerCore.new(cfg, hub.server, 7, with_bots)

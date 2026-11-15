@@ -23,7 +23,7 @@ var shards: Array[SimShard] = []
 var train_s := 0.0
 var prev_train_s := 0.0
 ## Events of the last tick (dictionaries with "type"): kill, bounce, ricochet, box_break, respawn,
-## explosion, wire, stun. A kill by the train has "killer": -1 and "cause": "train".
+## explosion, wire, stun. A kill by the train has "killer": -1 and "cause": "train", a death by the own explosion "killer": -1 and "cause": "self".
 var events: Array = []
 
 var _hit := false  # scratch flag set by head sweeps
@@ -154,8 +154,13 @@ func dash_cooldown_of(p: SimPlayer) -> float:
 	return cfg.dash_cooldown * mv(p, "extradash", "cooldown_mult", 1.0)
 
 
-func dash_distance_of(p: SimPlayer) -> float:
-	return cfg.dash_distance * mv(p, "extradash", "distance_mult", 1.0)
+func dash_distance_of(_p: SimPlayer) -> float:
+	return cfg.dash_distance
+
+
+## Extra-Dash level 3: the dash passes through the blocks, the crate and the box (not the outer walls).
+func dash_phases(p: SimPlayer) -> bool:
+	return mv(p, "extradash", "phase", 0.0) > 0.0
 
 
 func heads_wanted(p: SimPlayer) -> int:
@@ -358,16 +363,47 @@ func _move_player(p: SimPlayer, inp: SimInput, dt: float) -> void:
 		p.dash_charges -= 1
 		p.dash_dir = p.facing
 	var delta := Vector2.ZERO
+	var phase := false
 	if p.dash_t > 0.0:
 		var slice := minf(dt, p.dash_t)
 		delta = p.dash_dir * (dash_distance_of(p) / cfg.dash_duration) * slice
 		p.dash_t -= dt
+		phase = dash_phases(p)
 	else:
 		var speed := cfg.player_speed
 		if p.charging:
 			speed *= cfg.charge_speed_mult
 		delta = mvec * speed * dt
-	_slide_player(p, delta)
+	_slide_player(p, delta, phase)
+	if phase and p.dash_t <= 0.0:
+		_dash_exit(p)
+
+
+## A phasing dash that ends inside a block, the crate or the box continues in its direction until the player is
+## free. If an outer wall is in the way, it tries the opposite direction from where the dash ended; if that fails
+## too, the normal push-out decides.
+func _dash_exit(p: SimPlayer) -> void:
+	var r := cfg.player_radius
+	var start := p.pos
+	for dir in [p.dash_dir, -p.dash_dir]:
+		p.pos = start
+		for _i in Mods.DASH_EXIT_MAX_STEPS:
+			if not _inside_obstacle(p.pos, r):
+				return
+			var nxt: Vector2 = p.pos + dir * Mods.DASH_EXIT_STEP
+			p.pos = _push_statics(nxt, r, wall_count)
+			if (p.pos - nxt).length_squared() > 1e-10:
+				break  # reached an outer wall
+	p.pos = _collide_player(start, r)
+
+
+func _inside_obstacle(pos: Vector2, r: float) -> bool:
+	for k in range(wall_count, statics.size()):
+		if Collide.push_out_rect(pos, r, statics[k]) != Vector2.ZERO:
+			return true
+	if box_active and Collide.push_out_rect(pos, r, box_rect()) != Vector2.ZERO:
+		return true
+	return Collide.push_out_rect(pos, r, crate_rect()) != Vector2.ZERO
 
 
 ## Charges refill one at a time, each taking the dash cooldown.
@@ -386,13 +422,13 @@ func _step_dash_charges(p: SimPlayer, dt: float) -> void:
 		p.dash_cd = cd if p.dash_charges < mx else 0.0
 
 
-func _slide_player(p: SimPlayer, delta: Vector2) -> void:
+func _slide_player(p: SimPlayer, delta: Vector2, phase := false) -> void:
 	var r := cfg.player_radius
 	var n := maxi(1, ceili(delta.length() / (r * Config.SUBSTEP_FACTOR)))
 	var sv := delta / float(n)
 	var pos := p.pos
 	for _i in n:
-		pos = _collide_player(pos + sv, r)
+		pos = _push_statics(pos + sv, r, wall_count) if phase else _collide_player(pos + sv, r)
 	p.pos = pos
 
 
@@ -436,6 +472,10 @@ func _resolve_crate(cp: Vector2) -> Vector2:
 	return cp
 
 
+func _phasing(p: SimPlayer) -> bool:
+	return p.dash_t > 0.0 and dash_phases(p)
+
+
 func _separate_players() -> void:
 	var r := cfg.player_radius
 	for i in players.size():
@@ -452,8 +492,8 @@ func _separate_players() -> void:
 				continue
 			var n := d / dist if dist > 0.0001 else Vector2.RIGHT
 			var push := n * (2.0 * r - dist) * Config.PLAYER_SEPARATION_SHARE
-			a.pos = _collide_player(a.pos - push, r)
-			b.pos = _collide_player(b.pos + push, r)
+			a.pos = _push_statics(a.pos - push, r, wall_count) if _phasing(a) else _collide_player(a.pos - push, r)
+			b.pos = _push_statics(b.pos + push, r, wall_count) if _phasing(b) else _collide_player(b.pos + push, r)
 
 
 # ---------------------------------------------------------------- yo-yo input
@@ -714,6 +754,8 @@ func _land(p: SimPlayer, h: SimHead) -> void:
 		var l := lv(p, "warhead")
 		if l > 0:
 			_explode(p, h.pos, blast_radius(p, Mods.n("warhead", "radius", l)))
+			if not p.alive:
+				return  # blew itself up: the yo-yo is reset, nothing more to do
 	if h.queued_retract:
 		h.queued_retract = false
 		p.press_active = false
@@ -809,6 +851,8 @@ func _start_retract(p: SimPlayer, h: SimHead, meet := Vector2.INF) -> void:
 	l = lv(p, "warhead")
 	if l > 0 and Mods.n("warhead", "retract_blast", l) > 0.0:
 		_explode(p, h.pos, blast_radius(p, Mods.n("warhead", "radius", l)))
+		if not p.alive:
+			return  # blew itself up: the yo-yo is reset, no retract to set up
 	if meet != Vector2.INF:
 		h.pins.clear()  # the way to the meeting point is a straight line
 		h.meet_on = true
@@ -1046,8 +1090,11 @@ func _explode(owner: SimPlayer, pos: Vector2, radius: float) -> void:
 	if box_active and Collide.push_out_rect(pos, radius, box_rect()) != Vector2.ZERO:
 		_break_box()
 	for v in players:
-		if v != owner and v.enabled and v.alive and pos.distance_to(v.pos) - cfg.player_radius < radius:
-			_kill(v, owner)
+		if v.enabled and v.alive and pos.distance_to(v.pos) - cfg.player_radius < radius:
+			if v == owner:
+				_kill(v, null, "self")  # own explosions hurt the owner: a death, no kill for anybody
+			else:
+				_kill(v, owner)
 
 
 ## Lays the current string of head `h` on the ground as a wire (Stolperdraht).
@@ -1271,8 +1318,8 @@ func _check_kills() -> void:
 					_kill(v, a)
 
 
-## `killer` null = the train: a death for the victim, a kill for nobody.
-func _kill(victim: SimPlayer, killer: SimPlayer) -> void:
+## `killer` null = a death for the victim, a kill for nobody; `cause` then says why ("train" or "self").
+func _kill(victim: SimPlayer, killer: SimPlayer, cause := "train") -> void:
 	victim.alive = false
 	victim.deaths += 1
 	if killer != null:
@@ -1281,7 +1328,7 @@ func _kill(victim: SimPlayer, killer: SimPlayer) -> void:
 	_reset_yoyo(victim)
 	var e := {"type": "kill", "pos": victim.pos, "victim": victim.id, "killer": -1 if killer == null else killer.id}
 	if killer == null:
-		e["cause"] = "train"
+		e["cause"] = cause
 	events.append(e)
 
 
