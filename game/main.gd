@@ -1,5 +1,9 @@
 extends Node
-## Wires sim, view, input, bots, HUD and menu together and runs the fixed 60 Hz tick loop.
+## Wires sim, view, input, bots, HUD and the menus together and runs the fixed 60 Hz tick loop.
+## The app starts on the main menu (over the dimmed arena; the sim does not tick). "Play" opens the lobby: a real game
+## (solo against bots, or hosting / joining a local match) always uses the DEFAULT values (`play_cfg`: a fresh `Config`
+## with only the chosen figure copied from the saved one, no modifier levels). "Training" starts a game with the tuned,
+## saved values (`train_cfg`) and the tuning menu. Tuned values never reach a Play game.
 ## Offline the local sim runs here. Online (menu page "Online") the tick source is a ClientCore that
 ## predicts the own player and follows the server; the view and HUD then read its sim instead.
 ## Started with "-- --server" it becomes a headless dedicated server and builds none of this.
@@ -8,16 +12,25 @@ const SIM_SEED := 20260101
 const UPDATE_CHECK_DELAY := 3.0
 const UPDATE_TIMEOUT := 10.0
 
-var cfg: Config
+enum Screen { MENU, LOBBY, GAME }
+
+var cfg: Config                # the config of the game that runs: `train_cfg` (Training) or `play_cfg` (Play)
+var train_cfg: Config          # the tuned values, loaded from and saved to user:// (edited by the tuning menu)
+var play_cfg: Config           # the fixed values of a real game (see `_make_play_cfg`)
+var screen := Screen.MENU
+var training := false          # the running (or shown) game is Training
 var sim: Sim
 var view: ArenaView
 var router: InputRouter
 var hud: Hud
-var menu: TuningMenu
+var menu: TuningMenu           # the Training tuning menu
+var main_menu: MainMenu
+var lobby: PlayLobby
+var pause: PauseMenu
 var bots: Array[Bot] = []
 var client: ClientCore         # set while connecting / online
 var lag: LagEndpoint           # the lag tool between the client and the network
-var local_host: LocalHost      # set while this device hosts a local match (menu page "Lokal")
+var local_host: LocalHost      # set while this device hosts a local match (Play lobby)
 ## Ports of the local play; a test changes them so it never touches the real ones.
 var local_port := NetProto.DEFAULT_PORT
 var beacon_port := LanBeacon.PORT
@@ -26,7 +39,7 @@ var beacon_targets: Array = []
 var _online := false           # the predicted sim of `client` is what the view shows
 var _lag_ms := 0.0
 var _loss_pct := 0.0
-var _from_local := false       # the current / last connection was started from the page "Lokal"
+var _from_local := false       # the current / last connection was started from the Play lobby
 var _smooth := true            # draw the other players interpolated (menu switch "Gegner glätten")
 
 var _acc := 0.0
@@ -37,6 +50,7 @@ var _update_dismissed := false
 var _update_http: HTTPRequest
 var update_url := UpdateCheck.API_URL   # a test points this at a local server
 var open_url: Callable = OS.shell_open    # a test replaces this so no browser starts
+var quit_hook: Callable                   # a test sets this so Android back in the main menu does not end the test run
 
 
 func _ready() -> void:
@@ -46,8 +60,10 @@ func _ready() -> void:
 		if not server.start(OS.get_cmdline_user_args()):
 			get_tree().quit(1)
 		return
-	cfg = Config.new()
-	TuningStore.load_into(cfg)
+	train_cfg = Config.new()
+	TuningStore.load_into(train_cfg)
+	play_cfg = _make_play_cfg()
+	cfg = play_cfg
 	sim = Sim.new(cfg, SIM_SEED)
 
 	view = ArenaView.new()
@@ -59,26 +75,21 @@ func _ready() -> void:
 	add_child(ui)
 	router = InputRouter.new()
 	router.mouse_to_world = view.screen_to_ground
-	router.menu_requested.connect(_toggle_menu)
+	router.menu_requested.connect(_on_pause_pressed)
 	ui.add_child(router)
 
 	hud = Hud.new()
 	add_child(hud)
 	hud.setup(sim)
-	hud.gear_pressed.connect(_toggle_menu)
-	hud.update_download_pressed.connect(_download_update)
-	hud.update_dismissed.connect(func() -> void: _update_dismissed = true)
+	hud.gear_pressed.connect(_on_pause_pressed)
 
 	menu = TuningMenu.new()
 	add_child(menu)
-	menu.setup(cfg)
+	menu.setup(train_cfg)
 	menu.update_requested.connect(_download_update)
-	menu.closed.connect(func() -> void: router.blocked = false)
+	menu.closed.connect(_update_blocked)
+	menu.main_menu_requested.connect(_show_main_menu)
 	menu.connect_requested.connect(_connect)
-	menu.host_requested.connect(_host_local)
-	menu.join_local_requested.connect(_join_local)
-	menu.join_code_requested.connect(_join_code)
-	menu.local_stop_requested.connect(func() -> void: _leave_online("closed"))
 	menu.disconnect_requested.connect(func() -> void: _leave_online("closed"))
 	menu.lag_changed.connect(func(ms: float, loss: float) -> void:
 		_lag_ms = ms
@@ -86,26 +97,162 @@ func _ready() -> void:
 		if lag != null:
 			lag.delay_ms = ms
 			lag.loss_pct = loss)
-
 	menu.smoothing_changed.connect(func(on: bool) -> void:
 		_smooth = on
 		if client != null:
 			client.smooth_others = on)
 
-	for i in range(1, Config.NUM_PLAYERS):
-		bots.append(Bot.new(i, cfg, SIM_SEED + i))
+	main_menu = MainMenu.new()
+	add_child(main_menu)
+	main_menu.setup()
+	main_menu.play_pressed.connect(_show_lobby)
+	main_menu.training_pressed.connect(start_training)
+	main_menu.update_requested.connect(_download_update)
+	main_menu.update_dismissed.connect(func() -> void: _update_dismissed = true)
+
+	lobby = PlayLobby.new()
+	add_child(lobby)
+	lobby.setup(train_cfg)
+	lobby.back_pressed.connect(_show_main_menu)
+	lobby.solo_requested.connect(start_solo)
+	lobby.host_requested.connect(_host_local)
+	lobby.join_local_requested.connect(_join_local)
+	lobby.join_code_requested.connect(_join_code)
+	lobby.stop_requested.connect(func() -> void: _leave_online("closed"))
+
+	pause = PauseMenu.new()
+	add_child(pause)
+	pause.setup()
+	pause.resume_pressed.connect(_on_pause_pressed)
+	pause.main_menu_pressed.connect(_show_main_menu)
+
+	bots = _make_bots()
 	_apply_bot_mode()
+	_set_screen(Screen.MENU)
 	# Headless runs (tests) never go to the network; they feed `offer_update` directly.
 	if DisplayServer.get_name() != "headless":
 		get_tree().create_timer(UPDATE_CHECK_DELAY).timeout.connect(_start_update_check)
 
 
-func _toggle_menu() -> void:
-	if menu.visible:
-		menu.close_menu()
+## The config of a real game: the defaults, whatever is tuned or saved for Training; only the chosen figure is
+## taken from the saved config. No modifier levels (they come from the shop later), bots active.
+func _make_play_cfg() -> Config:
+	var c := Config.new()
+	c.character = train_cfg.character
+	c.bot_mode = Config.BotMode.ACTIVE
+	return c
+
+
+func _make_bots() -> Array[Bot]:
+	var out: Array[Bot] = []
+	for i in range(1, Config.NUM_PLAYERS):
+		out.append(Bot.new(i, cfg, SIM_SEED + i))
+	return out
+
+
+# ---------------------------------------------------------------- screens
+
+## Shows one of the three screens: the main menu and the lobby sit over the dimmed arena (the offline sim stands
+## still), the game shows the HUD (Training: scoreboard and gear; Play: only the pause button).
+func _set_screen(s: Screen) -> void:
+	screen = s
+	main_menu.visible = s == Screen.MENU
+	if s == Screen.MENU:
+		main_menu.show_main()
+	if s == Screen.LOBBY:
+		lobby.open()
 	else:
-		menu.open_menu()
-		router.blocked = true
+		lobby.close()
+	pause.visible = false
+	if s != Screen.GAME and menu.visible:
+		menu.close_menu()
+	hud.visible = s == Screen.GAME
+	hud.play_mode = s == Screen.GAME and not training
+	_update_blocked()
+
+
+func _update_blocked() -> void:
+	var want := screen != Screen.GAME or menu.visible or pause.visible
+	if router.blocked != want:
+		router.blocked = want
+
+
+## Replaces the offline sim (and the bots) by a fresh one built from `c`, and points view and HUD at it.
+func _new_sim(c: Config) -> void:
+	cfg = c
+	sim = Sim.new(cfg, SIM_SEED)
+	bots = _make_bots()
+	_applied_bot_mode = -1
+	_apply_bot_mode()
+	_acc = 0.0
+	_hitstop = 0.0
+	view.use_sim(sim, 0)
+	hud.use_sim(sim, 0)
+
+
+func _show_main_menu() -> void:
+	if client != null or local_host != null:
+		_end_session("closed")   # the lobby status then says how it ended
+	training = false
+	play_cfg = _make_play_cfg()
+	_new_sim(play_cfg)   # the backdrop: a fresh, default-valued arena that stands still
+	_set_screen(Screen.MENU)
+
+
+func _show_lobby() -> void:
+	_set_screen(Screen.LOBBY)
+
+
+## Solo against bots with the fixed values.
+func start_solo() -> void:
+	if client != null or local_host != null:
+		_leave_online("closed", false)
+	training = false
+	play_cfg = _make_play_cfg()
+	_new_sim(play_cfg)
+	_set_screen(Screen.GAME)
+
+
+## The sandbox: the tuned, saved values with the tuning menu.
+func start_training() -> void:
+	if client != null or local_host != null:
+		_leave_online("closed", false)
+	training = true
+	_new_sim(train_cfg)
+	_set_screen(Screen.GAME)
+
+
+## The pause button, Escape, and Resume. Training opens / closes the tuning menu, Play the pause panel.
+func _on_pause_pressed() -> void:
+	if screen != Screen.GAME:
+		return
+	if training:
+		if menu.visible:
+			menu.close_menu()
+		else:
+			menu.open_menu()
+	else:
+		pause.visible = not pause.visible
+	_update_blocked()
+
+
+func _quit() -> void:
+	if quit_hook.is_valid():
+		quit_hook.call()
+	else:
+		get_tree().quit()
+
+
+## Android back: pause / resume in a game, back to the main menu from the lobby, leave Settings, quit from the main menu.
+func _on_back() -> void:
+	match screen:
+		Screen.GAME:
+			_on_pause_pressed()
+		Screen.LOBBY:
+			_show_main_menu()
+		Screen.MENU:
+			if not main_menu.back():
+				_quit()
 
 
 func _apply_bot_mode() -> void:
@@ -129,7 +276,7 @@ func _process(delta: float) -> void:
 		return   # server mode
 	if local_host != null:
 		local_host.process(delta)
-		menu.set_local_session(true, client != null, local_host.code(), local_host.players())
+		lobby.set_session(true, client != null, local_host.code(), local_host.players())
 	if client != null:
 		_poll_client(delta)
 	var dt := 1.0 / Config.TICK_RATE
@@ -140,7 +287,7 @@ func _process(delta: float) -> void:
 		slot = client.slot
 		client.set_mods(cfg.mods_you)
 		client.set_skin(cfg.character)
-		# Online the world does not wait: no hit-stop, and the sim keeps running while the menu is open.
+		# Online the world does not wait: no hit-stop, and the sim keeps running while a menu is open.
 		_acc = minf(_acc + delta, Config.MAX_ACCUMULATED_TIME)
 		while _acc >= dt and _online:
 			_acc -= dt
@@ -150,7 +297,7 @@ func _process(delta: float) -> void:
 		_sync_mods()
 		if cfg.bot_mode != _applied_bot_mode:
 			_apply_bot_mode()
-		if not menu.visible:
+		if screen == Screen.GAME and not menu.visible and not pause.visible:
 			if _hitstop > 0.0:
 				_hitstop -= delta  # presentation-only freeze; the sim simply does not tick
 			else:
@@ -220,8 +367,7 @@ func _on_update_response(result: int, code: int, _headers: PackedStringArray, bo
 func offer_update(info: Dictionary) -> void:
 	_update = info
 	menu.set_update(info.get("version", ""))
-	if not info.is_empty() and not _update_dismissed:
-		hud.show_update(info["version"])
+	main_menu.set_update(info.get("version", ""), _update_dismissed)
 
 
 func _download_update() -> void:
@@ -232,22 +378,52 @@ func _download_update() -> void:
 
 # ---------------------------------------------------------------- online
 
+## Texts of the connection status: [German for the Online page of the tuning menu, English for the Play lobby].
+const STATUS := {
+	"bad_address": ["Ungültige Adresse", "Invalid address"],
+	"connect_failed": ["Verbindung fehlgeschlagen", "Connection failed"],
+	"connecting": ["Verbinde …", "Connecting …"],
+	"host_failed": ["Spiel konnte nicht eröffnet werden (Port belegt?)", "Could not open the game (port in use?)"],
+	"connected": ["Verbunden als Spieler %d", "Connected as player %d"],
+	"ended": ["Spiel beendet", "Game ended"],
+	"full": ["Server ist voll (%d Spieler)", "Server is full (%d players)"],
+	"version": ["Falsche Version: App und Server passen nicht zusammen", "Wrong version: the app and the server do not match"],
+	"disconnected": ["Getrennt", "Disconnected"],
+	"not_connected": ["Nicht verbunden", "Not connected"],
+	"bad_code": ["Ungültiger Code", "Invalid code"],
+}
+
+
+## The Online page of the tuning menu (Training): a connection with the tuned values.
 func _connect(address_text: String) -> void:
 	_leave_online("closed", false)
 	_from_local = false
 	var a := NetStore.parse_address(address_text)
 	if a["host"] == "":
-		_set_status("Ungültige Adresse", false)
+		_set_status("bad_address", false)
 		return
 	NetStore.save_address(address_text.strip_edges())
+	_use_config_for_session(train_cfg, true)
 	_start_client(a["host"], a["port"])
+
+
+## Which values a session uses: Training (Online page) the tuned ones with the modifier sandbox, a Play session
+## (local hosting / joining) the fixed ones with no modifiers.
+func _use_config_for_session(c: Config, is_training: bool) -> void:
+	cfg = c
+	training = is_training
+
+
+func _use_play_config() -> void:
+	play_cfg = _make_play_cfg()
+	_use_config_for_session(play_cfg, false)
 
 
 ## Connects the own client to a server (the shared part of every way to go online).
 func _start_client(host: String, port: int) -> bool:
 	var endpoint := ENetEndpoint.new()
 	if endpoint.connect_to(host, port) != OK:
-		_set_status("Verbindung fehlgeschlagen", false)
+		_set_status("connect_failed", false)
 		return false
 	lag = LagEndpoint.new(endpoint)
 	lag.delay_ms = _lag_ms
@@ -256,27 +432,29 @@ func _start_client(host: String, port: int) -> bool:
 	client.smooth_others = _smooth
 	client.set_mods(cfg.mods_you)
 	client.set_skin(cfg.character)
-	_set_status("Verbinde …", true)
+	_set_status("connecting", true)
 	return true
 
 
-## Shows a connection status on the Online page and, for connections started on the page "Lokal", there too.
-func _set_status(text: String, busy: bool) -> void:
-	menu.set_online_status(text, busy)
+## Shows a connection status on the Online page and, for connections started in the Play lobby, there too.
+func _set_status(key: String, busy: bool, arg := 0) -> void:
+	var texts: Array = STATUS[key]
+	menu.set_online_status((texts[0] % arg) if texts[0].contains("%d") else texts[0], busy)
 	if _from_local:
-		menu.set_local_status(text)
+		lobby.set_status((texts[1] % arg) if texts[1].contains("%d") else texts[1])
 	_refresh_local_session()
 
 
-## This device hosts a match (the own client joins through 127.0.0.1, like everybody else).
+## This device hosts a match on the fixed Play values (the own client joins through 127.0.0.1, like everybody else).
 func _host_local(with_bots: bool) -> void:
 	_leave_online("closed", false)
 	_from_local = true
+	_use_play_config()
 	var host := LocalHost.new()
 	host.beacon_port = beacon_port
 	host.beacon_targets = beacon_targets
-	if host.start(cfg, with_bots, local_port) != OK:
-		_set_status("Spiel konnte nicht eröffnet werden (Port belegt?)", false)
+	if host.start(play_cfg, with_bots, local_port) != OK:
+		_set_status("host_failed", false)
 		return
 	local_host = host
 	if not _start_client("127.0.0.1", local_port):
@@ -286,8 +464,9 @@ func _host_local(with_bots: bool) -> void:
 func _join_local(ip: String, port := -1) -> void:
 	_leave_online("closed", false)
 	_from_local = true
+	_use_play_config()
 	if LanCode.encode(ip) == "":
-		_set_status("Ungültige Adresse", false)
+		_set_status("bad_address", false)
 		return
 	_start_client(ip, local_port if port < 1 else port)
 
@@ -296,8 +475,9 @@ func _join_code(code: String) -> void:
 	var ip := LanCode.decode(code)
 	_leave_online("closed", false)
 	_from_local = true
+	_use_play_config()
 	if ip == "":
-		_set_status("Ungültiger Code", false)
+		_set_status("bad_code", false)
 		return
 	_start_client(ip, local_port)
 
@@ -320,7 +500,8 @@ func _enter_online() -> void:
 	view.use_sim(client.sim, client.slot)
 	hud.use_sim(client.sim, client.slot)
 	hud.online = true
-	_set_status("Verbunden als Spieler %d" % (client.slot + 1), true)
+	_set_screen(Screen.GAME)
+	_set_status("connected", true, client.slot + 1)
 
 
 func _tick_online() -> void:
@@ -331,8 +512,17 @@ func _tick_online() -> void:
 			Input.vibrate_handheld(Config.VIBRATE_MS)
 
 
-## Back to the offline game (which was paused while online and simply continues).
+## Leaves the session. A Play match that ends this way (the host left, the connection broke) has nothing to go back
+## to, so it returns to the main menu; Training falls back to its offline game. Silent (`show_status` false) when a
+## new session or game replaces the old one right away.
 func _leave_online(reason: String, show_status := true) -> void:
+	_end_session(reason, show_status)
+	if show_status and screen == Screen.GAME and not training:
+		_show_main_menu()
+
+
+## Back to the offline game (which was paused while online and simply continues).
+func _end_session(reason: String, show_status := true) -> void:
 	var was_online := _online
 	var was_hosting := local_host != null
 	if client != null:
@@ -345,9 +535,9 @@ func _leave_online(reason: String, show_status := true) -> void:
 	view.use_sim(sim, 0)
 	hud.use_sim(sim, 0)
 	hud.online = false
-	var text := "Spiel beendet" if was_hosting and reason == "closed" else _reason_text(reason, was_online)
+	var key := "ended" if was_hosting and reason == "closed" else _reason_key(reason, was_online)
 	if show_status:
-		_set_status(text, false)
+		_set_status(key, false, Config.NUM_PLAYERS)
 	else:
 		_refresh_local_session()
 
@@ -359,18 +549,18 @@ func _stop_local_host() -> void:
 
 
 func _refresh_local_session() -> void:
-	menu.set_local_session(local_host != null, client != null, local_host.code() if local_host != null else "", local_host.players() if local_host != null else 0)
+	lobby.set_session(local_host != null, client != null, local_host.code() if local_host != null else "", local_host.players() if local_host != null else 0)
 
 
-func _reason_text(reason: String, was_online: bool) -> String:
+func _reason_key(reason: String, was_online: bool) -> String:
 	match reason:
 		"full":
-			return "Server ist voll (%d Spieler)" % Config.NUM_PLAYERS
+			return "full"
 		"version":
-			return "Falsche Version: App und Server passen nicht zusammen"
+			return "version"
 		"timeout", "unreachable":
-			return "Verbindung fehlgeschlagen"
-	return "Getrennt" if was_online else "Nicht verbunden"
+			return "connect_failed"
+	return "disconnected" if was_online else "not_connected"
 
 
 func _net_text() -> String:
@@ -380,7 +570,9 @@ func _net_text() -> String:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		_on_back()
+	elif what == NOTIFICATION_WM_CLOSE_REQUEST:
 		if client != null:
 			client.close()   # tells the server at once instead of letting the slot time out
 		_stop_local_host()
