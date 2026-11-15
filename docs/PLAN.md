@@ -437,6 +437,7 @@ Step order (decided by the owner on 2026-11-15):
 5. Coins.
 6. Shop (works in Multiplayer too, bots buy).
 7. Touch control settings.
+   **Done (unreleased).** `TouchSettings` (`game/input/touch_settings.gd`, saved per device in `user://touch.json`, not part of `Config`, not touched by the tuning Reset) holds stick mode (Floating = default, a stick appears under the thumb in its half; Fixed = sticks at placed positions), size (0.8 / 1 / 1.25 / 1.5), opacity (0.5 / 1 / 1.6) and Swap sides (move stick right, aim stick left, dash button on the left). The Settings page has a Touch controls panel; "Place controls" opens `TouchLayoutEditor` (drag, Save / Reset to default / Cancel): all three controls in Fixed mode, only the Dash button in Floating mode (one dash position for both modes). Positions are stored relative to the screen and clamped onto it. Applies to Play and Training. Not done: looked at on a real screen or phone (no display here).
 
 Map rotation waits until a second map exists.
 

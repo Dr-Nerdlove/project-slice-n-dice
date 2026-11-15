@@ -304,6 +304,7 @@ func _process(_delta: float) -> bool:
 	if _frames < 3:
 		return false
 	_menu_tests()
+	_touch_tests()
 	print("RESULT: ", "ALL PASS" if fails == 0 else "%d FAILED" % fails)
 	quit(fails)
 	return true
@@ -2203,3 +2204,139 @@ func _match_tests() -> void:
 	kill_i(s, 1); kill_i(twin, 1)
 	s.step(idle4()); twin.step(idle4())
 	check("match: restored state continues identically", var_to_bytes(s.save_state()) == var_to_bytes(twin.save_state()) and twin.mode.phase == M.RESULT)
+
+
+func _rm(path: String) -> void:
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func _write_text(path: String, text: String) -> void:
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(text)
+	f.close()
+
+
+## A router in the tree with a fresh TouchSettings of `mode`/`swap`; touches are fed straight to its handlers.
+func _touch_router(mode: TouchSettings.Mode, swap := false) -> InputRouter:
+	var r := InputRouter.new()
+	root.add_child(r)
+	r.touch.mode = mode
+	r.touch.swap = swap
+	return r
+
+
+func _touch_tests() -> void:
+	var old_path := TouchSettings.path
+	TouchSettings.path = "user://test_touch_sim.json"
+	_rm(TouchSettings.path)
+
+	# store: defaults, round trip, damaged files
+	var d := TouchSettings.load_saved()
+	check("touch: no file gives the defaults (floating, size 1, opacity 1, no swap, no custom places)", d.mode == TouchSettings.Mode.FLOATING and d.scale == 1.0 and d.opacity == 1.0 and not d.swap and d.custom.is_empty())
+	var t := TouchSettings.new()
+	t.mode = TouchSettings.Mode.FIXED
+	t.scale = 1.25
+	t.opacity = 0.5
+	t.swap = true
+	t.custom = {"dash": Vector2(0.25, 0.5), "move": Vector2(0.5, 0.75)}
+	t.save()
+	var u := TouchSettings.load_saved()
+	check("touch: mode, size, opacity and swap survive a save and load", u.mode == TouchSettings.Mode.FIXED and is_equal_approx(u.scale, 1.25) and is_equal_approx(u.opacity, 0.5) and u.swap)
+	check("touch: placed controls survive, the others stay default", u.custom.size() == 2 and u.rel("dash").is_equal_approx(Vector2(0.25, 0.5)) and u.rel("move").is_equal_approx(Vector2(0.5, 0.75)) and u.rel("aim").is_equal_approx(u.default_rel("aim")))
+	for junk in ["", "not json", "[1, 2]", "42", "{\"mode\": 7, \"scale\": \"big\", \"opacity\": null, \"swap\": \"yes\", \"pos\": 5}"]:
+		_write_text(TouchSettings.path, junk)
+		var j := TouchSettings.load_saved()
+		check("touch: damaged file '%s' gives the defaults" % junk.left(12), j.mode == TouchSettings.Mode.FLOATING and j.scale == 1.0 and j.opacity == 1.0 and not j.swap and j.custom.is_empty())
+	_write_text(TouchSettings.path, "{\"scale\": 99, \"opacity\": -3, \"pos\": {\"dash\": [5, -2], \"aim\": [\"a\", 1], \"move\": [0.5]}}")
+	var w := TouchSettings.load_saved()
+	check("touch: out-of-range numbers are clamped, malformed places dropped", w.scale == TouchSettings.SCALE_MAX and w.opacity == TouchSettings.OPACITY_MIN and w.custom.size() == 1 and w.rel("dash") == Vector2(1.0, 0.0))
+	_rm(TouchSettings.path)
+
+	# not part of the sim config
+	check("touch: the settings are not in the simulation Config", not Config.new().to_dict().has("scale") and not Config.new().to_dict().has("swap") and not Config.new().to_dict().has("mode"))
+
+	# geometry: defaults equal today's places, swap mirrors, clamping
+	var g := TouchSettings.new()
+	var ref := TouchSettings.REFERENCE
+	check("touch: default places are today's places on the reference screen", g.center("dash", ref).is_equal_approx(ref - Config.DASH_BUTTON_OFFSET) and g.center("move", ref).is_equal_approx(Vector2(Config.STICK_REST_OFFSET_LEFT.x, ref.y - Config.STICK_REST_OFFSET_LEFT.y)) and g.center("aim", ref).is_equal_approx(ref - Config.STICK_REST_OFFSET_RIGHT))
+	var sw := TouchSettings.new()
+	sw.swap = true
+	check("touch: swapped defaults are mirrored (move right, aim and dash left)", is_equal_approx(sw.default_rel("move").x, 1.0 - g.default_rel("move").x) and sw.default_rel("move").x > 0.5 and sw.default_rel("aim").x < 0.5 and sw.default_rel("dash").x < 0.5 and sw.default_rel("dash").y == g.default_rel("dash").y)
+	var m := TouchSettings.new()
+	m.custom = {"dash": Vector2(0.2, 0.3)}
+	m.set_swap(true)
+	check("touch: turning swap on mirrors a placed control", m.custom["dash"].is_equal_approx(Vector2(0.8, 0.3)))
+	m.set_swap(false)
+	check("touch: ... and off puts it back", m.custom["dash"].is_equal_approx(Vector2(0.2, 0.3)))
+	var small := Vector2(800, 400)
+	var edge := TouchSettings.new()
+	edge.custom = {"dash": Vector2(1.0, 1.0), "move": Vector2(0.0, 0.0)}
+	var dc := edge.center("dash", small)
+	var mc := edge.center("move", small)
+	check("touch: places are clamped so the whole control stays on the screen", dc.is_equal_approx(small - Vector2.ONE * edge.dash_radius()) and mc.is_equal_approx(Vector2.ONE * edge.stick_radius()))
+	edge.scale = 1.6
+	check("touch: a bigger size grows the controls and the clamp margin", edge.stick_radius() > g.stick_radius() and edge.center("move", small).x == edge.stick_radius())
+	check("touch: a place maps to other screen sizes by its share", g.center("aim", Vector2(2560, 1152)).is_equal_approx(g.center("aim", ref) * 2.0))
+
+	# set_positions / reset
+	var e := TouchSettings.new()
+	e.set_positions({"move": e.default_rel("move"), "dash": Vector2(0.4, 0.4)})
+	check("touch: set_positions keeps only places that differ from the default", e.custom.size() == 1 and e.custom.has("dash"))
+	e.reset_positions()
+	check("touch: reset forgets the places", e.custom.is_empty())
+
+	# router: floating default
+	var r := _touch_router(TouchSettings.Mode.FLOATING)
+	var sz := r._screen_size()
+	r._touch_down(0, Vector2(sz.x * 0.25, sz.y * 0.2))
+	var cm: Vector2 = r._move_c
+	check("touch: floating default - a touch in the left half starts the move stick right where it landed", r._move_idx == 0 and cm == Vector2(sz.x * 0.25, sz.y * 0.2))
+	r._touch_move(0, cm + Vector2(300, 0))
+	check("touch: ... and the floating base follows a long drag, the stick reads full", not r._move_c.is_equal_approx(cm) and r._stick(r._move_c, r._move_p).is_equal_approx(Vector2.RIGHT))
+	r._touch_down(1, Vector2(sz.x * 0.75, sz.y * 0.2))
+	check("touch: floating - a touch in the right half is the aim stick", r._aim_idx == 1 and r._aim_c == Vector2(sz.x * 0.75, sz.y * 0.2))
+	r._release_all()
+	r._touch_down(2, r._dash_center())
+	check("touch: the dash button takes a touch on it", r._dash_idx == 2)
+	r.free()
+
+	# router: swap sides (floating)
+	r = _touch_router(TouchSettings.Mode.FLOATING, true)
+	r._touch_down(0, Vector2(sz.x * 0.25, sz.y * 0.2))
+	check("touch: swapped - the left half is the aim stick", r._aim_idx == 0 and r._move_idx == -1)
+	r._touch_down(1, Vector2(sz.x * 0.75, sz.y * 0.2))
+	check("touch: swapped - the right half is the move stick", r._move_idx == 1)
+	r._release_all()
+	r._touch_down(0, Vector2(sz.x * 0.42, sz.y * 0.2))
+	r._touch_down(1, Vector2(sz.x * 0.4, sz.y * 0.3))
+	check("touch: swapped - a second thumb near the middle takes the free stick", r._aim_idx == 0 and r._move_idx == 1)
+	r.free()
+
+	# router: fixed places
+	r = _touch_router(TouchSettings.Mode.FIXED)
+	r.touch.custom = {"move": Vector2(0.5, 0.5), "aim": Vector2(0.8, 0.4)}
+	var mrest := r._move_rest()
+	check("touch: fixed - the rest place is the placed one", mrest.is_equal_approx(Vector2(sz.x * 0.5, sz.y * 0.5)))
+	r._touch_down(0, Vector2(sz.x * 0.1, sz.y * 0.1))
+	check("touch: fixed - a touch far from every stick does nothing", r._move_idx == -1 and r._aim_idx == -1)
+	r._touch_down(0, mrest + Vector2(30, 0))
+	check("touch: fixed - a touch on the stick takes it, the centre stays put", r._move_idx == 0 and r._move_c.is_equal_approx(mrest))
+	r._touch_move(0, mrest + Vector2(500, 0))
+	check("touch: fixed - dragging far does not move the centre, the stick reads full", r._move_c.is_equal_approx(mrest) and r._stick(r._move_c, r._move_p).is_equal_approx(Vector2.RIGHT))
+	r._touch_down(1, r._aim_rest())
+	check("touch: fixed - the aim stick takes its own place", r._aim_idx == 1)
+	r._release_all()
+	r.touch.custom["dash"] = Vector2(0.3, 0.3)
+	r._touch_down(3, Vector2(sz.x * 0.3, sz.y * 0.3))
+	check("touch: a placed dash button is where it was put", r._dash_idx == 3)
+	r.free()
+
+	# router: size scales the controls
+	r = _touch_router(TouchSettings.Mode.FIXED)
+	r.touch.scale = 1.5
+	var rest := r._move_rest()
+	r._touch_down(0, rest + Vector2(Config.STICK_RADIUS * 1.4 * 1.5, 0))
+	check("touch: a bigger size also widens the touch area of a fixed stick", r._move_idx == 0)
+	check("touch: a stick reads full at its scaled radius", r._stick(rest, rest + Vector2(Config.STICK_RADIUS * 1.5, 0)).is_equal_approx(Vector2.RIGHT) and r._stick(rest, rest + Vector2(Config.STICK_RADIUS * 0.75, 0)).is_equal_approx(Vector2(0.5, 0)))
+	r.free()
+	TouchSettings.path = old_path

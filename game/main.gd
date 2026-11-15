@@ -27,6 +27,7 @@ var router: InputRouter
 var hud: Hud
 var menu: TuningMenu           # the Training tuning menu
 var main_menu: MainMenu
+var touch_settings: TouchSettings
 var lobby: PlayLobby
 var pause: PauseMenu
 var overlay: MatchOverlay      # countdown, round result, match over (Play only)
@@ -85,7 +86,9 @@ func _ready() -> void:
 	var ui := CanvasLayer.new()
 	ui.layer = 4
 	add_child(ui)
+	touch_settings = TouchSettings.load_saved()
 	router = InputRouter.new()
+	router.touch = touch_settings
 	router.mouse_to_world = view.screen_to_ground
 	router.menu_requested.connect(_on_pause_pressed)
 	ui.add_child(router)
@@ -116,7 +119,7 @@ func _ready() -> void:
 
 	main_menu = MainMenu.new()
 	add_child(main_menu)
-	main_menu.setup()
+	main_menu.setup(touch_settings)
 	main_menu.play_pressed.connect(_show_lobby)
 	main_menu.training_pressed.connect(start_training)
 	main_menu.update_requested.connect(_download_update)

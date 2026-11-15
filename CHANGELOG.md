@@ -12,6 +12,11 @@ there is none. Write it for testers, in plain words.
   line gets a red ring on the floor under their figure that fills over 3 seconds; when it is full, they are out
   (no point for anybody). Back inside, the ring empties again. Bots stay inside the line. Training has no zone.
   (Not looked at on a real screen yet.)
+- **Touch control settings** (Settings > Touch controls): choose **Floating** sticks (they appear where your thumb
+  lands, as before) or **Fixed** sticks, pick the **size** and **opacity** of the controls, and turn on **Swap
+  sides** for left-handed play (move stick on the right, aim stick on the left, Dash button on the left).
+  **Place controls** lets you drag the sticks (Fixed) and the Dash button to where you want them, then Save,
+  Reset to default or Cancel. The settings are kept on your device and apply to Play and Training.
 
 ## 0.6.0
 
