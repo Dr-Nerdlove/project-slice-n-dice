@@ -63,6 +63,9 @@ First look at the toy style: "toys from around the year 2000 come alive".
 - **The arena is a children's room** (play carpet, toy fence, wooden blocks, a cardboard box, a tower of blocks
   that tumbles when it breaks) and is a little bigger: 32 x 14.4 m instead of 28 x 12.6 m.
 - Online, this version only plays with servers of the same version (the arena changed). Your tuned values are kept.
+- **Server protection:** a player who sends nothing for 30 seconds is dropped, so a stuck or misbehaving connection
+  can no longer block a slot forever, and nonsense stick values from a broken or hostile client are ignored instead of
+  breaking the game for everyone.
 
 ## 0.3.0
 

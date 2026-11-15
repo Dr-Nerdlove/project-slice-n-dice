@@ -1579,6 +1579,50 @@ func test_join_rules() -> void:
 	check("bots: the bots produce input", bot_moved)
 
 
+func test_idle_and_sticks() -> void:
+	# a joined player that sends no input is dropped after IDLE_TIMEOUT ticks; an active one stays
+	var rig := make_rig(0.0, 0.0, 2, 5)
+	var srv: ServerCore = rig["server"]
+	var cs: Array = rig["clients"]
+	check("idle: both join", warm_up(rig) and srv.players_online() == 2)
+	var silent: ClientCore = cs[1]
+	var active: ClientCore = cs[0]
+	var h: LoopbackHub = rig["hub"]
+	for _t in ServerCore.IDLE_TIMEOUT - 120:
+		h.advance(DT_MS)
+		active.poll(DT_MS / 1000.0)
+		active.tick(SimInput.new())
+		srv.tick()
+	check("idle: before the timeout the silent player is still there", srv.players_online() == 2)
+	for _t in 240:
+		h.advance(DT_MS)
+		active.poll(DT_MS / 1000.0)
+		active.tick(SimInput.new())
+		silent.poll(DT_MS / 1000.0)
+		srv.tick()
+	check("idle: the silent player's slot is freed, the active one is kept", srv.players_online() == 1 and active.state == ClientCore.State.ONLINE and silent.state != ClientCore.State.ONLINE, "online=%d silent=%d" % [srv.players_online(), silent.state])
+
+
+func test_stick_range() -> void:
+	for bad: Variant in [1e200, -1e200, 1e30, 2.5, -2.5]:
+		check("proto: a stick value of %s is refused" % str(bad), NetProto.decode_input([bad, 0, 0, 0, 0]) == null and NetProto.decode_input([0, 0, 0, bad, 0]) == null)
+	for good: Variant in [1.0, -1.0, 0, 0.0, 1, -1]:
+		check("proto: a stick value of %s is accepted" % str(good), NetProto.decode_input([good, 0, good, 0, 0]) != null)
+	# a hostile packet must not poison the sim
+	var rig := make_rig(0.0, 0.0, 0, 3)
+	var server: ServerCore = rig["server"]
+	var hub: LoopbackHub = rig["hub"]
+	var raw := join_raw(rig)
+	for k in 30:
+		raw.send(1, NetProto.pack([NetProto.T_INPUT, k + 1, [[1e200, -1e200, 1e30, 1e200, 0]]]), false)
+		hub.advance(DT_MS)
+		server.tick()
+	var finite := true
+	for p in server.sim.players:
+		finite = finite and is_finite(p.pos.x) and is_finite(p.pos.y)
+	check("server: out-of-range sticks leave all positions finite", finite and server.dropped_packets >= 30, "dropped=%d" % server.dropped_packets)
+
+
 # ---------------------------------------------------------------- client against a scripted server
 
 func fake_server_setup() -> Dictionary:
@@ -1979,7 +2023,7 @@ func _initialize() -> void:
 	var groups: Array[Callable] = [
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
-		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_client_rules, test_lag_tool,
+		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
 		test_address_parse, test_enet, test_menu_online, test_main_scene,
 	]
 	for g in groups:

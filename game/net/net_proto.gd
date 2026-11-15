@@ -77,6 +77,11 @@ static func clamp_input(i: SimInput) -> SimInput:
 	return c
 
 
+## Honest clients send sticks of length <= 1. Anything bigger is refused: a huge value turns into inf as a float32
+## Vector2 and limit_length makes NaN of it, which would poison the sim for every player.
+const MAX_STICK := 2.0
+
+
 static func _num(v: Variant) -> bool:
 	return (v is float and is_finite(v)) or v is int
 
@@ -86,7 +91,7 @@ static func decode_input(a: Variant) -> SimInput:
 	if not (a is Array) or (a as Array).size() != 5:
 		return null
 	for k in 4:
-		if not _num(a[k]):
+		if not _num(a[k]) or absf(float(a[k])) > MAX_STICK:
 			return null
 	if not (a[4] is int):
 		return null

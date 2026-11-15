@@ -26,6 +26,7 @@ const MAX_BUFFER := 8              # more waiting inputs than this: the oldest a
 const NEUTRAL_AFTER := 30          # ticks without any new input: stop repeating the last one
 const REBUFFER_AFTER := 30         # ticks without any new input: collect the target number of inputs again
 const HELLO_TIMEOUT := 300         # ticks a new connection may stay silent before it is dropped
+const IDLE_TIMEOUT := 1800         # ticks (30 s) without any input from a joined player: the slot is freed
 const MAX_PENDING := 8             # connections that have not said hello yet
 
 var cfg: Config
@@ -64,6 +65,7 @@ class Slot extends RefCounted:
 	var shrink_wait := SHRINK_AFTER   # calm ticks needed before the target shrinks
 	var excess := 0                # consecutive ticks with more than `target` inputs waiting
 	var new_inputs := 0            # inputs that arrived since the last tick used one
+	var idle := 0                  # ticks since the last valid input packet
 
 	func reset() -> void:
 		peer = -1
@@ -78,6 +80,7 @@ class Slot extends RefCounted:
 		shrink_wait = SHRINK_AFTER
 		excess = 0
 		new_inputs = 0
+		idle = 0
 
 
 func _init(config: Config, endpoint: NetEndpoint, seed_value := 1, with_bots := false) -> void:
@@ -126,6 +129,14 @@ func tick() -> void:
 			_pending.erase(peer)
 			net.disconnect_peer(peer)
 	var dt := 1.0 / Config.TICK_RATE
+	for i in slots.size():
+		if slots[i].peer >= 0:
+			slots[i].idle += 1
+			if slots[i].idle > IDLE_TIMEOUT:
+				var idle_peer: int = slots[i].peer
+				_log("player %d timed out (no input for %d s)" % [i + 1, IDLE_TIMEOUT / Config.TICK_RATE])
+				net.disconnect_peer(idle_peer)
+				_on_leave(idle_peer)
 	var inputs: Array = []
 	for i in slots.size():
 		var inp: SimInput
@@ -326,6 +337,7 @@ func _on_input(s: Slot, msg: Array) -> void:
 	if seq < 1 or seq > NetProto.MAX_SEQ or list.is_empty() or list.size() > NetProto.MAX_INPUTS_PER_PACKET:
 		dropped_packets += 1
 		return
+	s.idle = 0
 	var decoded: Array[SimInput] = []
 	for a: Variant in list:
 		var inp := NetProto.decode_input(a)
