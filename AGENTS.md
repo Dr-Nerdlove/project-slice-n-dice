@@ -189,7 +189,7 @@ missing, with a recommendation, and let the people choose.
   out, Joni9993 works ahead and decides about merging and test releases; Dr-Nerdlove builds on it afterwards.
 - **What the project is:** "Spinback Rumble" (formerly the working title "Slice n Dice"; the repository and file names keep the old name), a top-down arena brawler for Android with local multiplayer
   (2-8 players) and a yo-yo as the weapon. Plan and decisions: `docs/PLAN.md`.
-- **Product languages:** English only (decided by the owner on 2026-11-15). The existing German texts (menus, modifier texts in `game/sim/mods.gd`, figure names, update banner) are to be translated; all new text is English.
+- **Product languages:** English only (decided by the owner on 2026-11-15). All texts in the game are English now (translated 2026-11-15, version 0.6.0); all new text is English.
 - **Build and test:** Godot 4.7.2, project in `game/`. Run on PC: `godot --path game`. Android debug APK:
   `godot --headless --path game --export-debug "Android" ../build/slice-n-dice-debug.apk` (needs Godot export
   templates, JDK 17 and the Android SDK configured in Godot's editor settings). Tests: `tests/run.sh` (needs `godot` on the
@@ -219,7 +219,7 @@ missing, with a recommendation, and let the people choose.
   validation), the `NetEndpoint` interface with `ENetEndpoint` (real UDP), `LoopbackHub` (in memory with delay and
   loss, for tests) and `LagEndpoint` (the artificial lag tool of the Online menu page). The own player is predicted; the OTHER players are
   drawn from `ClientCore.display_sim`, an interpolation between buffered snapshots about 4+ ticks in the past (switch
-  "Gegner glätten"; `ArenaView.set_others`), except their yo-yo heads that are out and their shards: those are drawn
+  "Smooth others"; `ArenaView.set_others`), except their yo-yo heads that are out and their shards: those are drawn
   from the predicted sim, in the present, with a decaying visual offset against pops (`ClientCore._apply_predicted`,
   `predict_heads`). Admission: a joined player with no input for `IDLE_TIMEOUT` (30 s) loses the slot, and `NetProto.decode_input` refuses stick values above `MAX_STICK` (2; a huge value becomes inf, then NaN, and poisons the sim). A per-address limit on slots was rejected: friends in one house share one public address and would be refused; a join code/password is the planned answer once a public server exists. Hits are decided on present positions and not lag-compensated (open design decision in
   `docs/PLAN.md`). The server's input buffer per player is adaptive (`ServerCore.Slot.target`). `Sim.save_state()` /
@@ -269,8 +269,7 @@ missing, with a recommendation, and let the people choose.
   (`NOTIFICATION_WM_GO_BACK_REQUEST`, `application/config/quit_on_go_back=false`): in a Play game the pause panel (Resume /
   Main menu), in Training the tuning menu (which has a Main menu button), in the lobby back, in the main menu leave Settings
   or quit (`main.quit_hook` replaces the quit in tests). `Main menu` ends any session (`_end_session`); a Play session that
-  ends by itself (host left, connection lost) returns to the main menu (`_leave_online`). Connection status texts have a
-  German (Online page of Training) and an English (lobby) version in `main.gd` `STATUS`. Fonts (`game/ui/fonts/`): Unbounded and
+  ends by itself (host left, connection lost) returns to the main menu (`_leave_online`). Connection status texts are one English text each in `main.gd` `STATUS` (shown on the Online page of Training and in the lobby). Fonts (`game/ui/fonts/`): Unbounded and
   Rubik, variable TTFs from github.com/google/fonts, both SIL Open Font License 1.1 (licence texts next to the fonts; keep them
   when fonts are updated); weights through `FontVariation` (`UiKit.font`). The UI was written without being able to look at it
   (no display here): spacing and sizes need a look on the phone. **Name:** `application/config/name` and the export preset
@@ -293,8 +292,8 @@ missing, with a recommendation, and let the people choose.
   on missing `libXcursor` / `libwayland-client`; headless only has the dummy renderer). The look is checked on the
   phone; rendering in CI (Xvfb with Mesa on a GitHub runner) would be an option.
 - **Toy train:** a moving hazard in the simulation (`Sim._step_train`, geometry in `game/sim/train_track.gd`: a rounded rectangle around the arena centre, scaled with the arena; speed `Config.train_speed`, default 5.7, 0 = off). It kills players with `_kill(victim, null)` (event `killer: -1`, `cause: "train"`, no kill credit), shoves the crate; its cars are solid for yo-yo heads like the crate (`Sim._push_train` in `_resolve_head` and `_sweep_retract` when `pass_level < 2`; a head lying OUT is shoved aside in `_step_train` and can kill that way), while strings, wires and shards still pass over it; its position is ordinary state. Tests switch it off in `mk()` (test_sim) and `make_rig()` (test_net, `with_train` turns it on) because the client's world clock follows the server's, so a client with a moving train is never equal to a purely local sim. When the arena or the obstacles change, the geometry checks at the end of `_train_tests` (clearance to obstacles, walls, spawns, the gap around the centre block) must still hold.
-- **Figure choice:** `SimPlayer.skin` says which toy figure a player is drawn as (presentation only: the simulation never reads it, but it is in the snapshot). `Config.SKIN_COUNT` must equal `ToyFigure.NAMES.size()` (a test checks it): when a figure is added, raise it. The human's choice is `Config.character` (saved with the settings, not reset by "Zurücksetzen"; in the Play lobby). Offline `main.gd` gives player 0 the choice and bot i `character + i`; online the client sends `NetProto.T_SKIN` and the server validates the range. `ClientCore` keeps its own choice on top of snapshots.
-- **Modifiers:** Modifier definitions (only Training's sandbox sets levels; Play has none until the shop exists), German texts and all their numbers live in `game/sim/mods.gd`.
+- **Figure choice:** `SimPlayer.skin` says which toy figure a player is drawn as (presentation only: the simulation never reads it, but it is in the snapshot). `Config.SKIN_COUNT` must equal `ToyFigure.NAMES.size()` (a test checks it): when a figure is added, raise it. The human's choice is `Config.character` (saved with the settings, not reset by "Reset"; in the Play lobby). Offline `main.gd` gives player 0 the choice and bot i `character + i`; online the client sends `NetProto.T_SKIN` and the server validates the range. `ClientCore` keeps its own choice on top of snapshots.
+- **Modifiers:** Modifier definitions (only Training's sandbox sets levels; Play has none until the shop exists), English texts and all their numbers live in `game/sim/mods.gd`.
 - **Release:** Testers get APKs from the PUBLIC repository `Joni9993/slice-n-dice-releases` (this one is private).
   How a release is made: (1) add a section `## MAJOR.MINOR.PATCH` to `CHANGELOG.md` (the workflow fails without it;
   it becomes the release notes); (2) merge to `main`, or tag the branch you want to release; (3) push the tag

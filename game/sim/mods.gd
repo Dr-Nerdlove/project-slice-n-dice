@@ -1,6 +1,6 @@
 class_name Mods
 extends RefCounted
-## The ONE table of all modifiers: ids, German names, descriptions per level, price tiers and every
+## The ONE table of all modifiers: ids, names, descriptions per level, price tiers and every
 ## number a modifier uses. Units: metres, seconds. Levels 1..3 are indexed 0..2 in the arrays.
 ## Nothing else in the code base may hard-code a modifier number.
 
@@ -28,7 +28,7 @@ const STEER_MIN_TURN := 0.0005       # radians: a smaller change of direction in
 const PIN_REACH := 0.15              # a head / player counts as having reached a pin within this distance
 const PIN_STUCK_PROGRESS := 0.1      # a player step along the string that gains less than this share gives up the pin
 const PIN_STUCK_MIN_MOVE := 0.02      # shorter player steps are too small to judge whether a pin is blocked
-const CROSS_MIN_GAP := 0.6           # Kreuzfeuer: heads closer together than this just return normally
+const CROSS_MIN_GAP := 0.6           # Crossfire: heads closer together than this just return normally
 const EXPLOSION_VIEW_TIME := 0.35    # presentation only
 
 const ORDER: Array[String] = [
@@ -39,11 +39,11 @@ const ORDER: Array[String] = [
 ## "n" holds one array of 3 values (level 1..3) per key. In descriptions {key} is replaced by that value.
 const TABLE := {
 	"tripwire": {
-		"name": "Stolperdraht", "tier": Tier.CHEAP,
+		"name": "Tripwire", "tier": Tier.CHEAP,
 		"desc": [
-			"Beim Einholen bleibt die Schnur {wire_time} s als Draht am Boden. Wer drüberläuft, stolpert {stun_time} s (max. {max_wires} Draht).",
-			"Der Draht hält {wire_time} s, bis zu {max_wires} Drähte gleichzeitig, Stolpern {stun_time} s.",
-			"Die Drähte sind TÖDLICH! Sie halten {wire_time} s, bis zu {max_wires} gleichzeitig.",
+			"When you retract, the string stays on the ground as a wire for {wire_time} s. Anyone who runs over it stumbles for {stun_time} s (max. {max_wires} wire).",
+			"Wires last {wire_time} s, up to {max_wires} at once, stumble {stun_time} s.",
+			"The wires are DEADLY! They last {wire_time} s, up to {max_wires} at once.",
 		],
 		"n": {
 			"wire_time": [2.5, 5.0, 6.0], "stun_time": [0.6, 1.0, 0.0],
@@ -51,20 +51,20 @@ const TABLE := {
 		},
 	},
 	"bighead": {
-		"name": "Dicker Brocken", "tier": Tier.CHEAP,
+		"name": "Big Chunk", "tier": Tier.CHEAP,
 		"desc": [
-			"Der Jojo-Kopf ist {radius_mult}-mal so groß – trifft viel leichter.",
-			"Der Jojo-Kopf ist {radius_mult}-mal so groß.",
-			"Riesenkopf: {radius_mult}-mal so groß! Kaum zu verfehlen.",
+			"The yo-yo head is {radius_mult}x as big, so it hits much more easily.",
+			"The yo-yo head is {radius_mult}x as big.",
+			"Giant head: {radius_mult}x as big! Hard to miss.",
 		],
 		"n": {"radius_mult": [1.5, 2.0, 2.8]},
 	},
 	"elastic": {
-		"name": "Gummiband", "tier": Tier.MEDIUM,
+		"name": "Rubber Band", "tier": Tier.MEDIUM,
 		"desc": [
-			"Du ziehst dich {pull_mult}-mal schneller zum Jojo und wirst {fling_dist} m weitergeschleudert.",
-			"Zug {pull_mult}-mal schneller, Schleudern {fling_dist} m. Dein Körper ist beim Ziehen und Schleudern tödlich.",
-			"Zug {pull_mult}-mal schneller, Schleudern {fling_dist} m, tödlicher Körper {body_mult}-mal so groß.",
+			"You pull yourself to the yo-yo {pull_mult}x faster and get flung {fling_dist} m onward.",
+			"Pull {pull_mult}x faster, fling {fling_dist} m. Your body is deadly while pulling and flung.",
+			"Pull {pull_mult}x faster, fling {fling_dist} m, deadly body {body_mult}x as big.",
 		],
 		"n": {
 			"pull_mult": [1.4, 1.7, 2.2], "fling_dist": [2.5, 4.5, 6.0],
@@ -73,46 +73,46 @@ const TABLE := {
 		},
 	},
 	"extradash": {
-		"name": "Extra-Dash", "tier": Tier.MEDIUM,
+		"name": "Extra Dash", "tier": Tier.MEDIUM,
 		"desc": [
-			"+{charges} Dash-Ladung.",
-			"+{charges} Dash-Ladungen und Abklingzeit ×{cooldown_mult}.",
-			"+{charges} Dash-Ladungen, Abklingzeit ×{cooldown_mult}, Dash geht durch Hindernisse und die Kiste.",
+			"+{charges} dash charge.",
+			"+{charges} dash charges and cooldown ×{cooldown_mult}.",
+			"+{charges} dash charges, cooldown ×{cooldown_mult}, the dash passes through obstacles and the crate.",
 		],
 		"n": {
 			"charges": [1, 2, 3], "cooldown_mult": [1.0, 0.75, 0.5], "phase": [0, 0, 1],
 		},
 	},
 	"bounce": {
-		"name": "Abpraller", "tier": Tier.MEDIUM,
+		"name": "Ricochet", "tier": Tier.MEDIUM,
 		"desc": [
-			"Der fliegende Jojo prallt {bounces} mal von Wänden ab, jeder Abpraller verlängert den Flug um {bonus_dist} m. Die Schnur knickt an den Abprallpunkten.",
-			"Bis zu {bounces} Abpraller, jeder +{bonus_dist} m Flug. Die Schnur folgt dem Weg über alle Abprallpunkte.",
-			"Bis zu {bounces} Abpraller, jeder +{bonus_dist} m Flug, nach dem ersten {speed_pct} % schneller.",
+			"The flying yo-yo bounces off walls {bounces} time(s); each bounce adds {bonus_dist} m of flight. The string bends at the bounce points.",
+			"Up to {bounces} bounces, each +{bonus_dist} m of flight. The string follows the path through every bounce point.",
+			"Up to {bounces} bounces, each +{bonus_dist} m of flight, {speed_pct} % faster after the first.",
 		],
 		"n": {
 			"bounces": [1, 3, 5], "bonus_dist": [1.5, 3.0, 5.0], "speed_pct": [0, 0, 25],
 		},
 	},
 	"steer": {
-		"name": "Lenkwurf", "tier": Tier.MEDIUM,
+		"name": "Steered Throw", "tier": Tier.MEDIUM,
 		"desc": [
-			"Ziehst du während des Flugs am Zielstick, lenkst du den Jojo in diese Richtung.",
-			"Lenkt stärker, Reichweite +{range_pct} %.",
-			"Telekinese: Halten und Ziehen am Zielstick bewegt den liegenden oder fliegenden Jojo frei (tödlich). Halten ohne Ziehen zieht dich hin, Tippen holt ihn ein.",
+			"Pull the aim stick during the flight to steer the yo-yo that way.",
+			"Steers harder, range +{range_pct} %.",
+			"Telekinesis: hold and drag the aim stick to move the lying or flying yo-yo freely (deadly). Holding without dragging pulls you to it, tapping retracts it.",
 		],
 		"n": {
 			"turn_rate": [360.0, 600.0, 3600.0],   # degrees per second the flight direction turns towards the stick
 			"range_pct": [0, 25, 25],
-			"tk": [0, 0, 1], "tk_speed": [12.0, 12.0, 12.0],   # Telekinese: m/s of a lying head at full stick
+			"tk": [0, 0, 1], "tk_speed": [12.0, 12.0, 12.0],   # Telekinesis: m/s of a lying head at full stick
 		},
 	},
 	"pierce": {
-		"name": "Durchschlag", "tier": Tier.EXPENSIVE,
+		"name": "Piercing", "tier": Tier.EXPENSIVE,
 		"desc": [
-			"Der Jojo geht im Flug und beim Einholen durch Hindernisblöcke (aber nicht durch die Außenwände).",
-			"Auch durch die Kiste, Reichweite +{range_pct} %.",
-			"Dazu unaufhaltsam im Duell: Gegnerische Jojos werden weggeschlagen, deiner fliegt weiter.",
+			"The yo-yo passes through obstacle blocks in flight and when retracting (but not through the outer walls).",
+			"Also through the crate, range +{range_pct} %.",
+			"Also unstoppable in duels: enemy yo-yos are knocked away while yours flies on.",
 		],
 		"n": {
 			"pass_flight": [1, 2, 2], "pass_retract": [1, 2, 2],
@@ -120,11 +120,11 @@ const TABLE := {
 		},
 	},
 	"shards": {
-		"name": "Splitter", "tier": Tier.MEDIUM,
+		"name": "Shards", "tier": Tier.MEDIUM,
 		"desc": [
-			"Beim Einholen fliegen {count} tödliche Splitter ({range} m) vom Jojo weg.",
-			"{count} Splitter, {range} m weit.",
-			"{count} Splitter, {range} m weit, jeder prallt einmal von der Wand ab.",
+			"When you retract, {count} deadly shards fly away from the yo-yo ({range} m).",
+			"{count} shards, {range} m far.",
+			"{count} shards, {range} m far, each bounces off a wall once.",
 		],
 		"n": {
 			"count": [3, 6, 10], "range": [4.0, 6.0, 8.0], "speed": [20.0, 20.0, 20.0],
@@ -132,20 +132,20 @@ const TABLE := {
 		},
 	},
 	"warhead": {
-		"name": "Sprengkopf", "tier": Tier.EXPENSIVE,
+		"name": "Warhead", "tier": Tier.EXPENSIVE,
 		"desc": [
-			"Der Jojo explodiert am Landepunkt (Radius {radius} m). Auch dich!",
-			"Radius {radius} m, dazu eine zweite Explosion beim Einholen. Auch dich!",
-			"Riesige Explosionen (Radius {radius} m) beim Landen und beim Einholen. Auch dich!",
+			"The yo-yo explodes where it lands (radius {radius} m). You too!",
+			"Radius {radius} m, plus a second explosion on retract. You too!",
+			"Huge explosions (radius {radius} m) on landing and on retract. You too!",
 		],
 		"n": {"radius": [1.6, 2.4, 3.4], "retract_blast": [0, 1, 1]},
 	},
 	"twin": {
-		"name": "Zwilling", "tier": Tier.EXPENSIVE,
+		"name": "Twin", "tier": Tier.EXPENSIVE,
 		"desc": [
-			"Du hast {heads} Jojos. Kurz tippen holt beide ein, Halten zieht dich zum Jojo in Laufrichtung.",
-			"Kreuzfeuer: Beim Einholen treffen sich beide Jojos in der Mitte dazwischen (tödlich!) und kommen dann gemeinsam zurück.",
-			"Kreuzfeuer, Rückweg {retract_mult}-mal so schnell. Auch mit einem Jojo in der Hand: Halten ohne Stick zieht dich zum liegenden Jojo.",
+			"You have {heads} yo-yos. A short tap retracts both, holding pulls you to the yo-yo in your running direction.",
+			"Crossfire: on retract both yo-yos meet in the middle (deadly!) and then come back together.",
+			"Crossfire, return {retract_mult}x as fast. Even with a yo-yo in hand: holding without the stick pulls you to the lying yo-yo.",
 		],
 		"n": {
 			"heads": [2, 2, 2], "cross": [0, 1, 1], "retract_mult": [1.0, 1.0, 1.5], "pull_free": [0, 0, 1],
@@ -158,32 +158,32 @@ const TABLE := {
 const SYNERGIES := {
 	"shards_warhead": {
 		"ids": ["shards", "warhead"], "by": "warhead",
-		"desc": "Splitter + Sprengkopf: Jeder Splitter explodiert dort, wo er endet (Radius {radius} m).",
+		"desc": "Shards + Warhead: every shard explodes where it ends (radius {radius} m).",
 		"n": {"radius": [0.8, 1.2, 1.6]},
 	},
 	"shards_pierce": {
 		"ids": ["shards", "pierce"], "by": "pierce",
-		"desc": "Splitter + Durchschlag: Splitter fliegen durch Hindernisblöcke (ab Durchschlag II auch durch die Kiste).",
+		"desc": "Shards + Piercing: shards fly through obstacle blocks (from Piercing II also through the crate).",
 		"n": {},
 	},
 	"shards_bounce": {
 		"ids": ["shards", "bounce"], "by": "bounce",
-		"desc": "Splitter + Abpraller: Splitter prallen so oft von Wänden ab, wie dein Abpraller es erlaubt.",
+		"desc": "Shards + Ricochet: shards bounce off walls as often as your Ricochet allows.",
 		"n": {},
 	},
 	"shards_bighead": {
 		"ids": ["shards", "bighead"], "by": "bighead",
-		"desc": "Splitter + Dicker Brocken: Die Splitter sind so viel größer wie dein Jojo-Kopf.",
+		"desc": "Shards + Big Chunk: the shards grow as much as your yo-yo head.",
 		"n": {},
 	},
 	"bighead_warhead": {
 		"ids": ["bighead", "warhead"], "by": "bighead",
-		"desc": "Dicker Brocken + Sprengkopf: Alle Explosionen sind {radius_mult}-mal so groß.",
+		"desc": "Big Chunk + Warhead: all explosions are {radius_mult}x as big.",
 		"n": {"radius_mult": [1.15, 1.3, 1.5]},
 	},
 	"bighead_tripwire": {
 		"ids": ["bighead", "tripwire"], "by": "bighead",
-		"desc": "Dicker Brocken + Stolperdraht: Der Draht ist so viel breiter wie dein Jojo-Kopf größer ist.",
+		"desc": "Big Chunk + Tripwire: the wire gets as much wider as your yo-yo head is bigger.",
 		"n": {},
 	},
 }
@@ -228,10 +228,10 @@ static func level_for_copies(copies: int) -> int:
 static func fmt_num(v: float) -> String:
 	if absf(v - roundf(v)) < 0.001:
 		return str(int(roundf(v)))
-	return String.num(v, 2).replace(".", ",")
+	return String.num(v, 2)
 
 
-## German player-facing text of one level (1..3).
+## Player-facing text of one level (1..3).
 static func describe(id: String, level: int) -> String:
 	var text: String = (TABLE[id]["desc"] as Array)[clampi(level, 1, MAX_LEVEL) - 1]
 	for key: String in (TABLE[id]["n"] as Dictionary):

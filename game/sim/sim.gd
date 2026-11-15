@@ -158,7 +158,7 @@ func dash_distance_of(_p: SimPlayer) -> float:
 	return cfg.dash_distance
 
 
-## Extra-Dash level 3: the dash passes through the blocks, the crate and the box (not the outer walls).
+## Extra Dash level 3: the dash passes through the blocks, the crate and the box (not the outer walls).
 func dash_phases(p: SimPlayer) -> bool:
 	return mv(p, "extradash", "phase", 0.0) > 0.0
 
@@ -177,12 +177,12 @@ func syn_n(p: SimPlayer, key: String, name: String) -> float:
 	return Mods.syn_n(key, name, p.mods)
 
 
-## Size factor of the head when a synergy lets other things grow with it (Dicker Brocken), else 1.
+## Size factor of the head when a synergy lets other things grow with it (Big Chunk), else 1.
 func bighead_factor(p: SimPlayer, key: String) -> float:
 	return mv(p, "bighead", "radius_mult", 1.0) if syn(p, key) else 1.0
 
 
-## Explosion radius of this player's explosions (Dicker Brocken + Sprengkopf makes them bigger).
+## Explosion radius of this player's explosions (Big Chunk + Warhead makes them bigger).
 func blast_radius(p: SimPlayer, base: float) -> float:
 	var f := syn_n(p, "bighead_warhead", "radius_mult")
 	return base * (f if f > 0.0 else 1.0)
@@ -243,7 +243,7 @@ func aim_range(p: SimPlayer) -> float:
 
 
 ## Preview of the flight of the current charge (for the aim line): points from the player to where it ends.
-## Always a straight line (Lenkwurf bends the flight only after the throw).
+## Always a straight line (Steered Throw bends the flight only after the throw).
 func aim_path(p: SimPlayer) -> PackedVector2Array:
 	var pts := PackedVector2Array()
 	pts.append(p.pos)
@@ -490,7 +490,7 @@ func _step_charging(p: SimPlayer, inp: SimInput, released: bool, dt: float) -> v
 		p.aimed = true
 	if not released:
 		p.charge_t += dt
-		# Zwilling III: an undeflected press that reaches the tap threshold pulls to the lying yo-yo.
+		# Twin III: an undeflected press that reaches the tap threshold pulls to the lying yo-yo.
 		if not p.aimed and p.charge_t >= cfg.tap_threshold and _can_free_pull(p):
 			p.charging = false
 			_begin_pull(p, _pick_pull_target(p, inp.move))
@@ -530,7 +530,7 @@ func _step_out_input(p: SimPlayer, inp: SimInput, pressed: bool, held: bool, dt:
 		p.press_t = 0.0
 		p.press_steered = false
 	if _steer_stick(p, inp) != Vector2.ZERO:
-		p.press_steered = true  # Lenkwurf: a press that steers neither taps nor pulls
+		p.press_steered = true  # Steered Throw: a press that steers neither taps nor pulls
 	if not p.press_active:
 		return
 	if held:
@@ -544,7 +544,7 @@ func _step_out_input(p: SimPlayer, inp: SimInput, pressed: bool, held: bool, dt:
 
 
 func _retract_all(p: SimPlayer) -> void:
-	# Zwilling II (Kreuzfeuer): with both heads out they first meet in the middle.
+	# Twin II (Crossfire): with both heads out they first meet in the middle.
 	if mv(p, "twin", "cross", 0.0) > 0.0 and p.heads.size() == 2 and p.count_state(HS.OUT) == 2:
 		var a := p.heads[0]
 		var b := p.heads[1]
@@ -577,7 +577,7 @@ func _segment_clear(a: Vector2, b: Vector2, r: float, pass_level: int) -> bool:
 	return true
 
 
-## Zwilling III: one head in hand and the others lying still, so a plain hold can pull to a lying one.
+## Twin III: one head in hand and the others lying still, so a plain hold can pull to a lying one.
 func _can_free_pull(p: SimPlayer) -> bool:
 	if mv(p, "twin", "pull_free", 0.0) <= 0.0 or p.count_state(HS.OUT) == 0:
 		return false
@@ -603,7 +603,7 @@ func _pick_pull_target(p: SimPlayer, move: Vector2) -> int:
 func _begin_pull(p: SimPlayer, target: int) -> void:
 	p.pulling = true
 	p.pull_target = target
-	# Stolperdraht: the string stays behind as a wire when a pull starts, too.
+	# Tripwire: the string stays behind as a wire when a pull starts, too.
 	if lv(p, "tripwire") > 0 and target < p.heads.size():
 		_lay_wire(p, p.heads[target])
 
@@ -666,7 +666,7 @@ func _pickup_touched_heads(p: SimPlayer) -> void:
 	for i in p.heads.size():
 		var h := p.heads[i]
 		if p.pulling and i == p.pull_target:
-			continue  # _step_pull catches its target itself (Gummiband fling)
+			continue  # _step_pull catches its target itself (Rubber Band fling)
 		if h.state == HS.OUT and p.pos.distance_to(h.pos) <= catch_dist:
 			events.append({"type": "pickup", "pos": h.pos, "player": p.id})
 			_to_hand(p, h)
@@ -684,7 +684,7 @@ func _to_hand(p: SimPlayer, h: SimHead) -> void:
 	h.turning = false
 
 
-## Gummiband: the player is flung onward after catching the head. Stopped by walls.
+## Rubber Band: the player is flung onward after catching the head. Stopped by walls.
 func _step_fling(p: SimPlayer, dt: float) -> void:
 	var step := minf(p.fling_speed * dt, p.fling_left)
 	var before := p.pos
@@ -720,7 +720,7 @@ func _land(p: SimPlayer, h: SimHead) -> void:
 		_start_retract(p, h)
 
 
-## `steer`: the aim stick while Lenkwurf may use it (zero = no steering this tick, see `_steer_stick`).
+## `steer`: the aim stick while Steered Throw may use it (zero = no steering this tick, see `_steer_stick`).
 func _step_flight(p: SimPlayer, h: SimHead, dt: float, steer := Vector2.ZERO) -> void:
 	var r := head_r(p)
 	var pass_level := _flight_pass(p)
@@ -729,7 +729,7 @@ func _step_flight(p: SimPlayer, h: SimHead, dt: float, steer := Vector2.ZERO) ->
 	var move := minf(cfg.flight_speed * h.speed_mult * dt, h.flight_dist - h.flown)
 	var n := maxi(1, ceili(move / (r * Config.SUBSTEP_FACTOR)))
 	var step := move / float(n)
-	# Lenkwurf: the flight direction turns towards the stick; the turn of this tick is shared by the sub-steps.
+	# Steered Throw: the flight direction turns towards the stick; the turn of this tick is shared by the sub-steps.
 	var turn_max := 0.0
 	if steer != Vector2.ZERO:
 		turn_max = deg_to_rad(mv(p, "steer", "turn_rate", 0.0)) * dt / float(n)
@@ -771,7 +771,7 @@ func _step_flight(p: SimPlayer, h: SimHead, dt: float, steer := Vector2.ZERO) ->
 		_land(p, h)
 
 
-## The string lies on the path of a head that changes direction (Lenkwurf): a pin at the corner where a bend begins
+## The string lies on the path of a head that changes direction (Steered Throw): a pin at the corner where a bend begins
 ## (`from` = where the step began; not when it is within reach of the previous string point `anchor`), then one
 ## every PATH_PIN_SPACING metres flown while it keeps bending. Capped at MAX_PATH_PINS per head.
 func _record_bend(h: SimHead, anchor: Vector2, from: Vector2, to: Vector2, bent: bool, moved: float) -> void:
@@ -791,8 +791,8 @@ func _record_bend(h: SimHead, anchor: Vector2, from: Vector2, to: Vector2, bent:
 		h.pin_acc = 0.0
 
 
-## The aim stick as a steering order for the yo-yo (Lenkwurf), or zero when it cannot be used right now: no
-## modifier, dead or stumbling, a head in hand or a throw being charged (Zwilling with a head in hand: the stick
+## The aim stick as a steering order for the yo-yo (Steered Throw), or zero when it cannot be used right now: no
+## modifier, dead or stumbling, a head in hand or a throw being charged (Twin with a head in hand: the stick
 ## charges the next throw instead), a pull running, or the stick not deflected.
 func _steer_stick(p: SimPlayer, inp: SimInput) -> Vector2:
 	if lv(p, "steer") <= 0 or not p.alive or p.stun_t > 0.0 or p.charging or p.pulling or p.hand_index() >= 0:
@@ -802,7 +802,7 @@ func _steer_stick(p: SimPlayer, inp: SimInput) -> Vector2:
 	return inp.aim.limit_length(1.0)
 
 
-## Telekinese (Lenkwurf III): a lying head follows the deflected stick at tk_speed (times the stick length). It is
+## Telekinesis (Steered Throw III): a lying head follows the deflected stick at tk_speed (times the stick length). It is
 ## stopped by walls, blocks and the crate like a flying head (pierce lifts what it lifts for the flight), may not
 ## stretch the string beyond its limit, and is lethal on the way like any head that is out. The string follows its
 ## path (pins, see `_record_bend`); moving back onto the last pin winds that pin up again.
@@ -856,20 +856,20 @@ func _pierce_exit(h: SimHead, r: float, pass_level: int) -> void:
 			return  # reached an outer wall
 
 
-## `meet` (not INF): Kreuzfeuer, fly to that point first and return from there.
+## `meet` (not INF): Crossfire, fly to that point first and return from there.
 func _start_retract(p: SimPlayer, h: SimHead, meet := Vector2.INF) -> void:
 	h.state = HS.RETRACT
 	h.limit = 1e9
 	h.meet_on = false
 	h.turning = false
-	# --- Stolperdraht ---
+	# --- Tripwire ---
 	if lv(p, "tripwire") > 0:
 		_lay_wire(p, h)
-	# --- Splitter ---
+	# --- Shards ---
 	var l := lv(p, "shards")
 	if l > 0:
 		_spawn_shards(p, h, l)
-	# --- Sprengkopf: second explosion where the retract starts ---
+	# --- Warhead: second explosion where the retract starts ---
 	l = lv(p, "warhead")
 	if l > 0 and Mods.n("warhead", "retract_blast", l) > 0.0:
 		_explode(p, h.pos, blast_radius(p, Mods.n("warhead", "radius", l)))
@@ -924,7 +924,7 @@ func _step_retract_pins(p: SimPlayer, h: SimHead, r: float, pass_level: int, ste
 		return
 
 
-## Kreuzfeuer: fly to the meeting point; from there the head returns straight to the player.
+## Crossfire: fly to the meeting point; from there the head returns straight to the player.
 func _step_meet(p: SimPlayer, h: SimHead, r: float, pass_level: int, step: float) -> void:
 	var to := h.meet - h.pos
 	var d := to.length()
@@ -1074,7 +1074,7 @@ func _explode(owner: SimPlayer, pos: Vector2, radius: float) -> void:
 				_kill(v, owner)
 
 
-## Lays the current string of head `h` on the ground as a wire (Stolperdraht).
+## Lays the current string of head `h` on the ground as a wire (Tripwire).
 func _lay_wire(p: SimPlayer, h: SimHead) -> void:
 	var pts := string_path(p, h)
 	if path_length(pts) >= Mods.WIRE_MIN_LENGTH:
@@ -1179,7 +1179,7 @@ func _step_shards(dt: float) -> void:
 		if dead:
 			shards.remove_at(k)
 			if s.blast > 0.0:
-				_explode(players[s.owner_id], s.pos, s.blast)  # Splitter + Sprengkopf
+				_explode(players[s.owner_id], s.pos, s.blast)  # Shards + Warhead
 		k -= 1
 
 

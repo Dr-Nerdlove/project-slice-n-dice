@@ -59,7 +59,7 @@ class Facts:
 	var charging := false
 	var charge := 0.0         # 0..1
 	var dashing := false
-	var pulling := false      # pulled to the yo-yo or flung by the Gummiband
+	var pulling := false      # pulled to the yo-yo or flung by the Rubber Band
 	var stunned := false
 	var out := false          # at least one yo-yo is out (the string is in the hand)
 	var since_throw := 99.0   # seconds since a yo-yo left the hand

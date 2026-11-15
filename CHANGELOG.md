@@ -22,6 +22,7 @@ The game has a new name and a new start screen: **Spinback Rumble**.
   Training keeps its scoreboard and the gear. The Android back button pauses a game, goes back from the lobby and
   quits from the main menu.
 - The update notice now shows in the main menu (and in Settings), not during a game.
+- All menus and texts are now in English.
 - The app is now called **Spinback Rumble** (it installs over the old app as usual and keeps your saved settings).
 - New fonts for the new screens (Unbounded and Rubik, free under the SIL Open Font License).
 

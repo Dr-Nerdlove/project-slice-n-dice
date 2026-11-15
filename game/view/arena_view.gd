@@ -218,7 +218,7 @@ func _make_head(col: Color) -> Node3D:
 	ToyKit.part(head, ToyKit.cylinder(), ToyKit.plastic(Color("1d1638")), Vector3.ZERO, Vector3(1.3, 0.3, 1.3))
 	ToyKit.part(head, ToyKit.rounded_box(0.3), ToyKit.plastic(Color("fbfbf7")), Vector3(0, 0.66, 0), Vector3(1.5, 0.08, 0.32))
 	ToyKit.part(head, ToyKit.sphere(), ToyKit.plastic(Color("fbfbf7")), Vector3(0, 0.66, 0), Vector3(0.5, 0.12, 0.5))
-	# Abpraller: white ring around the rim.
+	# Ricochet: white ring around the rim.
 	var ring := MeshInstance3D.new()
 	var tm := TorusMesh.new()
 	tm.inner_radius = 1.05
@@ -228,7 +228,7 @@ func _make_head(col: Color) -> Node3D:
 	ring.name = "MarkBounce"
 	ring.visible = false
 	head.add_child(ring)
-	# Durchschlag: spikes pointing outwards (4, at level 3 eight in gold).
+	# Piercing: spikes pointing outwards (4, at level 3 eight in gold).
 	var spikes := Node3D.new()
 	spikes.name = "MarkPierce"
 	spikes.visible = false
@@ -248,7 +248,7 @@ func _make_head(col: Color) -> Node3D:
 		pivot.add_child(sp)
 		spikes.add_child(pivot)
 	head.add_child(spikes)
-	# Lenkwurf: purple band on top.
+	# Steered Throw: purple band on top.
 	var band := MeshInstance3D.new()
 	var bm := CylinderMesh.new()
 	bm.top_radius = 1.12
@@ -260,7 +260,7 @@ func _make_head(col: Color) -> Node3D:
 	band.name = "MarkSteer"
 	band.visible = false
 	head.add_child(band)
-	# Sprengkopf: glowing red core.
+	# Warhead: glowing red core.
 	var core := MeshInstance3D.new()
 	var sm := SphereMesh.new()
 	sm.radius = 0.55
@@ -272,7 +272,7 @@ func _make_head(col: Color) -> Node3D:
 	core.name = "MarkWarhead"
 	core.visible = false
 	head.add_child(core)
-	# Splitter: three yellow chips on the rim.
+	# Shards: three yellow chips on the rim.
 	var chips := Node3D.new()
 	chips.name = "MarkShards"
 	chips.visible = false
@@ -538,7 +538,7 @@ func render(alpha: float, delta: float) -> void:
 		var face := p.aim_dir if p.charging else p.facing
 		# Stumbling: the figure wobbles dizzily (ToyPose) and flashes.
 		fig.flash(p.stun_t > 0.0 and int(_time / FLASH_PERIOD) % 2 == 0)
-		# Lethal body (Gummiband).
+		# Lethal body (Rubber Band).
 		var br := src.body_lethal_r(p)
 		if br > 0.0:
 			var ld := _lethal_discs[i]
