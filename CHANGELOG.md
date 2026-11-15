@@ -18,6 +18,11 @@ Play with friends without a server: one phone hosts, the others join.
 - The tab **Online** (join a server by address) works as before.
 - The Android app now also asks for the permissions to read the Wi-Fi state and to receive broadcasts (needed for
   the list of found games). After installing, the update goes over the old app as usual.
+- Your own explosions (Sprengkopf, and Splitter + Sprengkopf) now hurt you too. Such a death gives nobody a kill.
+- Extra-Dash level 3 no longer dashes 1.3x as far; instead the dash goes through the obstacle blocks, the crate and
+  the box (never through the outer walls).
+- The default maximum throw range is now 10 m (was 8 m), and the string is 10 m long (was 9 m). Phones that kept
+  their own tuned values keep them; "Zurücksetzen" in the tuning menu picks up the new defaults.
 
 ## 0.4.2
 

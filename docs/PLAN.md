@@ -93,12 +93,12 @@ First batch of ten modifiers. All definitions, German texts and every number liv
 1. **Tripwire** (Stolperdraht): the string stays on the ground as a wire when a retract or a pull starts, along the current string path; enemies touching it stumble (level 3: the wire is lethal).
 2. **Big head** (Dicker Brocken): the yo-yo head is much bigger, without slowdown.
 3. **Elastic** (Gummiband): faster pull, and the player is flung onward after catching the head; from level 2 the body is lethal while pulling and flung.
-4. **Extra dash** (Extra-Dash): more dash charges, shorter cooldown, longer dash at level 3.
+4. **Extra dash** (Extra-Dash): more dash charges, shorter cooldown, at level 3 the dash passes through the blocks, the crate and the box (not the outer walls); if it ends inside one it continues in its direction until free.
 5. **Bounce** (Abpraller): the flying head reflects off walls and obstacles (1 / 3 / 5 times), gaining flight distance with every bounce (+1.5 / +3 / +5 m).
 6. **Arc** (Bogenwurf): the throw flies on a curve (side chosen with the move stick, default left; a throw still lands at the aimed point and the aim line shows the curve) and the string lies on that curve; level 2 bulges more and retracts 1.3x faster; level 3 adds one lethal circle around the player on the way back (see below).
 7. **Pierce** (Durchschlag): the head passes through obstacle blocks (retract and crate from level 2); level 3 knocks enemy heads away in duels.
 8. **Shards** (Splitter): lethal shards fly out from the head when a retract starts; at level 3 they bounce once.
-9. **Warhead** (Sprengkopf): the head explodes where it lands; from level 2 also where a retract starts.
+9. **Warhead** (Sprengkopf): the head explodes where it lands; from level 2 also where a retract starts. Every explosion also kills its own owner (death without kill credit, event cause "self").
 10. **Twin** (Zwilling): always exactly 2 yo-yos, controls see section 3. Level 2 ("Kreuzfeuer"): when retracting with both out, the heads first fly to the midpoint between them (lethal) and return together. Level 3: retract 1.5x faster, and an undeflected hold pulls to a lying yo-yo even while the other one is still in hand.
 
 ### Synergies
