@@ -31,12 +31,27 @@ var last_scorer := -1              # who scored the last round (-1: nobody)
 var zone_t := 0.0                  # seconds of PLAY in this round so far (kept through RESULT, reset by the next round)
 var zone_spot := 0                 # index into Config.ZONE_SPOTS: where the zone ends this round
 var winner := -1                   # the match winner once MATCH_OVER (-1: none)
+## Coins (numbers in `Economy`), per slot. `coins` is what a player has (saved over rounds, zeroed at match start);
+## `earned` what the last finished round gave; `round_kills` / `leader_kills` count this round's kills (with kill
+## credit) and the kills of a leader among them; `underdog` / `leader` are fixed at round start from the points.
+var coins: Array = []
+var earned: Array = []
+var round_kills: Array = []
+var leader_kills: Array = []
+var underdog: Array = []
+var leader: Array = []
 
 
 func _init() -> void:
 	for i in Config.NUM_PLAYERS:
 		points.append(0)
 		roster.append(false)
+		coins.append(0)
+		earned.append(0)
+		round_kills.append(0)
+		leader_kills.append(0)
+		underdog.append(false)
+		leader.append(false)
 
 
 ## True while the world stands still (countdown, result screen, match over).
@@ -57,3 +72,52 @@ func round_scorer(_sim: Sim) -> int:
 ## Rule hook: the slot that has won the match, -1 for not yet.
 func match_winner(_sim: Sim) -> int:
 	return -1
+
+
+## Round start: clears this round's kill counts and decides underdog (all tied for the fewest points) and leader
+## (all tied for the most) among the roster; nobody is either while everybody is level.
+func begin_round_coins() -> void:
+	var lo := 1 << 30
+	var hi := -1
+	for i in roster.size():
+		round_kills[i] = 0
+		leader_kills[i] = 0
+		if roster[i]:
+			lo = mini(lo, points[i])
+			hi = maxi(hi, points[i])
+	for i in roster.size():
+		underdog[i] = roster[i] and hi > lo and points[i] == lo
+		leader[i] = roster[i] and hi > lo and points[i] == hi
+
+
+## A kill with credit during a round (never a self-kill).
+func note_kill(victim: int, killer: int) -> void:
+	if killer < 0 or killer == victim or killer >= round_kills.size():
+		return
+	round_kills[killer] += 1
+	if leader[victim]:
+		leader_kills[killer] += 1
+
+
+## What slot `i` gets for the round that just ended (`scorer`: who scored it, -1 nobody), by part:
+## base, kills, survivor, underdog, leader. Empty for a slot outside the roster.
+func coin_parts(i: int, scorer: int) -> Dictionary:
+	if not roster[i]:
+		return {}
+	return {
+		"base": Economy.COINS_BASE,
+		"kills": Economy.COINS_KILL * int(round_kills[i]),
+		"survivor": Economy.COINS_SURVIVOR if i == scorer else 0,
+		"underdog": Economy.COINS_UNDERDOG if underdog[i] else 0,
+		"leader": Economy.COINS_LEADER_KILL * int(leader_kills[i]),
+	}
+
+
+## Round end: pays every roster player (also one who is away or left: the place is kept).
+func award_coins(scorer: int) -> void:
+	for i in roster.size():
+		var sum := 0
+		for v: int in coin_parts(i, scorer).values():
+			sum += v
+		earned[i] = sum
+		coins[i] += sum

@@ -2939,6 +2939,13 @@ func test_match_flow() -> void:   # async
 	check("match: the result panel names the round and the scorer", ov.panel.visible and ov.heading_label.text == "Round 1" and ov.scorer_label.text == bot2 + " scores!" and not ov.rematch_btn.visible, ov.scorer_label.text)
 	check("match: the scoreboard lists every player, the leader first with its point and the marker", ov.rows_box.get_child_count() == Config.NUM_PLAYERS and row0.get_child(1).text == bot2 and row0.get_child(2).text == "+1" and row0.get_child(3).text == "1" and ov.target_label.text == "FIRST TO 15",
 			"%d %s %s %s %s" % [ov.rows_box.get_child_count(), row0.get_child(1).text, row0.get_child(2).text, row0.get_child(3).text, ov.target_label.text])
+	m.coins[2] = 9; m.earned[2] = 6; m.earned[0] = 3; m.round_kills[2] = 1
+	ov._shown_key = ""
+	await process_frame
+	row0 = ov.rows_box.get_child(0)
+	var tag: Label = row0.get_child(4).get_node("Coins")
+	check("match: each row shows the coins and what the round gave", tag.text == "9 ¢  +6", tag.text)
+	check("match: the own coin breakdown is under the scoreboard", ov.coins_label.text == "+3 coins: round 3", ov.coins_label.text)
 	m.last_scorer = -1
 	ov._shown_key = ""
 	await process_frame
