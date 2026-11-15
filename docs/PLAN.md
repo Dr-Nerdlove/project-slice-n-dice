@@ -93,12 +93,12 @@ First batch of ten modifiers. All definitions, German texts and every number liv
 1. **Tripwire** (Stolperdraht): the string stays on the ground as a wire when a retract or a pull starts, along the current string path; enemies touching it stumble (level 3: the wire is lethal).
 2. **Big head** (Dicker Brocken): the yo-yo head is much bigger, without slowdown.
 3. **Elastic** (Gummiband): faster pull, and the player is flung onward after catching the head; from level 2 the body is lethal while pulling and flung.
-4. **Extra dash** (Extra-Dash): more dash charges, shorter cooldown, longer dash at level 3.
+4. **Extra dash** (Extra-Dash): more dash charges, shorter cooldown, at level 3 the dash passes through the blocks, the crate and the box (not the outer walls); if it ends inside one it continues in its direction until free.
 5. **Bounce** (Abpraller): the flying head reflects off walls and obstacles (1 / 3 / 5 times), gaining flight distance with every bounce (+1.5 / +3 / +5 m).
 6. **Steer** (Lenkwurf): while the head is in flight, deflecting the aim stick turns the flight direction towards the stick (360 / 600 degrees per second; the string follows the bent path via pins; the flight still covers the charged distance). Level 2 steers harder and adds +25 % range (multiplied with Pierce's range). Level 3 "Telekinese": a lying head follows the deflected stick (12 m/s at full stick), stopped by walls, blocks and the crate like a flying head and limited by the string length; in flight the head turns almost instantly towards the stick. A press whose stick was deflected neither taps (retract) nor pulls, so releasing after steering leaves the head where it is. With Twin and a head in hand the stick charges the next throw instead, so a flying head cannot be steered then. Without deflection tap and hold work as before.
 7. **Pierce** (Durchschlag): the head passes through obstacle blocks (retract and crate from level 2); level 3 knocks enemy heads away in duels.
 8. **Shards** (Splitter): lethal shards fly out from the head when a retract starts; at level 3 they bounce once.
-9. **Warhead** (Sprengkopf): the head explodes where it lands; from level 2 also where a retract starts.
+9. **Warhead** (Sprengkopf): the head explodes where it lands; from level 2 also where a retract starts. Every explosion also kills its own owner (death without kill credit, event cause "self").
 10. **Twin** (Zwilling): always exactly 2 yo-yos, controls see section 3. Level 2 ("Kreuzfeuer"): when retracting with both out, the heads first fly to the midpoint between them (lethal) and return together. Level 3: retract 1.5x faster, and an undeflected hold pulls to a lying yo-yo even while the other one is still in hand.
 
 ### Synergies
@@ -184,17 +184,27 @@ The tuning menu has a "Werte kopieren" button. It copies one compact text block 
 
 ## 7. Hosting
 
-- **Available:** A Proxmox server at the owner's home on the LAN, already running public applications. Domain via Cloudflare.
-- **For the MVP:** A container or VM on the Proxmox with the headless server, UDP port forwarding on the router.
-- **Constraints:**
-  - The Cloudflare proxy and the free tunnel do not forward UDP. The game server needs a DNS record without proxy pointing directly at the home IP.
-  - The home IP is therefore visible to other players. Acceptable among friends.
-  - A public IPv4 address is needed. Whether the connection uses DS-Lite has not been checked yet.
-- **Before a store release:** Put a small VPS in front or move to one. The server code stays the same.
+- **Decision (owner, 2026-11-15): hosting on a server is shelved for now.** The earlier plan (a container on the
+  home Proxmox server with UDP port forwarding on the router) does not work:
+  - The home internet connection is DS-Lite / CGNAT: it has no public IPv4 address, so nothing can be reached from
+    outside by forwarding a port.
+  - The Cloudflare proxy and the free Cloudflare tunnel carry no UDP, so the domain cannot help either.
+- **For testing: local play.** One phone hosts the match itself and the others on the same Wi-Fi or in the hotspot of
+  that phone join it (see section 8). The dedicated server (`--server`) stays available for a PC in the same network
+  and for tests.
+- **Before a store release:** Rent a small VPS with a public IPv4 address (or use a relay service) and run the same
+  headless server there. The server code stays the same.
 - **Important:** Changes to router, DNS or Proxmox only after consulting the owner.
 
 ## 8. Lobby and matchmaking
 
+- **LAN mode (built, version 0.5.0):** a phone opens a match (menu tab "Lokal"), the others on the same Wi-Fi or in
+  its hotspot pick the game from a list of found games or type a short code. The host runs the authoritative server
+  inside its own app (`LocalHost`); its own game connects to it through 127.0.0.1 like every other player. The match
+  uses the host's tuned values and ends when the host leaves or closes the app. The code (`LanCode`, 4 to 7
+  characters) encodes the host's IPv4 address, so joining by code needs only plain unicast UDP; the list is fed by a
+  once-a-second UDP broadcast (`LanBeacon`, port 24566) and is an extra. Details and the facts for a later iOS port are
+  in `AGENTS.md` ("Local play").
 - **MVP:** Private rooms with a room code, plus a LAN mode.
 - **Later:** Public matchmaking. The architecture must not rule it out, but it is not built for the MVP.
 
@@ -359,7 +369,7 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
 - Confirmation of defence, harmless string and dash (see section 3).
 - Number of modifier slots (proposal: five).
 - Target score and exact point scoring.
-- Check for a public IPv4 address on the home connection.
+- Where to host a server for play over the internet (the home connection has no public IPv4, see section 7).
 - Product language(s) of the game UI (the prototype menu is German for now).
 
 ## 11. Next step

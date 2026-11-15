@@ -14,6 +14,9 @@ func check(name: String, ok: bool, info := "") -> void:
 func mk(only: Array, walls_only := true) -> Sim:
 	var cfg := Config.new()
 	cfg.train_speed = 0.0 # the train has its own checks; the other tests want an empty track
+	# Most checks hard-code distances for the old 8 m throw range / 9 m string; the defaults are checked in _range_tests.
+	cfg.max_range = 8.0
+	cfg.string_length = 9.0
 	var s := Sim.new(cfg, 1)
 	for i in 4:
 		s.set_player_enabled(i, i in only)
@@ -59,11 +62,11 @@ func _initialize() -> void:
 	var s := mk([0]); place(s, 0, Vector2(3, 6.3))
 	throw0(s, Vector2.RIGHT, 60)
 	var p := s.players[0]
-	check("full charge throws ~max range", p.ystate == Y.OUT and absf(p.head.x - 3.0 - 8.0) < 0.2, "dist=%.2f" % (p.head.x - 3.0))
+	check("full charge throws ~max range", p.ystate == Y.OUT and absf(p.head.x - 3.0 - s.cfg.max_range) < 0.2, "dist=%.2f" % (p.head.x - 3.0))
 	s = mk([0]); place(s, 0, Vector2(3, 6.3))
 	throw0(s, Vector2.RIGHT, 21)
 	p = s.players[0]
-	var expect := 2.5 + 0.5 * (8.0 - 2.5)
+	var expect := 2.5 + 0.5 * (s.cfg.max_range - 2.5)
 	check("half charge throws ~half range", p.ystate == Y.OUT and absf(p.head.x - 3.0 - expect) < 0.6, "dist=%.2f expect=%.2f" % [p.head.x - 3.0, expect])
 	# no second throw while OUT
 	var before := p.head
@@ -289,6 +292,9 @@ func _initialize() -> void:
 	_steer_tests()
 	_train_tests()
 	_pickup_tests()
+	_self_damage_tests()
+	_phase_dash_tests()
+	_range_tests()
 
 var _frames := 0
 func _process(_delta: float) -> bool:
@@ -515,7 +521,7 @@ func _mod_tests() -> void:
 		while p.dash_charges < s.dash_max(p) and tc < 400:
 			s.step(only0(inp())); tc += 1
 		refill[L] = tc + 13
-	check("extradash: L3 dash 1.3x longer", absf(dist_d[3] - 3.9) < 0.15 and absf(dist_d[0] - 3.0) < 0.15 and absf(dist_d[2] - 3.0) < 0.15, str(dist_d))
+	check("extradash: the dash is the same length at every level", absf(dist_d[3] - 3.0) < 0.15 and absf(dist_d[0] - 3.0) < 0.15 and absf(dist_d[2] - 3.0) < 0.15, str(dist_d))
 	check("extradash: cooldown x1 / x0.75 / x0.5", absf(refill[0] / 60.0 - 1.2) < 0.1 and absf(refill[2] / 60.0 - 0.9) < 0.1 and absf(refill[3] / 60.0 - 0.6) < 0.1, str(refill))
 	s = mk([0]); place(s, 0, Vector2(2, 6.3)); setm(s, 0, {"extradash": 3}); s.players[0].dash_charges = 4
 	var nd := 0
@@ -661,7 +667,7 @@ func _mod_tests() -> void:
 			check("warhead L%d: victim %.1fm from landing %s" % [L, off, "dies" if inside else "survives"], (s.players[1].deaths == 1) == inside)
 	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"warhead": 3})
 	throw_i(s, 0, Vector2.RIGHT, 8)
-	check("warhead L3: owner inside own explosion survives", s.players[0].alive and s.players[0].deaths == 0)
+	check("warhead L3: owner inside own explosion dies (no kill credit)", not s.players[0].alive and s.players[0].deaths == 1 and s.players[0].kills == 0)
 	for L in [1, 2, 3]:
 		s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"warhead": L})
 		var ex := 0
@@ -1765,3 +1771,96 @@ func _pickup_tests() -> void:
 		s.step(only0(inp(Vector2.RIGHT)))
 		if p.heads[near_i].state != HS.OUT: break
 	check("pickup twin: touched head is in hand, the other still out", p.heads[near_i].state == HS.HAND and p.heads[far_i].state == HS.OUT)
+
+
+func _step_events(s: Sim, n: int, ins: Array) -> Array:
+	var evs: Array = []
+	for t in n:
+		s.step(ins)
+		evs.append_array(s.events)
+	return evs
+
+
+func _self_damage_tests() -> void:
+	# Own landing explosion near the owner: a short throw at warhead L3 (radius 3.4).
+	var s := mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"warhead": 3})
+	var arr := idle4()
+	var evs: Array = []
+	for t in 8:
+		arr[0] = inp(Vector2.ZERO, Vector2.RIGHT, true); s.step(arr); evs.append_array(s.events)
+	arr[0] = inp()
+	evs.append_array(_step_events(s, 120, arr))
+	var kills: Array = evs.filter(func(e): return e["type"] == "kill")
+	var p := s.players[0]
+	check("self blast: owner near own landing dies once, no kill credit", p.deaths == 1 and p.kills == 0, "deaths=%d kills=%d" % [p.deaths, p.kills])
+	check("self blast: kill event has killer -1 and cause self", kills.size() == 1 and kills[0]["killer"] == -1 and kills[0]["cause"] == "self" and kills[0]["victim"] == 0, str(kills))
+	# Owner far from the landing point survives (L1, radius 1.6, full throw).
+	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"warhead": 1})
+	throw_i(s, 0, Vector2.RIGHT, 60)
+	check("self blast: owner outside the radius survives", s.players[0].alive and s.players[0].deaths == 0)
+	# The other player is still credited to the owner.
+	s = mk([0, 1]); place(s, 0, Vector2(3, 6.3)); place(s, 1, Vector2(11.0, 6.3)); setm(s, 0, {"warhead": 1})
+	throw_i(s, 0, Vector2.RIGHT, 60)
+	check("self blast: a victim of the blast still gives the owner a kill", s.players[1].deaths == 1 and s.players[0].kills == 1 and s.players[0].alive)
+	# Retract blast (warhead L2) next to the owner.
+	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"warhead": 2})
+	throw_i(s, 0, Vector2.RIGHT, 60, 200, true)
+	s.players[0].stun_t = 0.0
+	s.players[0].pos = Vector2(10.0, 6.3)
+	tap_i(s, 0); many(s, 120, idle4())
+	check("self blast: the retract blast also hurts the owner", s.players[0].deaths >= 1 and s.players[0].kills == 0, "deaths=%d" % s.players[0].deaths)
+
+
+func _phase_dash_tests() -> void:
+	for L in [1, 2, 3]:
+		var s := mk([0]); place(s, 0, Vector2(2, 6.3)); setm(s, 0, {"extradash": L})
+		s.statics.append(Rect2(4.5, 5, 1, 3))
+		var p := s.players[0]; p.dash_charges = s.dash_max(p)
+		s.step(only0(inp(Vector2.RIGHT, Vector2.ZERO, false, true)))
+		many(s, 20, only0(inp()))
+		if L < 3:
+			check("extradash L%d: the dash is stopped by a block" % L, p.pos.x < 4.5, "x=%.2f" % p.pos.x)
+		else:
+			check("extradash L3: the dash passes a block and ends outside it", p.pos.x > 5.5 + s.cfg.player_radius - 0.01 and p.pos.x < 7.0 and absf(p.pos.y - 6.3) < 0.01, "x=%.2f" % p.pos.x)
+	# Ends inside a block: continues until free, never stuck inside.
+	var s := mk([0]); place(s, 0, Vector2(2.5, 6.3)); setm(s, 0, {"extradash": 3})
+	s.statics.append(Rect2(4.5, 5, 3, 3))  # the dash (3 m) would end in the middle of it
+	var p := s.players[0]; p.dash_charges = s.dash_max(p)
+	s.step(only0(inp(Vector2.RIGHT, Vector2.ZERO, false, true)))
+	many(s, 20, only0(inp()))
+	check("extradash L3: a dash ending inside a block continues out of it", p.pos.x > 7.5 + s.cfg.player_radius - 0.01 and p.pos.x < 8.3, "x=%.2f" % p.pos.x)
+	# The crate is passed too (and not pushed away).
+	s = mk([0]); place(s, 0, Vector2(2, 6.3)); setm(s, 0, {"extradash": 3}); s.crate_pos = Vector2(3.4, 6.3)
+	p = s.players[0]; p.dash_charges = s.dash_max(p)
+	s.step(only0(inp(Vector2.RIGHT, Vector2.ZERO, false, true)))
+	many(s, 20, only0(inp()))
+	check("extradash L3: passes the crate", p.pos.x > s.crate_pos.x + 0.7 and p.pos.x < 6.5 and absf(s.crate_pos.x - 3.4) < 0.01, "x=%.2f crate=%.2f" % [p.pos.x, s.crate_pos.x])
+	# Outer wall still stops it, also when the block is next to the wall.
+	s = mk([0]); place(s, 0, Vector2(RW - 1.5, 6.3)); setm(s, 0, {"extradash": 3})
+	s.statics.append(Rect2(RW - 1.2, 5, 0.8, 3))
+	p = s.players[0]; p.dash_charges = s.dash_max(p)
+	s.step(only0(inp(Vector2.RIGHT, Vector2.ZERO, false, true)))
+	many(s, 20, only0(inp()))
+	check("extradash L3: never leaves the arena through an outer wall", p.pos.x <= RW - s.cfg.player_radius + 0.01 and p.pos.x > RW - 3.0, "x=%.2f" % p.pos.x)
+	for d in [Vector2.LEFT, Vector2.UP, Vector2.DOWN]:
+		s = mk([0]); place(s, 0, Vector2(RW * 0.5, 6.3)); setm(s, 0, {"extradash": 3}); p = s.players[0]
+		var pp := Vector2(0.9, 0.9) if d != Vector2.DOWN else Vector2(RW - 1.0, Config.ARENA_SIZE.y - 0.9)
+		place(s, 0, pp); p.dash_charges = s.dash_max(p)
+		s.step(only0(inp(d, Vector2.ZERO, false, true)))
+		many(s, 20, only0(inp()))
+		check("extradash L3: stays inside towards %s wall" % d, p.pos.x >= s.cfg.player_radius - 0.01 and p.pos.y >= s.cfg.player_radius - 0.01 and p.pos.y <= Config.ARENA_SIZE.y - s.cfg.player_radius + 0.01, str(p.pos))
+
+
+func _range_tests() -> void:
+	var cfg := Config.new()
+	cfg.train_speed = 0.0
+	check("default max throw range is 10 m and the string allows it", cfg.max_range == 10.0 and cfg.effective_max_range() == 10.0, "max=%.1f eff=%.1f" % [cfg.max_range, cfg.effective_max_range()])
+	var s := Sim.new(cfg, 1)
+	for i in 4:
+		s.set_player_enabled(i, i == 0)
+	s.statics.resize(s.wall_count); s.crate_pos = Vector2(-50, -50); s.box_active = false; s.box_timer = 9999.0
+	s.players[0].alive = true
+	place(s, 0, Vector2(3, 6.3))
+	throw0(s, Vector2.RIGHT, 60)
+	var d: float = s.players[0].head.x - 3.0
+	check("default config: full charge throws ~10 m", s.players[0].ystate == Y.OUT and absf(d - 10.0) < 0.2, "dist=%.2f" % d)

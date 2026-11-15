@@ -20,6 +20,8 @@ const BODY_LETHAL_MARGIN := 0.15    # lethal body reach beyond touching (players
 const FLING_MIN_PROGRESS := 0.3      # a fling step that gains less than this share ends the fling
 const PIERCE_EXIT_STEP := 0.1        # step used to leave a block a pierced head landed in
 const PIERCE_EXIT_MAX_STEPS := 400
+const DASH_EXIT_STEP := 0.1          # step used to leave an obstacle a phasing dash ended in
+const DASH_EXIT_MAX_STEPS := 100
 const PATH_PIN_SPACING := 0.7        # a bent flight leaves a path point (pin) every this many metres flown
 const MAX_PATH_PINS := 60            # no more pins than this per head (steered flight, telekinesis)
 const STEER_MIN_TURN := 0.0005       # radians: a smaller change of direction in one step does not bend the string
@@ -75,10 +77,10 @@ const TABLE := {
 		"desc": [
 			"+{charges} Dash-Ladung.",
 			"+{charges} Dash-Ladungen und Abklingzeit ×{cooldown_mult}.",
-			"+{charges} Dash-Ladungen, Abklingzeit ×{cooldown_mult}, Dash {distance_mult}-mal so weit.",
+			"+{charges} Dash-Ladungen, Abklingzeit ×{cooldown_mult}, Dash geht durch Hindernisse und die Kiste.",
 		],
 		"n": {
-			"charges": [1, 2, 3], "cooldown_mult": [1.0, 0.75, 0.5], "distance_mult": [1.0, 1.0, 1.3],
+			"charges": [1, 2, 3], "cooldown_mult": [1.0, 0.75, 0.5], "phase": [0, 0, 1],
 		},
 	},
 	"bounce": {
@@ -132,9 +134,9 @@ const TABLE := {
 	"warhead": {
 		"name": "Sprengkopf", "tier": Tier.EXPENSIVE,
 		"desc": [
-			"Der Jojo explodiert am Landepunkt (Radius {radius} m).",
-			"Radius {radius} m, dazu eine zweite Explosion, wenn du ihn einholst.",
-			"Riesige Explosionen (Radius {radius} m) beim Landen und beim Einholen.",
+			"Der Jojo explodiert am Landepunkt (Radius {radius} m). Auch dich!",
+			"Radius {radius} m, dazu eine zweite Explosion beim Einholen. Auch dich!",
+			"Riesige Explosionen (Radius {radius} m) beim Landen und beim Einholen. Auch dich!",
 		],
 		"n": {"radius": [1.6, 2.4, 3.4], "retract_blast": [0, 1, 1]},
 	},
