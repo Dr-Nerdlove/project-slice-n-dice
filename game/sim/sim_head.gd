@@ -18,8 +18,8 @@ var queued_retract := false   # a tap happened during FLIGHT: retract as soon as
 # player outwards; the last one is next to the head
 var pins := PackedVector2Array()
 var pin_acc := 0.0            # distance flown since the last pin
-var turning := false        # Lenkwurf: the direction changed in the last step (a pin was laid when it began)
-# Kreuzfeuer (Zwilling II): fly to the meeting point first, then return
+var turning := false        # Steered Throw: the direction changed in the last step (a pin was laid when it began)
+# Crossfire (Twin II): fly to the meeting point first, then return
 var meet_on := false
 var meet := Vector2.ZERO
 

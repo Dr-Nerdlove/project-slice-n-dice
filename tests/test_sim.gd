@@ -403,7 +403,7 @@ func _mod_tests() -> void:
 		same = same and sa.players[k].pos == sb.players[k].pos and sa.players[k].heads[0].pos == sb.players[k].heads[0].pos
 	check("figure: a different skin does not change the simulation", same and sa.players[0].pos != Config.SPAWNS[0] and sa.players[0].skin != sb.players[0].skin)
 
-	# --- 1 Stolperdraht
+	# --- 1 Tripwire
 	for L in [1, 2, 3]:
 		s = mk([0, 1]); place(s, 0, Vector2(3, 6.3)); place(s, 1, Vector2(7, 9.0)); setm(s, 0, {"tripwire": L})
 		throw_i(s, 0, Vector2.RIGHT, 60)
@@ -443,7 +443,7 @@ func _mod_tests() -> void:
 	for t in 60: s.step(only0(inp(Vector2(1, 0))))
 	check("tripwire: own wire never hurts owner", s.players[0].alive and s.players[0].stun_t == 0.0)
 
-	# --- 2 Dicker Brocken
+	# --- 2 Big Chunk
 	var offs := [[0, 1.0, false], [1, 1.0, true], [1, 1.1, false], [2, 1.1, true], [2, 1.4, false], [3, 1.4, true], [3, 1.6, false]]
 	for c in offs:
 		s = mk([0, 1]); place(s, 0, Vector2(3, 6.3)); place(s, 1, Vector2(8, 6.3 + c[1])); setm(s, 0, {"bighead": c[0]} if c[0] > 0 else {})
@@ -452,7 +452,7 @@ func _mod_tests() -> void:
 	s = mk([0]); setm(s, 0, {"bighead": 3})
 	check("bighead L3 radius x2.8", absf(s.head_r(s.players[0]) - 0.35 * 2.8) < 0.001)
 
-	# --- 3 Gummiband
+	# --- 3 Rubber Band
 	var pull_ticks := {}
 	for L in [0, 1, 2, 3]:
 		s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"elastic": L} if L > 0 else {})
@@ -506,7 +506,7 @@ func _mod_tests() -> void:
 	for t in 100: s.step(only0(inp(Vector2.ZERO, Vector2.ZERO, true)))
 	check("elastic L3 body radius x1.5 reaches further than L2", l2_kill == 1 and l3_kill == 1 and s.players[1].deaths == 0, "L2near=%d L3far=%d L2far=%d" % [l2_kill, l3_kill, s.players[1].deaths])
 
-	# --- 4 Extra-Dash
+	# --- 4 Extra Dash
 	var refill := {}
 	var dist_d := {}
 	for L in [0, 1, 2, 3]:
@@ -531,7 +531,7 @@ func _mod_tests() -> void:
 		many(s, 8, only0(inp()))
 	check("extradash L3: four dashes in a row (charges drained)", s.players[0].dash_charges <= 1, "left=%d" % s.players[0].dash_charges)
 
-	# --- 5 Abpraller
+	# --- 5 Ricochet
 	var land_x := {}
 	for L in [0, 1, 2, 3]:
 		s = mk([0]); place(s, 0, Vector2(RW - 6.0, 6.3)); setm(s, 0, {"bounce": L} if L > 0 else {})
@@ -559,7 +559,7 @@ func _mod_tests() -> void:
 	throw_i(s, 0, Vector2.RIGHT, 60)
 	check("bounce+pierce: passes block, bounces off outer wall", s.players[0].heads[0].bounces == 1 and s.players[0].heads[0].pos.x > RW - 5.0 and s.players[0].heads[0].pos.x < RW - 1.0, "x=%.2f b=%d" % [s.players[0].heads[0].pos.x, s.players[0].heads[0].bounces])
 
-	# --- 7 Durchschlag
+	# --- 7 Piercing
 	for L in [0, 1, 2]:
 		s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"pierce": L} if L > 0 else {})
 		s.statics.append(Rect2(6, 5, 1, 3))
@@ -617,7 +617,7 @@ func _mod_tests() -> void:
 	a = s.players[0]; b = s.players[1]
 	check("pierce L3 vs L3: bounce normally", a.heads[0].pos.distance_to(b.heads[0].pos) >= 0.69 and a.heads[0].pos.x < 11.0 and a.alive and b.alive)
 
-	# --- 8 Splitter
+	# --- 8 Shards
 	for L in [1, 2, 3]:
 		s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"shards": L})
 		throw_i(s, 0, Vector2.RIGHT, 60); tap_i(s, 0)
@@ -657,7 +657,7 @@ func _mod_tests() -> void:
 	throw_i(s, 0, Vector2.RIGHT, 60); tap_i(s, 0); many(s, 60, idle4())
 	check("shards are stopped by obstacles", s.players[1].deaths == 0)
 
-	# --- 9 Sprengkopf
+	# --- 9 Warhead
 	var rad := {1: 1.6, 2: 2.4, 3: 3.4}
 	for L in [1, 2, 3]:
 		for off in [rad[L] + 0.5 - 0.3, rad[L] + 0.5 + 0.3]:
@@ -684,7 +684,7 @@ func _mod_tests() -> void:
 	throw_i(s, 0, Vector2.RIGHT, 21)
 	check("warhead breaks the box", not s.box_active)
 
-	# --- 10 Zwilling
+	# --- 10 Twin
 	for L in [1, 2, 3]:
 		s = mk([0]); setm(s, 0, {"twin": L}); s.step(idle4())
 		check("twin L%d: exactly 2 yo-yos" % L, s.players[0].heads.size() == 2)
@@ -813,7 +813,7 @@ func _new_tests() -> void:
 	var p: SimPlayer
 	var h: SimHead
 
-	# ---------------- 1 Abpraller: pins recorded, distance per bounce already in the adapted check
+	# ---------------- 1 Ricochet: pins recorded, distance per bounce already in the adapted check
 	s = mk([0]); place(s, 0, Vector2(RW - 6.0, 6.3)); setm(s, 0, {"bounce": 2})
 	throw_i(s, 0, Vector2.RIGHT, 60, 200, true); h = s.players[0].heads[0]
 	check("bounce L2: one pin at the wall, string path length = 8 + 3", h.pins.size() == 1 and absf(h.pins[0].x - (RW - 0.35)) < 0.05 and absf(Sim.path_length(s.string_path(s.players[0], h)) - 11.0) < 0.2, "pins=%s len=%.2f" % [h.pins, Sim.path_length(s.string_path(s.players[0], h))])
@@ -823,10 +823,10 @@ func _new_tests() -> void:
 		var back := RW - 0.35 - h.pos.x
 		check("bounce L%d: flies %.1f m back after the wall (2.35 + bonus)" % [L, 2.35 + Mods.n("bounce", "bonus_dist", L)], absf(back - (2.35 + [1.5, 3.0, 5.0][L - 1])) < 0.15, "back=%.2f" % back)
 
-	# ---------------- 3 Zwilling
+	# ---------------- 3 Twin
 	s = mk([0]); s.step(idle4())
 	check("twin L0: one yo-yo", s.players[0].heads.size() == 1)
-	# L2 Kreuzfeuer
+	# L2 Crossfire
 	for L in [1, 2]:
 		s = mk([0, 1]); place(s, 0, Vector2(5, 10)); place(s, 1, Vector2(11, 8)); setm(s, 0, {"twin": L}); p = s.players[0]
 		throw_i(s, 0, Vector2.RIGHT, 60); throw_i(s, 0, Vector2.UP, 60)
@@ -846,7 +846,7 @@ func _new_tests() -> void:
 				break
 		check("twin L%d: heads %s at the midpoint, then both come home" % [L, "meet" if L == 2 else "do NOT meet"], met == (L == 2) and both_home and (L == 1 or not near_player_before_meet), "met=%s home=%s" % [met, both_home])
 		check("twin L%d: victim in the sweep between the heads %s" % [L, "dies" if L == 2 else "survives"], (s.players[1].deaths == 1) == (L == 2), "deaths=%d" % s.players[1].deaths)
-	# Kreuzfeuer needs a free way: a block at the meeting point -> normal return
+	# Crossfire needs a free way: a block at the meeting point -> normal return
 	s = mk([0]); place(s, 0, Vector2(5, 10)); setm(s, 0, {"twin": 2}); p = s.players[0]
 	throw_i(s, 0, Vector2.RIGHT, 60); throw_i(s, 0, Vector2.UP, 60)
 	s.statics.append(Rect2(8.4, 5.4, 1.2, 1.2))
@@ -952,7 +952,7 @@ func _new_tests() -> void:
 		check("shards+bounce L%d: shard has %d bounce(s) and %s" % [bl, bl, "stops at the wall" if bl == 0 else "turns around at the wall"], bl_left == [0, 1, 3, 5][bl] and reversed == (bl > 0), "left=%d reversed=%s" % [bl_left, reversed])
 	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"shards": 3, "bounce": 3})
 	throw_i(s, 0, Vector2.RIGHT, 15); tap_i(s, 0)
-	check("shards L3 + bounce L3: 1 + 5 shard bounces (more than the single bounce of Splitter III)", s.shards[0].bounces_left == 6, "left=%d" % s.shards[0].bounces_left)
+	check("shards L3 + bounce L3: 1 + 5 shard bounces (more than the single bounce of Shards III)", s.shards[0].bounces_left == 6, "left=%d" % s.shards[0].bounces_left)
 	# shards + bighead, bighead + warhead
 	for bl in [1, 2, 3]:
 		s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"shards": 1, "bighead": bl})
@@ -990,8 +990,8 @@ func _new_tests() -> void:
 	var lv := Mods.empty_levels(); lv["shards"] = 1; lv["warhead"] = 2; lv["bighead"] = 1
 	var act := Mods.active_synergies(lv)
 	check("active_synergies lists exactly the pairs where both are on", act == ["shards_warhead", "shards_bighead", "bighead_warhead"], str(act))
-	check("synergy description carries its number", Mods.describe_synergy("shards_warhead", lv).contains("1,2") and Mods.describe_synergy("bighead_warhead", lv).contains("1,15"), Mods.describe_synergy("shards_warhead", lv))
-	check("every synergy has a pair of known ids and a German text", Mods.SYNERGY_ORDER.size() == Mods.SYNERGIES.size() and Mods.SYNERGIES.keys().all(func(k): return (Mods.SYNERGIES[k]["ids"] as Array).size() == 2 and (Mods.SYNERGIES[k]["ids"] as Array).all(func(id): return Mods.ORDER.has(id)) and (Mods.SYNERGIES[k]["desc"] as String).length() > 20))
+	check("synergy description carries its number", Mods.describe_synergy("shards_warhead", lv).contains("1.2") and Mods.describe_synergy("bighead_warhead", lv).contains("1.15"), Mods.describe_synergy("shards_warhead", lv))
+	check("every synergy has a pair of known ids and a text", Mods.SYNERGY_ORDER.size() == Mods.SYNERGIES.size() and Mods.SYNERGIES.keys().all(func(k): return (Mods.SYNERGIES[k]["ids"] as Array).size() == 2 and (Mods.SYNERGIES[k]["ids"] as Array).all(func(id): return Mods.ORDER.has(id)) and (Mods.SYNERGIES[k]["desc"] as String).length() > 20))
 
 	# ---------------- 5 String follows the bounce path
 	s = two_pin_sim(2); p = s.players[0]; h = p.heads[0]
@@ -1077,7 +1077,7 @@ func _new_tests() -> void:
 		if h.state == HS.HAND: break
 	check("steer+bounce retract consumes every recorded pin in reverse, stays on the string and comes home", pins_before.size() >= 2 and h.state == HS.HAND and prefix_ok and off_ab < 0.1, "pins=%d off=%.3f" % [pins_before.size(), off_ab])
 
-	# ---------------- 6 Stolperdraht on pull and along the path
+	# ---------------- 6 Tripwire on pull and along the path
 	s = two_pin_sim(2, {"tripwire": 1}); p = s.players[0]; h = p.heads[0]
 	check("tripwire: no wire before a retract or pull", s.wires.is_empty())
 	var pp0 := p.pos
@@ -1115,11 +1115,11 @@ func _menu_tests() -> void:
 	var cfgm := Config.new()
 	cfgm.player_speed = 9.0; cfgm.mods_you["shards"] = 2; cfgm.mods_you["warhead"] = 1; cfgm.mods_bots["pierce"] = 3
 	menu.setup(cfgm)
-	check("menu: synergy list shows the active combination for Du", menu._syn_label.text.contains("Splitter + Sprengkopf"), menu._syn_label.text)
+	check("menu: synergy list shows the active combination for Du", menu._syn_label.text.contains("Shards + Warhead"), menu._syn_label.text)
 	menu._show_page(1)
 	menu._on_reset()
 	check("menu: reset on the modifier page clears the levels (both) but not the values", cfgm.mods_you["shards"] == 0 and cfgm.mods_bots["pierce"] == 0 and cfgm.player_speed == 9.0)
-	check("menu: synergy list is empty again after reset", menu._syn_label.text.begins_with("Keine"))
+	check("menu: synergy list is empty again after reset", menu._syn_label.text.begins_with("None"))
 	cfgm.mods_you["shards"] = 1
 	menu._show_page(0)
 	menu._on_reset()
@@ -1132,7 +1132,7 @@ func _menu_tests() -> void:
 	check("menu: the Training menu has a Main menu button that reports it", main_requests[0] == 1)
 	menu._show_page(0)
 	menu._on_export()
-	check("menu: export shows the text and the confirmation", menu._export_panel.visible and menu._export_text.text == cfgm.export_text() and menu._export_status.text == "In die Zwischenablage kopiert" and not menu._export_text.editable)
+	check("menu: export shows the text and the confirmation", menu._export_panel.visible and menu._export_text.text == cfgm.export_text() and menu._export_status.text == "Copied to the clipboard" and not menu._export_text.editable)
 	menu.queue_free()
 	_lobby_tests()
 
@@ -1261,7 +1261,7 @@ func _steer_tests() -> void:
 	steer_i(d1, 0, Vector2.RIGHT, 60, DOWN, 5); steer_i(d2, 0, Vector2.RIGHT, 60, DOWN, 5)
 	var a1 := absf(d1.players[0].heads[0].throw_dir.angle()); var a2 := absf(d2.players[0].heads[0].throw_dir.angle())
 	check("steer L2 turns harder than L1", a2 > a1 + 0.2 and a1 > 0.3, "L1 %.2f rad, L2 %.2f rad" % [a1, a2])
-	# --- Zwilling with a head in hand: the stick charges the next throw, the flying head is not steered
+	# --- Twin with a head in hand: the stick charges the next throw, the flying head is not steered
 	s = steer_sim(1, {"twin": 1}); p = s.players[0]
 	arr = idle4()
 	for t in 60: arr[0] = inp(Vector2.ZERO, Vector2.RIGHT, true); s.step(arr)
@@ -1472,7 +1472,7 @@ func _train_tests() -> void:
 	check("train: the speed is read every tick (tuning slider)", is_equal_approx(s.train_s - s.prev_train_s, 10.0 * dt))
 	check("train: default speed is 5.7 m/s and the tuning page has a slider for it", Config.DEFAULTS["train_speed"] == 5.7 and (func() -> bool:
 		for d: Array in TuningMenu.SLIDERS:
-			if d[0] == "train_speed" and d[1] == "Eisenbahn-Tempo" and d[2] == 0.0 and d[3] == 10.0:
+			if d[0] == "train_speed" and d[1] == "Train speed" and d[2] == 0.0 and d[3] == 10.0:
 				return true
 		return false).call())
 
@@ -1785,7 +1785,7 @@ func _pickup_tests() -> void:
 	s.step(idle4())
 	check("pickup: another player on the head does not pick it up", p.heads[0].state == HS.OUT and p.heads[0].pos == hpos)
 
-	# Zwilling: only the touched head is picked up.
+	# Twin: only the touched head is picked up.
 	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"twin": 1})
 	throw_i(s, 0, Vector2.RIGHT, 20)
 	throw_i(s, 0, Vector2.RIGHT, 50)

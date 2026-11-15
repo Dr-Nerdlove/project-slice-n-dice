@@ -40,7 +40,7 @@ var _online := false           # the predicted sim of `client` is what the view 
 var _lag_ms := 0.0
 var _loss_pct := 0.0
 var _from_local := false       # the current / last connection was started from the Play lobby
-var _smooth := true            # draw the other players interpolated (menu switch "Gegner glätten")
+var _smooth := true            # draw the other players interpolated (menu switch "Smooth others")
 
 var _acc := 0.0
 var _hitstop := 0.0
@@ -378,19 +378,19 @@ func _download_update() -> void:
 
 # ---------------------------------------------------------------- online
 
-## Texts of the connection status: [German for the Online page of the tuning menu, English for the Play lobby].
+## Texts of the connection status (shown on the Online page of Training and in the Play lobby).
 const STATUS := {
-	"bad_address": ["Ungültige Adresse", "Invalid address"],
-	"connect_failed": ["Verbindung fehlgeschlagen", "Connection failed"],
-	"connecting": ["Verbinde …", "Connecting …"],
-	"host_failed": ["Spiel konnte nicht eröffnet werden (Port belegt?)", "Could not open the game (port in use?)"],
-	"connected": ["Verbunden als Spieler %d", "Connected as player %d"],
-	"ended": ["Spiel beendet", "Game ended"],
-	"full": ["Server ist voll (%d Spieler)", "Server is full (%d players)"],
-	"version": ["Falsche Version: App und Server passen nicht zusammen", "Wrong version: the app and the server do not match"],
-	"disconnected": ["Getrennt", "Disconnected"],
-	"not_connected": ["Nicht verbunden", "Not connected"],
-	"bad_code": ["Ungültiger Code", "Invalid code"],
+	"bad_address": "Invalid address",
+	"connect_failed": "Connection failed",
+	"connecting": "Connecting …",
+	"host_failed": "Could not open the game (port in use?)",
+	"connected": "Connected as player %d",
+	"ended": "Game ended",
+	"full": "Server is full (%d players)",
+	"version": "Wrong version: the app and the server do not match",
+	"disconnected": "Disconnected",
+	"not_connected": "Not connected",
+	"bad_code": "Invalid code",
 }
 
 
@@ -438,10 +438,12 @@ func _start_client(host: String, port: int) -> bool:
 
 ## Shows a connection status on the Online page and, for connections started in the Play lobby, there too.
 func _set_status(key: String, busy: bool, arg := 0) -> void:
-	var texts: Array = STATUS[key]
-	menu.set_online_status((texts[0] % arg) if texts[0].contains("%d") else texts[0], busy)
+	var text: String = STATUS[key]
+	if text.contains("%d"):
+		text = text % arg
+	menu.set_online_status(text, busy)
 	if _from_local:
-		lobby.set_status((texts[1] % arg) if texts[1].contains("%d") else texts[1])
+		lobby.set_status(text)
 	_refresh_local_session()
 
 
@@ -564,9 +566,9 @@ func _reason_key(reason: String, was_online: bool) -> String:
 
 
 func _net_text() -> String:
-	var others := "Gegner %d ms zurück" % roundi(client.interp_delay_ms()) if client.smooth_others else "Gegner roh"
-	return "Ping %d ms   Korrektur %s m   offene Eingaben %d   %s" % [
-			roundi(client.ping_ms), String.num(client.correction, 2).replace(".", ","), client.pending_inputs(), others]
+	var others := "Others %d ms behind" % roundi(client.interp_delay_ms()) if client.smooth_others else "Others raw"
+	return "Ping %d ms   Correction %s m   Pending inputs %d   %s" % [
+			roundi(client.ping_ms), String.num(client.correction, 2), client.pending_inputs(), others]
 
 
 func _notification(what: int) -> void:

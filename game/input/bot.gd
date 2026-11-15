@@ -75,7 +75,7 @@ func think(sim: Sim, dt: float) -> SimInput:
 			if outs == 0:
 				_to_idle()
 			elif me.hand_index() >= 0:
-				# Extra yo-yos (Zwilling): throw the next one soon, or call them all back after a moment.
+				# Extra yo-yos (Twin): throw the next one soon, or call them all back after a moment.
 				phase_t += dt
 				if phase_t >= goal_t:
 					phase_t = 0.0
@@ -84,7 +84,7 @@ func think(sim: Sim, dt: float) -> SimInput:
 						attack_wait = Config.BOT_NEXT_THROW_WAIT
 					elif Mods.n("twin", "pull_free", sim.lv(me, "twin")) > 0.0 and me.count_state(SimHead.S.OUT) > 0 \
 							and rng.randf() < Config.BOT_PULL_CHANCE:
-						phase = Phase.HOLD  # Zwilling III: pull to the lying yo-yo with one still in hand
+						phase = Phase.HOLD  # Twin III: pull to the lying yo-yo with one still in hand
 					else:
 						phase = Phase.TAP
 			elif me.count_state(SimHead.S.OUT) == me.heads.size():

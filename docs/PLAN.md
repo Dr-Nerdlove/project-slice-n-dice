@@ -90,7 +90,7 @@ Decisions of 2026-11-13:
 - **The shop will have rerolls for coins**, so skilled players reach their builds more often.
 - **Sandbox:** the prototype has a menu page "Modifikatoren" where the owner sets the level (0-3) of every modifier for the player and, separately, for all bots. Prices (three tiers, placeholder values) exist in the data but are not used yet.
 
-First batch of ten modifiers. All definitions, German texts and every number live in `game/sim/mods.gd`.
+First batch of ten modifiers. All definitions, English texts and every number live in `game/sim/mods.gd`.
 
 1. **Tripwire** (Stolperdraht): the string stays on the ground as a wire when a retract or a pull starts, along the current string path; enemies touching it stumble (level 3: the wire is lethal).
 2. **Big head** (Dicker Brocken): the yo-yo head is much bigger, without slowdown.
@@ -105,7 +105,7 @@ First batch of ten modifiers. All definitions, German texts and every number liv
 
 ### Synergies
 
-Modifiers influence each other. A synergy is a pair of modifiers that are both on; it is defined in the `SYNERGIES` table in `game/sim/mods.gd` (ids, German one-line text, numbers) and shown in the menu under "Aktive Kombinationen". Everything else combines per head without special rules (e.g. Lenkwurf + Splitter).
+Modifiers influence each other. A synergy is a pair of modifiers that are both on; it is defined in the `SYNERGIES` table in `game/sim/mods.gd` (ids, one-line text, numbers) and shown in the menu under "Active combinations". Everything else combines per head without special rules (e.g. Lenkwurf + Splitter).
 
 - Shards + Warhead: every shard explodes where it ends (radius 0.8 / 1.2 / 1.6 by warhead level).
 - Shards + Pierce: shards pass through obstacle blocks (and the crate from pierce level 2).
@@ -126,7 +126,7 @@ Rule: **the string always lies exactly on the path the yo-yo flew, and on a retr
 
 ### Value export
 
-The tuning menu has a "Werte kopieren" button. It copies one compact text block with every tuning value (config keys, values changed from the default marked with `*`), the out variant, the bot mode and the modifier levels for the player and the bots to the clipboard and shows it in a read-only text box, so it can be pasted to a developer. "Zurücksetzen" resets only the page it is on (values or modifier levels).
+The tuning menu has a "Copy values" button. It copies one compact text block with every tuning value (config keys, values changed from the default marked with `*`), the out variant, the bot mode and the modifier levels for the player and the bots to the clipboard and shows it in a read-only text box, so it can be pasted to a developer. "Zurücksetzen" resets only the page it is on (values or modifier levels).
 
 ## 5. Match, shop, coins and catching up
 
@@ -333,8 +333,8 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
   clock runs 0.75x to 1.25x to reach its target and only jumps over a stall longer than 30 ticks. A client clock that
   is a little fast or slow is absorbed by a slowly sinking server-time estimate. If the buffer runs dry the last
   state is held (no extrapolation); a move bigger than 6 m between two snapshots (respawn) is not interpolated.
-- Menu page "Online": switch "Gegner glätten" (default on) to compare with the old display; the HUD line shows
-  how far in the past the others are drawn ("Gegner 67 ms zurück").
+- Menu page "Online": switch "Smooth others" (default on) to compare with the old display; the HUD line shows
+  how far in the past the others are drawn ("Others 67 ms behind").
 - One-shot inputs: the dash is an edge event, so an input that is repeated (the client extrapolating the others, the
   server on an input underrun) is repeated without the dash (`SimInput.repeated()`). Before, a repeated dash could
   spend extra dash charges (only with the Extra-Dash modifier; with one charge the 1.2 s cooldown hid it).
@@ -355,7 +355,7 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
   others: a thrown head needs no further input to fly, so the prediction already has it where the server will have it
   when the victim's own inputs arrive there. Heads in the hand stay with the interpolated body. Done in
   `ClientCore._apply_predicted` (per frame, into `display_sim`; the view is unchanged). `predict_heads` switches it
-  off; "Gegner glätten" off still draws everything raw from the predicted sim, as before.
+  off; "Smooth others" off still draws everything raw from the predicted sim, as before.
 - **How reliable the prediction is, per head state** (the others' input is their last known one, repeated):
   FLIGHT is exact (straight or curved path, bounces, speed are fixed at the throw); wrong only if a tap queued during
   flight (`queued_retract`) has not reached the client yet, or the thrower is hit/stunned (his heads keep flying, still
@@ -425,6 +425,7 @@ Step order (decided by the owner on 2026-11-15):
 1. UI building blocks in the new style, new main menu "Play" / "Training"; the real game uses fixed `Config` defaults, Training keeps today's tuning; all new text English; the app's shown name becomes Spinback Rumble.
    **Done (version 0.6.0).** `game/ui/` has `UiKit` (colours, theme, buttons, panels, print title, blurred backdrop, fonts Unbounded and Rubik), the main menu (Play / Training / Settings), the Play lobby (figure choice with live preview, Solo vs bots, Together = the former "Lokal" page) and the pause panel. Play runs on a fresh default `Config` (only the figure is taken from the saved one, no modifier levels; a local host ignores client modifiers); Training keeps the tuned, saved values and the tuning menu. The Play HUD shows only a pause button. Not done: the German Training texts stay German (step 2); the PC user folder name changed with the app name (see AGENTS.md); not yet looked at on a real screen.
 2. Translate all remaining German texts to English.
+   **Done (version 0.6.0).** Training menu, Training HUD, modifier names and texts, figure names, status messages and code comments are English. Saved keys and ids are unchanged, so saved Training values still load; the HUD net line now uses a decimal point.
 3. Rounds and points for Last Standing (no respawn, 1 point, target 10/15/20, round and match result screens; the mode as its own unit).
 4. Shrinking zone.
 5. Coins.
@@ -464,4 +465,4 @@ Contents:
 
 ## 11. Next step
 
-M3 step 2 (section 9): translate all remaining German texts (the Training menu, the HUD of Training, `game/sim/mods.gd`, figure names, status messages) to English.
+M3 step 3: see section 9.

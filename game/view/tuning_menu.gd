@@ -1,9 +1,9 @@
 class_name TuningMenu
 extends CanvasLayer
-## The Training overlay with pages: "Werte" (sliders for the main tuning values), "Modifikatoren" (sandbox:
+## The Training overlay with pages: "Values" (sliders for the main tuning values), "Modifiers" (sandbox:
 ## modifier levels for the player and the bots) and "Online" (join a server by address, lag tool). It only ever edits
 ## the tuned (saved) config; the real game (Play) never reads it. The figure choice and local play live in the Play
-## lobby (`ui/play_lobby.gd`). Mostly German labels (translation is a later step), big touch targets.
+## lobby (`ui/play_lobby.gd`). Big touch targets.
 
 signal closed
 signal connect_requested(address: String)
@@ -13,30 +13,30 @@ signal smoothing_changed(on: bool)
 signal update_requested
 signal main_menu_requested
 
-# name, German label, min, max, step, unit
+# name, label, min, max, step, unit
 const SLIDERS: Array = [
-	["player_speed", "Lauftempo", 2.0, 12.0, 0.1, "m/s"],
-	["dash_distance", "Dash-Weite", 1.0, 8.0, 0.1, "m"],
-	["dash_charges", "Dash-Ladungen", 1.0, 5.0, 1.0, ""],
-	["dash_cooldown", "Dash-Abklingzeit (pro Ladung)", 0.2, 4.0, 0.05, "s"],
-	["charge_time", "Aufladezeit", 0.1, 2.0, 0.05, "s"],
-	["min_range", "Mindestreichweite", 1.0, 8.0, 0.1, "m"],
-	["max_range", "Maximalreichweite", 3.0, 14.0, 0.1, "m"],
-	["flight_speed", "Flugtempo", 8.0, 60.0, 1.0, "m/s"],
-	["retract_speed", "Rückholtempo", 5.0, 50.0, 1.0, "m/s"],
-	["pull_speed", "Zugtempo", 5.0, 50.0, 1.0, "m/s"],
-	["tap_threshold", "Tipp-Schwelle", 0.08, 0.6, 0.01, "s"],
-	["string_length", "Schnurlänge", 3.0, 16.0, 0.1, "m"],
-	["head_radius", "Jojo-Radius", 0.15, 0.8, 0.01, "m"],
-	["charge_speed_mult", "Tempo beim Aufladen", 0.1, 1.0, 0.05, "×"],
-	["train_speed", "Eisenbahn-Tempo", 0.0, 10.0, 0.1, "m/s"],
+	["player_speed", "Run speed", 2.0, 12.0, 0.1, "m/s"],
+	["dash_distance", "Dash distance", 1.0, 8.0, 0.1, "m"],
+	["dash_charges", "Dash charges", 1.0, 5.0, 1.0, ""],
+	["dash_cooldown", "Dash cooldown (per charge)", 0.2, 4.0, 0.05, "s"],
+	["charge_time", "Charge time", 0.1, 2.0, 0.05, "s"],
+	["min_range", "Min range", 1.0, 8.0, 0.1, "m"],
+	["max_range", "Max range", 3.0, 14.0, 0.1, "m"],
+	["flight_speed", "Flight speed", 8.0, 60.0, 1.0, "m/s"],
+	["retract_speed", "Retract speed", 5.0, 50.0, 1.0, "m/s"],
+	["pull_speed", "Pull speed", 5.0, 50.0, 1.0, "m/s"],
+	["tap_threshold", "Tap threshold", 0.08, 0.6, 0.01, "s"],
+	["string_length", "String length", 3.0, 16.0, 0.1, "m"],
+	["head_radius", "Yo-yo radius", 0.15, 0.8, 0.01, "m"],
+	["charge_speed_mult", "Speed while charging", 0.1, 1.0, 0.05, "×"],
+	["train_speed", "Train speed", 0.0, 10.0, 0.1, "m/s"],
 ]
 const VARIANT_NAMES: Array[String] = [
-	"A – Jojo wird hinterhergezogen",
-	"B – Leine (Spieler gebunden)",
-	"C – Starr (Jojo läuft mit)",
+	"A – Yo-yo is dragged along",
+	"B – Leash (player tied)",
+	"C – Rigid (yo-yo moves along)",
 ]
-const BOT_NAMES: Array[String] = ["Aus", "Übungspuppen", "Aktiv"]
+const BOT_NAMES: Array[String] = ["Off", "Dummies", "Active"]
 const SLIDER_HEIGHT := 56.0
 const FONT_SIZE := 22
 const LEVEL_BUTTON_SIZE := Vector2(76, 56)
@@ -96,7 +96,7 @@ func setup(c: Config) -> void:
 	var top := HBoxContainer.new()
 	root.add_child(top)
 	var title := Label.new()
-	title.text = "Einstellungen"
+	title.text = "Settings"
 	title.add_theme_font_size_override("font_size", 30)
 	top.add_child(title)
 	_version_label = Label.new()
@@ -107,18 +107,18 @@ func setup(c: Config) -> void:
 	_version_label.size_flags_vertical = Control.SIZE_SHRINK_END
 	_version_label.clip_text = true
 	top.add_child(_version_label)
-	_update_btn = _button("Herunterladen")
+	_update_btn = _button("Download")
 	_update_btn.visible = false
 	_update_btn.custom_minimum_size.x = 150.0
 	_update_btn.pressed.connect(func() -> void: update_requested.emit())
 	top.add_child(_update_btn)
-	var reset := _button("Zurücksetzen")
+	var reset := _button("Reset")
 	reset.pressed.connect(_on_reset)
 	top.add_child(reset)
-	var export_btn := _button("Werte kopieren")
+	var export_btn := _button("Copy values")
 	export_btn.pressed.connect(_on_export)
 	top.add_child(export_btn)
-	var close := _button("Schließen")
+	var close := _button("Close")
 	close.pressed.connect(close_menu)
 	top.add_child(close)
 	var to_main := _button("Main menu")
@@ -129,11 +129,11 @@ func setup(c: Config) -> void:
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override("separation", 8)
 	root.add_child(tabs)
-	_tab_values = _button("Werte")
+	_tab_values = _button("Values")
 	_tab_values.toggle_mode = true
 	_tab_values.pressed.connect(func() -> void: _show_page(0))
 	tabs.add_child(_tab_values)
-	_tab_mods = _button("Modifikatoren")
+	_tab_mods = _button("Modifiers")
 	_tab_mods.toggle_mode = true
 	_tab_mods.custom_minimum_size = Vector2(260, 56)
 	_tab_mods.pressed.connect(func() -> void: _show_page(1))
@@ -160,8 +160,8 @@ func setup(c: Config) -> void:
 	scroll.add_child(grid)
 	grid.mouse_filter = Control.MOUSE_FILTER_PASS
 
-	grid.add_child(_selector("Verhalten des Jojos, wenn er draußen liegt", VARIANT_NAMES, "out_variant"))
-	grid.add_child(_selector("Übungsgegner", BOT_NAMES, "bot_mode"))
+	grid.add_child(_selector("Yo-yo behaviour while it lies out", VARIANT_NAMES, "out_variant"))
+	grid.add_child(_selector("Practice opponents", BOT_NAMES, "bot_mode"))
 	for def: Array in SLIDERS:
 		grid.add_child(_slider_row(def))
 	# Bottom padding so the last row can be scrolled clear of the screen edge.
@@ -209,14 +209,14 @@ func _build_online_page(scroll: ScrollContainer) -> void:
 	col.add_theme_constant_override("separation", 14)
 	scroll.add_child(col)
 	var info := Label.new()
-	info.text = "Online spielst du mit den Werten des Servers. Deine Modifikatoren („Du“ auf der Seite Modifikatoren) werden übernommen."
+	info.text = "Online you play with the server's values. Your modifiers (\"You\" on the Modifiers page) are sent along."
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	info.add_theme_font_size_override("font_size", DESC_FONT_SIZE)
 	info.modulate = Color(1, 1, 1, 0.85)
 	info.mouse_filter = Control.MOUSE_FILTER_PASS
 	col.add_child(info)
 	var cap := Label.new()
-	cap.text = "Server-Adresse (Name oder IP, optional mit :Port)"
+	cap.text = "Server address (name or IP, optionally with :port)"
 	cap.add_theme_font_size_override("font_size", FONT_SIZE)
 	cap.mouse_filter = Control.MOUSE_FILTER_PASS
 	col.add_child(cap)
@@ -229,34 +229,34 @@ func _build_online_page(scroll: ScrollContainer) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	col.add_child(row)
-	_connect_btn = _button("Verbinden")
+	_connect_btn = _button("Connect")
 	_connect_btn.pressed.connect(func() -> void: connect_requested.emit(_address_edit.text))
 	row.add_child(_connect_btn)
-	_disconnect_btn = _button("Trennen")
+	_disconnect_btn = _button("Disconnect")
 	_disconnect_btn.pressed.connect(func() -> void: disconnect_requested.emit())
 	_disconnect_btn.disabled = true
 	row.add_child(_disconnect_btn)
 	_online_status = Label.new()
-	_online_status.text = "Nicht verbunden"
+	_online_status.text = "Not connected"
 	_online_status.add_theme_font_size_override("font_size", 26)
 	_online_status.mouse_filter = Control.MOUSE_FILTER_PASS
 	col.add_child(_online_status)
 	_smooth_check = CheckButton.new()
-	_smooth_check.text = "Gegner glätten"
+	_smooth_check.text = "Smooth others"
 	_smooth_check.button_pressed = true
 	_smooth_check.custom_minimum_size = Vector2(0, SLIDER_HEIGHT)
 	_smooth_check.add_theme_font_size_override("font_size", FONT_SIZE)
 	_smooth_check.toggled.connect(func(on: bool) -> void: smoothing_changed.emit(on))
 	col.add_child(_smooth_check)
 	var smooth_info := Label.new()
-	smooth_info.text = "An: die anderen Spieler werden flüssig, aber etwas in der Vergangenheit gezeigt. Aus: rohe Vorhersage (ruckelt)."
+	smooth_info.text = "On: other players move smoothly but are shown slightly in the past. Off: raw prediction (jerky)."
 	smooth_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	smooth_info.add_theme_font_size_override("font_size", DESC_FONT_SIZE)
 	smooth_info.modulate = Color(1, 1, 1, 0.85)
 	smooth_info.mouse_filter = Control.MOUSE_FILTER_PASS
 	col.add_child(smooth_info)
 	var lag_title := Label.new()
-	lag_title.text = "Netz-Test"
+	lag_title.text = "Network test"
 	lag_title.add_theme_font_size_override("font_size", 26)
 	lag_title.mouse_filter = Control.MOUSE_FILTER_PASS
 	col.add_child(lag_title)
@@ -301,8 +301,8 @@ func _plain_slider(lo: float, hi: float, step: float) -> HSlider:
 
 func _update_lag_labels() -> void:
 	var ms := int(_lag_slider.value)
-	_lag_label.text = "Künstliche Verzögerung pro Richtung: %d ms (der Ping steigt um %d ms)" % [ms, 2 * ms]
-	_loss_label.text = "Paketverlust pro Richtung: %d %%" % int(_loss_slider.value)
+	_lag_label.text = "Artificial delay per direction: %d ms (ping rises by %d ms)" % [ms, 2 * ms]
+	_loss_label.text = "Packet loss per direction: %d %%" % int(_loss_slider.value)
 
 
 func _on_lag_changed() -> void:
@@ -322,21 +322,21 @@ func _build_mods_page(scroll: ScrollContainer) -> void:
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_theme_constant_override("separation", 14)
 	scroll.add_child(col)
-	# Column buttons: all off / all level 3, for "Du" and for "Bots".
+	# Column buttons: all off / all level 3, for "You" and for "Bots".
 	for who in ["you", "bots"]:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
 		col.add_child(row)
 		var cap := Label.new()
-		cap.text = "Du:" if who == "you" else "Bots:"
+		cap.text = "You:" if who == "you" else "Bots:"
 		cap.custom_minimum_size = Vector2(90, 0)
 		cap.add_theme_font_size_override("font_size", FONT_SIZE)
 		cap.mouse_filter = Control.MOUSE_FILTER_PASS
 		row.add_child(cap)
-		var off := _button("Alle aus")
+		var off := _button("All off")
 		off.pressed.connect(func() -> void: _set_all(who, 0))
 		row.add_child(off)
-		var max3 := _button("Alle Stufe 3")
+		var max3 := _button("All level 3")
 		max3.pressed.connect(func() -> void: _set_all(who, Mods.MAX_LEVEL))
 		row.add_child(max3)
 	col.add_child(_synergy_panel())
@@ -348,7 +348,7 @@ func _build_mods_page(scroll: ScrollContainer) -> void:
 	col.add_child(pad)
 
 
-## "Aktive Kombinationen": the synergies that are active for "Du".
+## "Active combinations": the synergies that are active for "You".
 func _synergy_panel() -> Control:
 	var panel := PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -363,7 +363,7 @@ func _synergy_panel() -> Control:
 	box.mouse_filter = Control.MOUSE_FILTER_PASS
 	panel.add_child(box)
 	var head := Label.new()
-	head.text = "Aktive Kombinationen"
+	head.text = "Active combinations"
 	head.add_theme_font_size_override("font_size", 26)
 	head.mouse_filter = Control.MOUSE_FILTER_PASS
 	box.add_child(head)
@@ -411,7 +411,7 @@ func _mod_row(id: String) -> Control:
 		h.add_theme_constant_override("separation", 6)
 		h.mouse_filter = Control.MOUSE_FILTER_PASS
 		var l := Label.new()
-		l.text = "Du" if who == "you" else "Bots"
+		l.text = "You" if who == "you" else "Bots"
 		l.custom_minimum_size = Vector2(70, 0)
 		l.add_theme_font_size_override("font_size", FONT_SIZE)
 		l.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -419,7 +419,7 @@ func _mod_row(id: String) -> Control:
 		var btns: Array[Button] = []
 		for level in Mods.MAX_LEVEL + 1:
 			var b := Button.new()
-			b.text = "aus" if level == 0 else Mods.ROMAN[level]
+			b.text = "off" if level == 0 else Mods.ROMAN[level]
 			b.toggle_mode = true
 			b.button_group = grp
 			b.custom_minimum_size = LEVEL_BUTTON_SIZE
@@ -457,7 +457,7 @@ func _refresh_mods() -> void:
 	for key in Mods.active_synergies(cfg.mods_you):
 		combos.append("• " + Mods.describe_synergy(key, cfg.mods_you))
 	_syn_label.text = "\n".join(combos) if not combos.is_empty() \
-			else "Keine. Kombiniere z. B. Splitter mit Sprengkopf, Dicker Brocken mit Stolperdraht."
+			else "None. Try combining Shards with Warhead, or Big Chunk with Tripwire."
 	for id in Mods.ORDER:
 		var lv_you: int = cfg.mods_you.get(id, 0)
 		var lv_bots: int = cfg.mods_bots.get(id, 0)
@@ -465,13 +465,13 @@ func _refresh_mods() -> void:
 		(_level_buttons["bots:" + id] as Array)[lv_bots].set_pressed_no_signal(true)
 		var text := ""
 		if lv_you > 0:
-			text += "Du (%s): %s" % [Mods.ROMAN[lv_you], Mods.describe(id, lv_you)]
+			text += "You (%s): %s" % [Mods.ROMAN[lv_you], Mods.describe(id, lv_you)]
 		if lv_bots > 0:
 			if text != "":
 				text += "\n"
 			text += "Bots (%s): %s" % [Mods.ROMAN[lv_bots], Mods.describe(id, lv_bots)]
 		if text == "":
-			text = "Stufe I: %s" % Mods.describe(id, 1)
+			text = "Level I: %s" % Mods.describe(id, 1)
 		(_desc_labels[id] as Label).text = text
 	_suppress = false
 
@@ -623,7 +623,7 @@ func _build_export_panel() -> void:
 	_export_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_export_text.add_theme_font_size_override("font_size", 20)
 	box.add_child(_export_text)
-	var done := _button("Fertig")
+	var done := _button("Done")
 	done.pressed.connect(func() -> void: _export_panel.visible = false)
 	box.add_child(done)
 
@@ -632,7 +632,7 @@ func _on_export() -> void:
 	var text := cfg.export_text()
 	DisplayServer.clipboard_set(text)
 	_export_text.text = text
-	_export_status.text = "In die Zwischenablage kopiert"
+	_export_status.text = "Copied to the clipboard"
 	_export_panel.visible = true
 
 
@@ -640,7 +640,7 @@ func _on_export() -> void:
 func set_update(version: String) -> void:
 	_update_btn.visible = version != ""
 	var text := "Version %s" % UpdateCheck.running_version()
-	_version_label.text = text + ("  (neu: %s)" % version if version != "" else "")
+	_version_label.text = text + ("  (new: %s)" % version if version != "" else "")
 
 
 func open_menu() -> void:

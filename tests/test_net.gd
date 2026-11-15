@@ -1107,7 +1107,7 @@ func test_predicted_heads() -> void:
 	var rcl: ClientCore = raw["cl"]
 	rcl.smooth_others = false
 	var sim_head := rcl.sim.players[1].heads[0]
-	check("predicted heads: 'Gegner glätten' off draws the raw predicted path", rcl.displayed_head_pos(1, 0, 1.0) == (sim_head.pos if sim_head.state != SimHead.S.HAND else ClientCore._hand_pos(rcl.sim, rcl.sim.players[1], rcl.sim.players[1].pos)) and rcl.display_sim == null)
+	check("predicted heads: 'Smooth others' off draws the raw predicted path", rcl.displayed_head_pos(1, 0, 1.0) == (sim_head.pos if sim_head.state != SimHead.S.HAND else ClientCore._hand_pos(rcl.sim, rcl.sim.players[1], rcl.sim.players[1].pos)) and rcl.display_sim == null)
 
 
 # ---------------------------------------------------------------- server input buffer
@@ -1896,17 +1896,17 @@ func test_menu_online() -> void:   # async: ranges only report changes once the 
 	check("menu online: button states at the start", not menu._connect_btn.disabled and menu._disconnect_btn.disabled)
 	menu._address_edit.text = "example.org:1234"
 	menu._connect_btn.pressed.emit()
-	check("menu online: Verbinden sends the typed address", got == [["connect", "example.org:1234"]], str(got))
-	menu.set_online_status("Verbunden als Spieler 2", true)
-	check("menu online: while connected only Trennen is enabled", menu._connect_btn.disabled and not menu._disconnect_btn.disabled and menu._online_status.text == "Verbunden als Spieler 2")
+	check("menu online: Connect sends the typed address", got == [["connect", "example.org:1234"]], str(got))
+	menu.set_online_status("Connected as player 2", true)
+	check("menu online: while connected only Disconnect is enabled", menu._connect_btn.disabled and not menu._disconnect_btn.disabled and menu._online_status.text == "Connected as player 2")
 	menu._disconnect_btn.pressed.emit()
 	check("menu online: Trennen is announced", got.back() == ["disconnect"])
 	got.clear()
 	menu._lag_slider.value = 100.0
 	menu._loss_slider.value = 7.0
 	check("menu online: sliders report delay and loss", got == [["lag", 100.0, 0.0], ["lag", 100.0, 7.0]], str(got))
-	check("menu online: the label says per direction and what happens to the ping", menu._lag_label.text.contains("pro Richtung") and menu._lag_label.text.contains("200 ms") and menu._loss_label.text.contains("7 %"), menu._lag_label.text)
-	check("menu online: the switch Gegner glätten is on by default", menu._smooth_check.button_pressed and menu._smooth_check.text == "Gegner glätten")
+	check("menu online: the label says per direction and what happens to the ping", menu._lag_label.text.contains("per direction") and menu._lag_label.text.contains("200 ms") and menu._loss_label.text.contains("7 %"), menu._lag_label.text)
+	check("menu online: the switch Smooth others is on by default", menu._smooth_check.button_pressed and menu._smooth_check.text == "Smooth others")
 	got.clear()
 	menu._smooth_check.button_pressed = false
 	menu._smooth_check.button_pressed = true
@@ -1938,10 +1938,10 @@ func test_main_scene() -> void:
 	check("main: offline the player shows the chosen figure and the bots the following ones", main.sim.players[0].skin == 2 and main.sim.players[1].skin == 3 % Config.SKIN_COUNT and main.sim.players[3].skin == 5 % Config.SKIN_COUNT)
 	main.menu.set_online_status("x", false)
 	main.menu.connect_requested.emit("a b")
-	check("main: an unusable address is refused with a message", main.menu._online_status.text == "Ungültige Adresse" and main.client == null)
+	check("main: an unusable address is refused with a message", main.menu._online_status.text == "Invalid address" and main.client == null)
 	main.menu.lag_changed.emit(40.0, 0.0)
 	main.menu.connect_requested.emit("127.0.0.1:%d" % port)
-	check("main: connecting shows a status and keeps the offline game", main.client != null and not main._online and main.menu._online_status.text == "Verbinde …" and main.lag.delay_ms == 40.0)
+	check("main: connecting shows a status and keeps the offline game", main.client != null and not main._online and main.menu._online_status.text == "Connecting …" and main.lag.delay_ms == 40.0)
 	for _i in 300:
 		server.tick()
 		OS.delay_msec(10)
@@ -1949,7 +1949,7 @@ func test_main_scene() -> void:
 		if main._online:
 			break
 	check("main: goes online, view and HUD read the predicted sim", main._online and main.view.sim == main.client.sim and main.hud._sim == main.client.sim and main.hud.online)
-	check("main: status says which player you are", main.menu._online_status.text == "Verbunden als Spieler 1", main.menu._online_status.text)
+	check("main: status says which player you are", main.menu._online_status.text == "Connected as player 1", main.menu._online_status.text)
 	check("main: the address was remembered (in the test location only)", NetStore.load_address() == "127.0.0.1:%d" % port)
 	main.menu.lag_changed.emit(120.0, 5.0)
 	check("main: the lag sliders reach the running connection", main.lag.delay_ms == 120.0 and main.lag.loss_pct == 5.0)
@@ -1966,14 +1966,14 @@ func test_main_scene() -> void:
 		await process_frame
 	check("main: a changed figure choice reaches the server while online", server.sim.players[0].skin == 3 and main.client.sim.players[0].skin == 3)
 	check("main: the HUD shows ping and correction", main.hud._net_label.visible and main.hud._net_label.text.begins_with("Ping "), main.hud._net_label.text)
-	check("main: the HUD shows the interpolation delay", main.hud._net_label.text.contains("Gegner ") and main.hud._net_label.text.contains(" ms zurück"), main.hud._net_label.text)
+	check("main: the HUD shows the interpolation delay", main.hud._net_label.text.contains("Others ") and main.hud._net_label.text.contains(" ms behind"), main.hud._net_label.text)
 	check("main: smoothing is on and the view gets the display sim", main.client.smooth_others and main.view.others_sim != null and main.view.others_sim == main.client.display_sim)
 	main.menu.smoothing_changed.emit(false)
 	for _i in 3:
 		server.tick()
 		OS.delay_msec(10)
 		await process_frame
-	check("main: the switch turns the smoothing off (view back on the predicted sim, HUD says so)", not main.client.smooth_others and main.view.others_sim == null and main.hud._net_label.text.contains("Gegner roh"), main.hud._net_label.text)
+	check("main: the switch turns the smoothing off (view back on the predicted sim, HUD says so)", not main.client.smooth_others and main.view.others_sim == null and main.hud._net_label.text.contains("Others raw"), main.hud._net_label.text)
 	main.menu.smoothing_changed.emit(true)
 	for _i in 3:
 		server.tick()
@@ -1989,7 +1989,7 @@ func test_main_scene() -> void:
 	check("main: online the sim keeps running while the menu is open", main.client.sim.tick > tick_open + 10)
 	main.menu.close_menu()
 	main.menu.disconnect_requested.emit()
-	check("main: disconnecting falls back to the offline game", not main._online and main.client == null and main.view.sim == main.sim and main.hud._sim == main.sim and not main.hud.online and main.menu._online_status.text == "Getrennt")
+	check("main: disconnecting falls back to the offline game", not main._online and main.client == null and main.view.sim == main.sim and main.hud._sim == main.sim and not main.hud.online and main.menu._online_status.text == "Disconnected")
 	for _i in 30:
 		server.tick()
 		await process_frame
@@ -2012,7 +2012,7 @@ func test_main_scene() -> void:
 		await process_frame
 		if not main._online:
 			break
-	check("main: when the server vanishes the game falls back to offline", not main._online and main.view.sim == main.sim and main.menu._online_status.text == "Getrennt", main.menu._online_status.text)
+	check("main: when the server vanishes the game falls back to offline", not main._online and main.view.sim == main.sim and main.menu._online_status.text == "Disconnected", main.menu._online_status.text)
 	for _i in 20:
 		await process_frame
 	check("main: and the offline sim runs again", main.sim.tick > ticks_before)
@@ -2291,7 +2291,7 @@ func test_menu_local() -> void:   # async
 	menu.open()
 	await process_frame
 	check("lobby local: the listener runs on the page and the list is empty", menu._listener != null and menu._empty_label.visible and menu._empty_label.text == "No game found yet" and menu._found_buttons.is_empty())
-	check("lobby local: Mit Bots auffüllen is on by default and the buttons start right", menu._bots_check.button_pressed and menu._bots_check.text == "Fill with bots"
+	check("lobby local: Fill with bots is on by default and the buttons start right", menu._bots_check.button_pressed and menu._bots_check.text == "Fill with bots"
 			and menu._host_btn.text == "Host a game" and not menu._host_btn.disabled and menu._stop_btn.text == "Stop" and menu._stop_btn.disabled and not menu._hosting_box.visible)
 	menu._host_btn.pressed.emit()
 	menu._bots_check.button_pressed = false

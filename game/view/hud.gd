@@ -1,7 +1,7 @@
 class_name Hud
 extends CanvasLayer
 ## Training: scoreboard, modifier chips, net text and the gear button. Play (`play_mode`): only a small quiet pause
-## button (no UI during a round). German on-screen text in Training for now.
+## button (no UI during a round). English on-screen text.
 
 signal gear_pressed
 
@@ -40,7 +40,7 @@ func setup(s: Sim) -> void:
 	add_child(box)
 	_score_box = box
 	var legend := Label.new()
-	legend.text = "Treffer : Tode"
+	legend.text = "Kills : Deaths"
 	legend.add_theme_font_size_override("font_size", 16)
 	legend.modulate = Color(1, 1, 1, 0.6)
 	box.add_child(legend)
@@ -53,7 +53,7 @@ func setup(s: Sim) -> void:
 		box.add_child(l)
 		_labels.append(l)
 
-	# Chips with the human player's active modifiers, e.g. "Splitter II".
+	# Chips with the human player's active modifiers, e.g. "Shards II".
 	_chip_box = HBoxContainer.new()
 	_chip_box.position = Vector2(16.0, 44.0)
 	_chip_box.add_theme_constant_override("separation", 8)
@@ -81,7 +81,7 @@ func setup(s: Sim) -> void:
 	add_child(gear_btn)
 
 
-## Shows another sim (the predicted one while online) with `local_slot` as "Du".
+## Shows another sim (the predicted one while online) with `local_slot` as "You".
 func use_sim(s: Sim, local_slot: int) -> void:
 	_sim = s
 	_local = local_slot
@@ -120,7 +120,7 @@ func refresh() -> void:
 	for i in _labels.size():
 		var p := _sim.players[i]
 		_labels[i].visible = p.enabled
-		var who := "Du" if i == _local else ("Spieler %d" % (i + 1) if online else "Bot %d" % i)
+		var who := "You" if i == _local else ("Player %d" % (i + 1) if online else "Bot %d" % i)
 		_labels[i].text = "%s %d : %d" % [who, p.kills, p.deaths]
 
 	_net_label.visible = net_text != ""

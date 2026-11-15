@@ -28,7 +28,7 @@ var last_move := Vector2.ZERO
 
 var mods := {}              # modifier id -> level 0..3
 var stun_t := 0.0           # > 0: cannot move, dash or use the yo-yo
-var fling_left := 0.0       # Gummiband: distance still to be flung
+var fling_left := 0.0       # Rubber Band: distance still to be flung
 var fling_dir := Vector2.RIGHT
 var fling_speed := 0.0
 
@@ -42,7 +42,7 @@ var aimed := false
 var held_prev := false
 var press_active := false
 var press_t := 0.0
-var press_steered := false  # Lenkwurf: the stick was deflected during this press (steering / telekinesis): no tap, no pull
+var press_steered := false  # Steered Throw: the stick was deflected during this press (steering / telekinesis): no tap, no pull
 
 
 func _init() -> void:
