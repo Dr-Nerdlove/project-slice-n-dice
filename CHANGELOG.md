@@ -6,6 +6,12 @@ there is none. Write it for testers, in plain words.
 
 ## Unreleased
 
+- **Coins in Play**: after every round everybody gets coins, shown as a yellow tag next to each name on the round
+  result (what you have and what this round gave), with your own breakdown below the scoreboard. Every round
+  gives 3, each kill 1, winning the round 2, being in last place 2, and each kill of the player in first place 1
+  more. Deaths by the train, the zone or your own explosion give nobody anything. Coins are kept from round to
+  round and start at zero in every match; they will pay for the shop, which comes next. (Not looked at on a real
+  screen yet.)
 - **Shrinking zone in Play**: every round, the whole arena is safe for the first 20 seconds. Then a bright line
   closes in from all sides over 30 seconds and stops on a small area (a quarter of the arena's width and height)
   that is chosen at random each round. Outside the line the floor is darker. Anyone whose middle is outside the

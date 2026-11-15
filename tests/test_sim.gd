@@ -296,6 +296,7 @@ func _initialize() -> void:
 	_phase_dash_tests()
 	_range_tests()
 	_match_tests()
+	_coin_tests()
 	_zone_tests()
 
 var _frames := 0
@@ -2204,6 +2205,46 @@ func _match_tests() -> void:
 	kill_i(s, 1); kill_i(twin, 1)
 	s.step(idle4()); twin.step(idle4())
 	check("match: restored state continues identically", var_to_bytes(s.save_state()) == var_to_bytes(twin.save_state()) and twin.mode.phase == M.RESULT)
+
+
+func _coin_tests() -> void:
+	var E := Economy
+	check("coins: the numbers decided in docs/PLAN.md", [E.COINS_BASE, E.COINS_KILL, E.COINS_SURVIVOR, E.COINS_UNDERDOG, E.COINS_LEADER_KILL] == [3, 1, 2, 2, 1])
+	# everybody gets the base, the killer per kill, the survivor its bonus
+	var s := mk([0, 1, 2]); s.start_match(10); to_play(s)
+	s._kill(s.players[1], s.players[0])
+	s._kill(s.players[2], s.players[0])
+	s.step(idle4())
+	check("coins: base + kills + survivor", s.mode.coins[0] == E.COINS_BASE + 2 * E.COINS_KILL + E.COINS_SURVIVOR and s.mode.earned[0] == s.mode.coins[0], str(s.mode.coins))
+	check("coins: losers get the base", s.mode.coins[1] == E.COINS_BASE and s.mode.coins[2] == E.COINS_BASE and s.mode.coins[3] == 0)
+	check("coins: nobody is underdog or leader while level", not s.mode.underdog.has(true) and not s.mode.leader.has(true))
+	# coins are kept into the next round, kill counts are not
+	for _t in int(MatchMode.RESULT_TIME * 60.0) + 2:
+		s.step(idle4())
+	check("coins: kept over rounds, round kills reset", s.mode.round == 2 and s.mode.coins[1] == E.COINS_BASE and s.mode.round_kills == [0, 0, 0, 0])
+	check("coins: leader and underdog from the points at round start", s.mode.leader == [true, false, false, false] and s.mode.underdog == [false, true, true, false])
+	to_play(s)
+	s._kill(s.players[0], s.players[1])   # underdog 1 kills the leader
+	s._kill(s.players[2], null, "zone")   # no credit
+	s.step(idle4())
+	var want1 := E.COINS_BASE * 2 + E.COINS_KILL + E.COINS_SURVIVOR + E.COINS_UNDERDOG + E.COINS_LEADER_KILL
+	check("coins: underdog bonus and leader kill", s.mode.coins[1] == want1 and s.mode.earned[1] == want1 - E.COINS_BASE, str(s.mode.coins))
+	check("coins: a death without a killer pays nobody", s.mode.earned[2] == E.COINS_BASE + E.COINS_UNDERDOG and s.mode.earned[0] == E.COINS_BASE)
+	var parts := s.mode.coin_parts(1, s.mode.last_scorer)
+	check("coins: parts add up to earned", parts["kills"] + parts["base"] + parts["survivor"] + parts["underdog"] + parts["leader"] == s.mode.earned[1] and parts["leader"] == E.COINS_LEADER_KILL)
+	check("coins: coin text names the parts", MatchOverlay.coin_text(s.mode, 1).begins_with("+%d coins" % s.mode.earned[1]) and MatchOverlay.coin_text(s.mode, 1).contains("leader kill") and MatchOverlay.coin_text(s.mode, 3) == "")
+	# no coins outside a match, a rematch zeroes them, snapshot carries them
+	var snap := s.save_state()
+	var twin := mk([0, 1, 2]); twin.load_state(snap)
+	check("coins: in the snapshot", twin.mode.coins == s.mode.coins and twin.mode.leader == s.mode.leader)
+	s.start_match(10)
+	check("coins: rematch zeroes coins", s.mode.coins == [0, 0, 0, 0] and s.mode.earned == [0, 0, 0, 0])
+	s = mk([0, 1])
+	s._kill(s.players[1], s.players[0])
+	check("coins: free play counts no round kills", s.mode.round_kills == [0, 0, 0, 0])
+	s = mk([0, 1, 2]); s.start_match(10); to_play(s)
+	s._kill(s.players[0], s.players[0])
+	check("coins: a self-kill counts nothing", s.mode.round_kills[0] == 0)
 
 
 func _rm(path: String) -> void:

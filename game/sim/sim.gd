@@ -124,6 +124,8 @@ func start_match(target: int) -> bool:
 	for i in players.size():
 		mode.roster[i] = players[i].enabled
 		mode.points[i] = 0
+		mode.coins[i] = 0
+		mode.earned[i] = 0
 	mode.round = 1
 	mode.last_scorer = -1
 	mode.winner = -1
@@ -143,6 +145,7 @@ func _start_round() -> void:
 	prev_train_s = 0.0
 	mode.zone_t = 0.0
 	mode.zone_spot = rng.randi_range(0, Config.ZONE_SPOTS.size() - 1)
+	mode.begin_round_coins()
 	var spawns: Array = Config.SPAWNS.duplicate()
 	for k in range(spawns.size() - 1, 0, -1):
 		var j := rng.randi_range(0, k)
@@ -195,6 +198,7 @@ func _check_round_end() -> void:
 	if not m.round_over(self):
 		return
 	var scorer := m.round_scorer(self)
+	m.award_coins(scorer)
 	if scorer >= 0:
 		m.points[scorer] += 1
 	m.last_scorer = scorer
@@ -1412,6 +1416,8 @@ func _kill(victim: SimPlayer, killer: SimPlayer, cause := "train") -> void:
 	victim.deaths += 1
 	if killer != null:
 		killer.kills += 1
+		if mode.phase == MatchMode.Phase.PLAY:
+			mode.note_kill(victim.id, killer.id)
 	victim.respawn_t = cfg.respawn_time
 	_reset_yoyo(victim)
 	var e := {"type": "kill", "pos": victim.pos, "victim": victim.id, "killer": -1 if killer == null else killer.id}

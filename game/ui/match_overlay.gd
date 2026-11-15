@@ -15,6 +15,7 @@ var panel: PanelContainer
 var heading_label: Label
 var scorer_label: Label
 var rows_box: VBoxContainer
+var coins_label: Label
 var target_label: Label
 var rematch_btn: Button
 var wait_label: Label
@@ -65,6 +66,9 @@ func setup() -> void:
 	rows_box = VBoxContainer.new()
 	rows_box.add_theme_constant_override("separation", 6)
 	box.add_child(rows_box)
+	coins_label = UiKit.label("", UiKit.SMALL_SIZE, UiKit.MUTE)
+	coins_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(coins_label)
 	target_label = UiKit.eyebrow("")
 	box.add_child(target_label)
 	rematch_btn = UiKit.button("Rematch", "main")
@@ -83,6 +87,18 @@ static func countdown_text(phase_t: float) -> String:
 
 
 ## Name of a slot for the scoreboard: "You" for the own slot, else the figure name (offline bots get " (bot)").
+## The own coin line under the scoreboard, e.g. "+6 coins: round 3, kills 1, survivor 2". Empty outside the roster.
+static func coin_text(m: MatchMode, slot: int) -> String:
+	if slot < 0 or slot >= m.roster.size() or not m.roster[slot]:
+		return ""
+	var parts := m.coin_parts(slot, m.last_scorer)
+	var bits: Array[String] = []
+	for k: String in ["base", "kills", "survivor", "underdog", "leader"]:
+		if parts[k] > 0:
+			bits.append("%s %d" % [{"base": "round", "kills": "kills", "survivor": "survivor", "underdog": "underdog", "leader": "leader kill"}[k], parts[k]])
+	return "+%d coins: %s" % [m.earned[slot], ", ".join(bits)]
+
+
 static func player_name(sim: Sim, slot: int, own: int, bots_offline: bool) -> String:
 	if slot == own:
 		return "You"
@@ -120,7 +136,7 @@ func update(sim: Sim, own: int, show_it: bool, can_rematch: bool, bots_offline: 
 		_shown_key = ""
 		return
 	var over := m.phase == MatchMode.Phase.MATCH_OVER
-	var key := "%d|%d|%d|%s|%s|%s" % [m.phase, m.round, m.winner, str(m.points), str(m.roster), "%d%d" % [int(can_rematch), int(bots_offline)]]
+	var key := "%d|%d|%d|%s|%s|%s" % [m.phase, m.round, m.winner, str(m.points), str(m.roster) + str(m.coins), "%d%d" % [int(can_rematch), int(bots_offline)]]
 	if key != _shown_key:
 		_shown_key = key
 		_fill(sim, own, over, bots_offline)
@@ -161,5 +177,26 @@ func _fill(sim: Sim, own: int, over: bool, bots_offline: bool) -> void:
 		pts.custom_minimum_size.x = 40.0
 		pts.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		row.add_child(pts)
+		row.add_child(_coin_tag(m.coins[i], m.earned[i]))
 		rows_box.add_child(row)
+	coins_label.text = coin_text(m, own)
 	target_label.text = ("First to %d" % m.target).to_upper()
+
+
+## A yellow price-tag chip with the player's coins and, small, what the last round gave.
+func _coin_tag(total: int, gained: int) -> Control:
+	var tag := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = UiKit.SUN
+	sb.set_corner_radius_all(6)
+	sb.content_margin_left = 10
+	sb.content_margin_right = 10
+	sb.content_margin_top = 2
+	sb.content_margin_bottom = 2
+	tag.add_theme_stylebox_override("panel", sb)
+	tag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var l := UiKit.label("%d ¢  +%d" % [total, gained], UiKit.SMALL_SIZE, UiKit.INK, true)
+	l.name = "Coins"
+	tag.add_child(l)
+	tag.custom_minimum_size.x = 96.0
+	return tag
