@@ -47,6 +47,16 @@ Versions before 0.2.1 have to be uninstalled once.
   request and builds the debug APK (download it from the run's artifacts); it also scans the whole git history
   for secrets (gitleaks).
 
+## Playing locally (one phone hosts)
+
+No server needed: everybody must be in the same Wi-Fi, or in the hotspot of one of the phones.
+
+- **Host:** switch on the Wi-Fi connection or the phone's hotspot yourself (the app cannot do that), open the
+  settings (gear), page **Lokal**, **Spiel eröffnen**. The page shows a short code. The match uses the host's values
+  and ends when the host leaves or closes the app.
+- **Guests:** open **Lokal**; the game appears under **Gefundene Spiele**, press it. If the list stays empty (some
+  networks block broadcasts), type the code and press **Beitreten**.
+
 ## Playing online (experiment)
 
 The first netcode experiment: a headless server on a PC, 2-4 phones on the same network.
@@ -64,7 +74,8 @@ The first netcode experiment: a headless server on a PC, 2-4 phones on the same 
   off: the raw prediction, to compare); the HUD shows ping, correction, open inputs and the delay of the others.
 - Check a running server without a display: `godot --headless --path game -s tests/net_probe.gd -- HOST[:PORT]`.
 
-The Android build has the INTERNET permission enabled for this.
+The Android build has the INTERNET permission enabled for this (and, for local play, the permissions to read the
+Wi-Fi state and to receive broadcasts).
 
 ## Releases
 

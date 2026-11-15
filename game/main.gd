@@ -17,10 +17,16 @@ var menu: TuningMenu
 var bots: Array[Bot] = []
 var client: ClientCore         # set while connecting / online
 var lag: LagEndpoint           # the lag tool between the client and the network
+var local_host: LocalHost      # set while this device hosts a local match (menu page "Lokal")
+## Ports of the local play; a test changes them so it never touches the real ones.
+var local_port := NetProto.DEFAULT_PORT
+var beacon_port := LanBeacon.PORT
+var beacon_targets: Array = []
 
 var _online := false           # the predicted sim of `client` is what the view shows
 var _lag_ms := 0.0
 var _loss_pct := 0.0
+var _from_local := false       # the current / last connection was started from the page "Lokal"
 var _smooth := true            # draw the other players interpolated (menu switch "Gegner glätten")
 
 var _acc := 0.0
@@ -69,6 +75,10 @@ func _ready() -> void:
 	menu.update_requested.connect(_download_update)
 	menu.closed.connect(func() -> void: router.blocked = false)
 	menu.connect_requested.connect(_connect)
+	menu.host_requested.connect(_host_local)
+	menu.join_local_requested.connect(_join_local)
+	menu.join_code_requested.connect(_join_code)
+	menu.local_stop_requested.connect(func() -> void: _leave_online("closed"))
 	menu.disconnect_requested.connect(func() -> void: _leave_online("closed"))
 	menu.lag_changed.connect(func(ms: float, loss: float) -> void:
 		_lag_ms = ms
@@ -117,6 +127,9 @@ func _sync_mods() -> void:
 func _process(delta: float) -> void:
 	if sim == null:
 		return   # server mode
+	if local_host != null:
+		local_host.process(delta)
+		menu.set_local_session(true, client != null, local_host.code(), local_host.players())
 	if client != null:
 		_poll_client(delta)
 	var dt := 1.0 / Config.TICK_RATE
@@ -221,15 +234,21 @@ func _download_update() -> void:
 
 func _connect(address_text: String) -> void:
 	_leave_online("closed", false)
+	_from_local = false
 	var a := NetStore.parse_address(address_text)
 	if a["host"] == "":
-		menu.set_online_status("Ungültige Adresse", false)
+		_set_status("Ungültige Adresse", false)
 		return
 	NetStore.save_address(address_text.strip_edges())
+	_start_client(a["host"], a["port"])
+
+
+## Connects the own client to a server (the shared part of every way to go online).
+func _start_client(host: String, port: int) -> bool:
 	var endpoint := ENetEndpoint.new()
-	if endpoint.connect_to(a["host"], a["port"]) != OK:
-		menu.set_online_status("Verbindung fehlgeschlagen", false)
-		return
+	if endpoint.connect_to(host, port) != OK:
+		_set_status("Verbindung fehlgeschlagen", false)
+		return false
 	lag = LagEndpoint.new(endpoint)
 	lag.delay_ms = _lag_ms
 	lag.loss_pct = _loss_pct
@@ -237,7 +256,50 @@ func _connect(address_text: String) -> void:
 	client.smooth_others = _smooth
 	client.set_mods(cfg.mods_you)
 	client.set_skin(cfg.character)
-	menu.set_online_status("Verbinde …", true)
+	_set_status("Verbinde …", true)
+	return true
+
+
+## Shows a connection status on the Online page and, for connections started on the page "Lokal", there too.
+func _set_status(text: String, busy: bool) -> void:
+	menu.set_online_status(text, busy)
+	if _from_local:
+		menu.set_local_status(text)
+	_refresh_local_session()
+
+
+## This device hosts a match (the own client joins through 127.0.0.1, like everybody else).
+func _host_local(with_bots: bool) -> void:
+	_leave_online("closed", false)
+	_from_local = true
+	var host := LocalHost.new()
+	host.beacon_port = beacon_port
+	host.beacon_targets = beacon_targets
+	if host.start(cfg, with_bots, local_port) != OK:
+		_set_status("Spiel konnte nicht eröffnet werden (Port belegt?)", false)
+		return
+	local_host = host
+	if not _start_client("127.0.0.1", local_port):
+		_leave_online("closed", false)
+
+
+func _join_local(ip: String, port := -1) -> void:
+	_leave_online("closed", false)
+	_from_local = true
+	if LanCode.encode(ip) == "":
+		_set_status("Ungültige Adresse", false)
+		return
+	_start_client(ip, local_port if port < 1 else port)
+
+
+func _join_code(code: String) -> void:
+	var ip := LanCode.decode(code)
+	_leave_online("closed", false)
+	_from_local = true
+	if ip == "":
+		_set_status("Ungültiger Code", false)
+		return
+	_start_client(ip, local_port)
 
 
 func _poll_client(delta: float) -> void:
@@ -258,7 +320,7 @@ func _enter_online() -> void:
 	view.use_sim(client.sim, client.slot)
 	hud.use_sim(client.sim, client.slot)
 	hud.online = true
-	menu.set_online_status("Verbunden als Spieler %d" % (client.slot + 1), true)
+	_set_status("Verbunden als Spieler %d" % (client.slot + 1), true)
 
 
 func _tick_online() -> void:
@@ -272,8 +334,10 @@ func _tick_online() -> void:
 ## Back to the offline game (which was paused while online and simply continues).
 func _leave_online(reason: String, show_status := true) -> void:
 	var was_online := _online
+	var was_hosting := local_host != null
 	if client != null:
 		client.close()
+	_stop_local_host()
 	client = null
 	lag = null
 	_online = false
@@ -281,14 +345,27 @@ func _leave_online(reason: String, show_status := true) -> void:
 	view.use_sim(sim, 0)
 	hud.use_sim(sim, 0)
 	hud.online = false
+	var text := "Spiel beendet" if was_hosting and reason == "closed" else _reason_text(reason, was_online)
 	if show_status:
-		menu.set_online_status(_reason_text(reason, was_online), false)
+		_set_status(text, false)
+	else:
+		_refresh_local_session()
+
+
+func _stop_local_host() -> void:
+	if local_host != null:
+		local_host.stop()
+		local_host = null
+
+
+func _refresh_local_session() -> void:
+	menu.set_local_session(local_host != null, client != null, local_host.code() if local_host != null else "", local_host.players() if local_host != null else 0)
 
 
 func _reason_text(reason: String, was_online: bool) -> String:
 	match reason:
 		"full":
-			return "Server ist voll (4 Spieler)"
+			return "Server ist voll (%d Spieler)" % Config.NUM_PLAYERS
 		"version":
 			return "Falsche Version: App und Server passen nicht zusammen"
 		"timeout", "unreachable":
@@ -303,5 +380,11 @@ func _net_text() -> String:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_WM_CLOSE_REQUEST and client != null:
-		client.close()   # tells the server at once instead of letting the slot time out
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		if client != null:
+			client.close()   # tells the server at once instead of letting the slot time out
+		_stop_local_host()
+
+
+func _exit_tree() -> void:
+	_stop_local_host()
