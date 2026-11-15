@@ -6,7 +6,7 @@ extends RefCounted
 ## compressed; everything else is a plain var_to_bytes Array.
 ##
 ## client -> server
-##   [T_HELLO, version]                      reliable, first message after connecting
+##   [T_HELLO, version, token]               reliable, first message after connecting (token: the install's identity, 8..64 chars of 0-9a-f)
 ##   [T_INPUT, seq, [input, ...]]            unreliable, newest first (seq, seq-1, ...)
 ##   [T_MODS, {modifier id: level}]          reliable, whenever the chosen modifier levels change
 ##   [T_SKIN, figure]                        reliable, whenever the chosen figure changes (int 0..SKIN_COUNT-1)
@@ -18,7 +18,7 @@ extends RefCounted
 ##   snapshot packet (see snapshot_packet)  unreliable
 ## input = [move.x, move.y, aim.x, aim.y, flags]   flags: bit 0 aim_held, bit 1 dash
 
-const VERSION := 4
+const VERSION := 5
 const DEFAULT_PORT := 24565
 
 const T_HELLO := 1
@@ -40,6 +40,19 @@ const REDUNDANCY := 4                # inputs per packet: the newest plus the pr
 const MAX_INPUTS_PER_PACKET := 8
 const MAX_SEQ := 2147483647
 const SNAPSHOT_HEADER := 9           # kind byte + u32 acked input seq + u32 server tick
+
+
+## True for a well-formed client token: a String of 8..64 characters of 0-9a-f.
+static func valid_token(t: Variant) -> bool:
+	if not (t is String):
+		return false
+	var str: String = t
+	if str.length() < 8 or str.length() > 64:
+		return false
+	for c in str:
+		if not "0123456789abcdef".contains(c):
+			return false
+	return true
 
 
 static func pack(msg: Array) -> PackedByteArray:

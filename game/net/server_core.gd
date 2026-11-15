@@ -71,9 +71,13 @@ class Slot extends RefCounted:
 	var excess := 0                # consecutive ticks with more than `target` inputs waiting
 	var new_inputs := 0            # inputs that arrived since the last tick used one
 	var idle := 0                  # ticks since the last valid input packet
+	var token := ""                # the client's identity token (lets a dropped player come back to this slot)
+	var away := false              # the player dropped during a match: the slot is held, the figure stands still
 
 	func reset() -> void:
 		peer = -1
+		token = ""
+		away = false
 		buffer.clear()
 		arrived.clear()
 		last_consumed = 0
@@ -102,6 +106,15 @@ func _init(config: Config, endpoint: NetEndpoint, seed_value := 1, with_bots := 
 
 func players_online() -> int:
 	return _peer_slot.size()
+
+
+## Slots held for players who dropped during a match (they can come back with their token until the match ends).
+func away_slots() -> Array:
+	var out := []
+	for i in slots.size():
+		if slots[i].away:
+			out.append(i)
+	return out
 
 
 func _log(text: String) -> void:
@@ -158,13 +171,16 @@ func tick() -> void:
 		var inp: SimInput
 		if slots[i].peer >= 0:
 			inp = _next_input(slots[i])
-		elif not bots.is_empty():
+		elif not bots.is_empty() and not slots[i].away:
 			inp = bots[i].think(sim, dt)
 		else:
 			inp = SimInput.new()
 		current_inputs[i] = inp
 		inputs.append(inp)
 	sim.step(inputs)
+	var ph := sim.mode.phase
+	if ph == MatchMode.Phase.MATCH_OVER or ph == MatchMode.Phase.OFF:
+		_free_away_slots()
 	if sim.tick % SNAPSHOT_EVERY == 0:
 		_send_snapshots()
 	net.flush()
@@ -268,12 +284,29 @@ func _reject(peer: int, reason: String) -> void:
 	_pending.erase(peer)
 
 
+## The match is over (or left): the places held for absent players are given up.
+func _free_away_slots() -> void:
+	for i in slots.size():
+		if slots[i].away:
+			slots[i].reset()
+			if bots.is_empty():
+				sim.set_player_enabled(i, false)
+			_log("player %d: held place freed" % (i + 1))
+
+
 func _on_leave(peer: int) -> void:
 	_pending.erase(peer)
 	if not _peer_slot.has(peer):
 		return
 	var i: int = _peer_slot[peer]
 	_peer_slot.erase(peer)
+	if match_locked() and i < sim.mode.roster.size() and sim.mode.roster[i] and slots[i].token != "":
+		var tok: String = slots[i].token
+		slots[i].reset()
+		slots[i].token = tok
+		slots[i].away = true
+		_log("player %d dropped, place kept (%d online)" % [i + 1, _peer_slot.size()])
+		return
 	slots[i].reset()
 	if bots.is_empty():
 		sim.set_player_enabled(i, false)
@@ -332,20 +365,38 @@ func match_locked() -> bool:
 
 
 func _on_hello(peer: int, msg: Array) -> void:
-	if msg.size() != 2 or not (msg[1] is int):
+	if msg.size() != 3 or not (msg[1] is int) or not NetProto.valid_token(msg[2]):
 		dropped_packets += 1
 		return
+	var token: String = msg[2]
 	if msg[1] != NetProto.VERSION:
 		_log("refused a client: protocol version %s, expected %d" % [str(msg[1]), NetProto.VERSION])
 		_reject(peer, "version")
 		return
+	# A returning player: the same token gets its old slot back, also during a match.
+	for k in slots.size():
+		if slots[k].token == token and (slots[k].away or slots[k].peer >= 0):
+			var old_peer: int = slots[k].peer
+			if old_peer >= 0:
+				# The server has not noticed the drop yet: the new connection takes over.
+				_peer_slot.erase(old_peer)
+				net.disconnect_peer(old_peer)
+			slots[k].reset()
+			slots[k].token = token
+			slots[k].peer = peer
+			_pending.erase(peer)
+			_peer_slot[peer] = k
+			sim.set_player_enabled(k, true)
+			net.send(peer, NetProto.pack([NetProto.T_WELCOME, NetProto.VERSION, k, cfg.to_dict()]), true)
+			_log("player %d rejoined (%d online)" % [k + 1, _peer_slot.size()])
+			return
 	if match_locked():
 		_log("refused a client: match already started")
 		_reject(peer, "started")
 		return
 	var free := -1
 	for k in slots.size():
-		if slots[k].peer < 0:
+		if slots[k].peer < 0 and not slots[k].away:
 			free = k
 			break
 	if free < 0:
@@ -354,6 +405,7 @@ func _on_hello(peer: int, msg: Array) -> void:
 		return
 	_pending.erase(peer)
 	slots[free].reset()
+	slots[free].token = token
 	slots[free].peer = peer
 	_peer_slot[peer] = free
 	sim.set_player_enabled(free, true)

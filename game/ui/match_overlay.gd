@@ -20,6 +20,10 @@ var rematch_btn: Button
 var wait_label: Label
 var main_menu_btn: Button
 
+## Set by main.gd every frame: the connection broke and the game is trying to come back.
+var reconnecting := false
+var reconnect_panel: PanelContainer
+
 var _shown_key := ""
 var _go_t := -1.0
 var _last_phase := MatchMode.Phase.OFF
@@ -46,6 +50,11 @@ func setup() -> void:
 	panel.custom_minimum_size.x = 520.0
 	panel.visible = false
 	center.add_child(panel)
+	reconnect_panel = UiKit.panel("paper")
+	reconnect_panel.visible = false
+	reconnect_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.add_child(reconnect_panel)
+	reconnect_panel.add_child(UiKit.heading("Reconnecting …", 30))
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 10)
 	panel.add_child(box)
@@ -96,14 +105,15 @@ func update(sim: Sim, own: int, show_it: bool, can_rematch: bool, bots_offline: 
 		if _go_t >= GO_TIME:
 			_go_t = -1.0
 	var ctext := ""
-	if show_it:
+	reconnect_panel.visible = show_it and reconnecting
+	if show_it and not reconnecting:
 		if m.phase == MatchMode.Phase.COUNTDOWN:
 			ctext = countdown_text(m.phase_t)
 		elif m.phase == MatchMode.Phase.PLAY and _go_t >= 0.0:
 			ctext = "GO!"
 	countdown_label.text = ctext
 	countdown_label.visible = ctext != ""
-	var panel_on := show_it and m.phase_t >= PANEL_DELAY and (m.phase == MatchMode.Phase.RESULT or m.phase == MatchMode.Phase.MATCH_OVER)
+	var panel_on := show_it and not reconnecting and m.phase_t >= PANEL_DELAY and (m.phase == MatchMode.Phase.RESULT or m.phase == MatchMode.Phase.MATCH_OVER)
 	panel.visible = panel_on
 	visible = show_it
 	if not panel_on:
