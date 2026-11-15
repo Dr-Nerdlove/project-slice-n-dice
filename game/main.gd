@@ -27,6 +27,7 @@ var menu: TuningMenu           # the Training tuning menu
 var main_menu: MainMenu
 var lobby: PlayLobby
 var pause: PauseMenu
+var overlay: MatchOverlay      # countdown, round result, match over (Play only)
 var bots: Array[Bot] = []
 var client: ClientCore         # set while connecting / online
 var lag: LagEndpoint           # the lag tool between the client and the network
@@ -119,12 +120,19 @@ func _ready() -> void:
 	lobby.join_local_requested.connect(_join_local)
 	lobby.join_code_requested.connect(_join_code)
 	lobby.stop_requested.connect(func() -> void: _leave_online("closed"))
+	lobby.start_match_requested.connect(_start_hosted_match)
 
 	pause = PauseMenu.new()
 	add_child(pause)
 	pause.setup()
 	pause.resume_pressed.connect(_on_pause_pressed)
 	pause.main_menu_pressed.connect(_show_main_menu)
+
+	overlay = MatchOverlay.new()
+	add_child(overlay)
+	overlay.setup()
+	overlay.rematch_pressed.connect(_rematch)
+	overlay.main_menu_pressed.connect(_show_main_menu)
 
 	bots = _make_bots()
 	_apply_bot_mode()
@@ -139,6 +147,7 @@ func _ready() -> void:
 func _make_play_cfg() -> Config:
 	var c := Config.new()
 	c.character = train_cfg.character
+	c.target_score = train_cfg.target_score
 	c.bot_mode = Config.BotMode.ACTIVE
 	return c
 
@@ -210,6 +219,7 @@ func start_solo() -> void:
 	training = false
 	play_cfg = _make_play_cfg()
 	_new_sim(play_cfg)
+	sim.start_match(play_cfg.target_score)
 	_set_screen(Screen.GAME)
 
 
@@ -220,6 +230,38 @@ func start_training() -> void:
 	training = true
 	_new_sim(train_cfg)
 	_set_screen(Screen.GAME)
+
+
+## "Start match" of the host in the lobby: starts the match on the local server with the chosen target.
+## Refused (false) with fewer than two players.
+func _start_hosted_match() -> bool:
+	return local_host != null and local_host.core.start_match(train_cfg.target_score)
+
+
+## Rematch (Solo, or the host): the same target, points back to zero.
+func _rematch() -> void:
+	if _online:
+		if local_host != null:
+			local_host.core.start_match(client.sim.mode.target)
+	else:
+		sim.start_match(sim.mode.target)
+
+
+## Can this device restart the match: Solo and the host of a local match, not a joiner.
+func _can_rematch() -> bool:
+	return not _online or local_host != null
+
+
+## The start controls of the lobby (host: Start match, enabled with two players; joiner: waiting).
+func _refresh_start() -> void:
+	var can := false
+	if local_host != null and _online:
+		var n := 0
+		for p in local_host.core.sim.players:
+			if p.enabled:
+				n += 1
+		can = n >= 2
+	lobby.set_start(local_host != null, _online, can)
 
 
 ## The pause button, Escape, and Resume. Training opens / closes the tuning menu, Play the pause panel.
@@ -309,6 +351,12 @@ func _process(delta: float) -> void:
 						break
 	if _online:
 		shown = client.sim
+		# A Play client waits in the lobby until the match starts (or is over already when it joins late).
+		if screen == Screen.LOBBY and _from_local and not training and shown.mode.phase != MatchMode.Phase.OFF:
+			_set_screen(Screen.GAME)
+	if screen == Screen.LOBBY:
+		_refresh_start()
+	overlay.update(shown, slot, screen == Screen.GAME and not training, _can_rematch(), not _online, delta)
 	var me := shown.players[slot]
 	router.dash_charges = me.dash_charges
 	router.dash_charges_max = shown.dash_max(me)
@@ -388,6 +436,7 @@ const STATUS := {
 	"ended": "Game ended",
 	"full": "Server is full (%d players)",
 	"version": "Wrong version: the app and the server do not match",
+	"started": "The match has already started.",
 	"disconnected": "Disconnected",
 	"not_connected": "Not connected",
 	"bad_code": "Invalid code",
@@ -502,7 +551,11 @@ func _enter_online() -> void:
 	view.use_sim(client.sim, client.slot)
 	hud.use_sim(client.sim, client.slot)
 	hud.online = true
-	_set_screen(Screen.GAME)
+	if _from_local and not training and client.sim.mode.phase == MatchMode.Phase.OFF:
+		if screen != Screen.LOBBY:
+			_set_screen(Screen.LOBBY)
+	else:
+		_set_screen(Screen.GAME)
 	_set_status("connected", true, client.slot + 1)
 
 
@@ -560,6 +613,8 @@ func _reason_key(reason: String, was_online: bool) -> String:
 			return "full"
 		"version":
 			return "version"
+		"started":
+			return "started"
 		"timeout", "unreachable":
 			return "connect_failed"
 	return "disconnected" if was_online else "not_connected"

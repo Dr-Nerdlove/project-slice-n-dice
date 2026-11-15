@@ -1,0 +1,155 @@
+class_name MatchOverlay
+extends CanvasLayer
+## The screens of a Play match over the arena: the 3-2-1-GO countdown, the round result with the scoreboard and
+## the match-over panel. It only READS the match state of the sim it is given each frame (`update`) and reports
+## button presses; `main.gd` owns the flow. Nothing is shown during PLAY (no UI during a round) and in Training.
+
+signal rematch_pressed
+signal main_menu_pressed
+
+const GO_TIME := 0.6        # how long "GO!" stays after the countdown
+const PANEL_DELAY := 0.8    # the result / match-over panel appears this long after the last hit
+
+var countdown_label: Label
+var panel: PanelContainer
+var heading_label: Label
+var scorer_label: Label
+var rows_box: VBoxContainer
+var target_label: Label
+var rematch_btn: Button
+var wait_label: Label
+var main_menu_btn: Button
+
+var _shown_key := ""
+var _go_t := -1.0
+var _last_phase := MatchMode.Phase.OFF
+
+
+func setup() -> void:
+	layer = 6
+	visible = false
+	var root := Control.new()
+	root.theme = UiKit.theme()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(root)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(center)
+	countdown_label = UiKit.title("3", 220)
+	countdown_label.visible = false
+	countdown_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.add_child(countdown_label)
+
+	panel = UiKit.panel("paper")
+	panel.custom_minimum_size.x = 520.0
+	panel.visible = false
+	center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	panel.add_child(box)
+	heading_label = UiKit.heading("", 30)
+	box.add_child(heading_label)
+	scorer_label = UiKit.label("", 24, UiKit.TOMATO, true)
+	box.add_child(scorer_label)
+	rows_box = VBoxContainer.new()
+	rows_box.add_theme_constant_override("separation", 6)
+	box.add_child(rows_box)
+	target_label = UiKit.eyebrow("")
+	box.add_child(target_label)
+	rematch_btn = UiKit.button("Rematch", "main")
+	rematch_btn.pressed.connect(func() -> void: rematch_pressed.emit())
+	box.add_child(rematch_btn)
+	wait_label = UiKit.heading("Waiting for the host", 22)
+	box.add_child(wait_label)
+	main_menu_btn = UiKit.button("Main menu", "quiet")
+	main_menu_btn.pressed.connect(func() -> void: main_menu_pressed.emit())
+	box.add_child(main_menu_btn)
+
+
+## "3", "2", "1" for the countdown phase.
+static func countdown_text(phase_t: float) -> String:
+	return str(clampi(ceili(MatchMode.COUNTDOWN_TIME - phase_t), 1, 3))
+
+
+## Name of a slot for the scoreboard: "You" for the own slot, else the figure name (offline bots get " (bot)").
+static func player_name(sim: Sim, slot: int, own: int, bots_offline: bool) -> String:
+	if slot == own:
+		return "You"
+	var n: String = ToyFigure.NAMES[posmod(sim.players[slot].skin, ToyFigure.NAMES.size())]
+	return n + " (bot)" if bots_offline else n
+
+
+## Called every frame. `sim` is the sim that is drawn, `own` the own slot, `can_rematch` whether this device may
+## restart the match (Solo, the host), `bots_offline` marks slots > 0 as bots (solo).
+func update(sim: Sim, own: int, show_it: bool, can_rematch: bool, bots_offline: bool, dt: float) -> void:
+	var m := sim.mode
+	if m.phase != _last_phase:
+		if _last_phase == MatchMode.Phase.COUNTDOWN and m.phase == MatchMode.Phase.PLAY:
+			_go_t = 0.0
+		elif m.phase != MatchMode.Phase.PLAY:
+			_go_t = -1.0
+		_last_phase = m.phase
+	if _go_t >= 0.0:
+		_go_t += dt
+		if _go_t >= GO_TIME:
+			_go_t = -1.0
+	var ctext := ""
+	if show_it:
+		if m.phase == MatchMode.Phase.COUNTDOWN:
+			ctext = countdown_text(m.phase_t)
+		elif m.phase == MatchMode.Phase.PLAY and _go_t >= 0.0:
+			ctext = "GO!"
+	countdown_label.text = ctext
+	countdown_label.visible = ctext != ""
+	var panel_on := show_it and m.phase_t >= PANEL_DELAY and (m.phase == MatchMode.Phase.RESULT or m.phase == MatchMode.Phase.MATCH_OVER)
+	panel.visible = panel_on
+	visible = show_it
+	if not panel_on:
+		_shown_key = ""
+		return
+	var over := m.phase == MatchMode.Phase.MATCH_OVER
+	var key := "%d|%d|%d|%s|%s|%s" % [m.phase, m.round, m.winner, str(m.points), str(m.roster), "%d%d" % [int(can_rematch), int(bots_offline)]]
+	if key != _shown_key:
+		_shown_key = key
+		_fill(sim, own, over, bots_offline)
+	rematch_btn.visible = over and can_rematch
+	wait_label.visible = over and not can_rematch
+
+
+func _fill(sim: Sim, own: int, over: bool, bots_offline: bool) -> void:
+	var m := sim.mode
+	if over:
+		var w := player_name(sim, m.winner, own, bots_offline) if m.winner >= 0 else ""
+		heading_label.text = "You win the match!" if m.winner == own else "%s wins the match!" % w
+		scorer_label.text = ""
+	else:
+		heading_label.text = "Round %d" % m.round
+		scorer_label.text = "Nobody scores" if m.last_scorer < 0 else ("You score!" if m.last_scorer == own else "%s scores!" % player_name(sim, m.last_scorer, own, bots_offline))
+	for c in rows_box.get_children():
+		rows_box.remove_child(c)
+		c.queue_free()
+	var slots: Array = []
+	for i in m.roster.size():
+		if m.roster[i]:
+			slots.append(i)
+	slots.sort_custom(func(a: int, b: int) -> bool: return m.points[a] > m.points[b] or (m.points[a] == m.points[b] and a < b))
+	for i: int in slots:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		var dot := ColorRect.new()
+		dot.color = ToyFigure.ACCENTS[posmod(sim.players[i].skin, ToyFigure.ACCENTS.size())]
+		dot.custom_minimum_size = Vector2(22, 22)
+		dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(dot)
+		var name_label := UiKit.label(player_name(sim, i, own, bots_offline), 22, UiKit.INK, i == own)
+		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(name_label)
+		row.add_child(UiKit.label("+1" if (not over and i == m.last_scorer) else "", 22, UiKit.TOMATO, true))
+		var pts := UiKit.label(str(m.points[i]), 22, UiKit.INK, true)
+		pts.custom_minimum_size.x = 40.0
+		pts.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(pts)
+		rows_box.add_child(row)
+	target_label.text = ("First to %d" % m.target).to_upper()

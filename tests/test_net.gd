@@ -1581,6 +1581,79 @@ func test_join_rules() -> void:
 	check("bots: the bots produce input", bot_moved)
 
 
+func hello_reason(rig: Dictionary) -> String:
+	var raw := join_raw(rig)
+	for ev: Dictionary in raw.poll():
+		if ev["kind"] == NetEndpoint.Kind.PACKET:
+			var m := NetProto.unpack(ev["data"], 65536)
+			if not m.is_empty() and m[0] == NetProto.T_REJECT:
+				return str(m[1])
+			if not m.is_empty() and m[0] == NetProto.T_WELCOME:
+				return "welcome"
+	return ""
+
+
+func test_match_lock() -> void:
+	var M := MatchMode.Phase
+	var rig := make_rig(0.0, 0.0, 2, 6)
+	check("match lock: two clients join", warm_up(rig))
+	var server: ServerCore = rig["server"]
+	check("match lock: open in free play", not server.match_locked() and hello_reason(rig) == "welcome")
+	var rig_b := make_rig(0.0, 0.0, 2, 6)
+	warm_up(rig_b)
+	var sb: ServerCore = rig_b["server"]
+	check("match lock: server starts the match", sb.start_match(10) and sb.match_locked() and sb.sim.mode.phase == M.COUNTDOWN)
+	check("match lock: hello refused with 'started' in COUNTDOWN", hello_reason(rig_b) == "started")
+	for _t in 200:
+		step_rig(rig_b, func(_k: int) -> SimInput: return SimInput.new())
+	check("match lock: still refused in PLAY", sb.sim.mode.phase == M.PLAY and hello_reason(rig_b) == "started")
+	sb.sim.mode.phase = M.RESULT
+	check("match lock: refused in RESULT", hello_reason(rig_b) == "started")
+	sb.sim.mode.phase = M.MATCH_OVER
+	check("match lock: open again in MATCH_OVER", not sb.match_locked() and hello_reason(rig_b) == "welcome")
+	# an empty server cannot start
+	var rig_c := make_rig(0.0, 0.0, 1, 6)
+	warm_up(rig_c)
+	check("match lock: one player cannot start", not (rig_c["server"] as ServerCore).start_match(10))
+	# a refused ClientCore ends FAILED with the reason
+	var rig_d := make_rig(0.0, 0.0, 2, 7)
+	warm_up(rig_d)
+	(rig_d["server"] as ServerCore).start_match(10)
+	var late := ClientCore.new((rig_d["hub"] as LoopbackHub).connect_client())
+	for _t in 30:
+		(rig_d["hub"] as LoopbackHub).advance(DT_MS)
+		late.poll(DT_MS / 1000.0)
+		(rig_d["server"] as ServerCore).tick()
+		for c: ClientCore in rig_d["clients"]:
+			c.poll(DT_MS / 1000.0)
+			c.tick(SimInput.new())
+	check("match lock: a client core fails with reason 'started'", late.state == ClientCore.State.FAILED and late.fail_reason == "started", "reason=%s" % late.fail_reason)
+
+	# prediction stays consistent through countdown -> play
+	var rig_e := make_rig(60.0, 0.0, 2, 8)
+	warm_up(rig_e)
+	var se: ServerCore = rig_e["server"]
+	se.start_match(10)
+	var cl: ClientCore = rig_e["clients"][0]
+	var moved_early := false
+	var max_gap := 0.0
+	var play_seen := false
+	for t in 330:
+		var p0 := cl.sim.players[cl.slot].pos
+		step_rig(rig_e, func(k: int) -> SimInput:
+			var i := SimInput.new()
+			if k == 0: i.move = Vector2.RIGHT
+			return i)
+		if cl.sim.mode.phase == M.COUNTDOWN and cl.sim.players[cl.slot].pos != p0 and t > 30:
+			moved_early = true
+		if cl.sim.mode.phase == M.PLAY:
+			play_seen = true
+		if t > 250:
+			max_gap = maxf(max_gap, cl.sim.players[cl.slot].pos.distance_to(se.sim.players[cl.slot].pos))
+	check("match lock: client prediction does not move in countdown", not moved_early)
+	check("match lock: client reaches play and stays near the server", play_seen and se.sim.mode.phase == M.PLAY and max_gap < 1.5, "gap=%.2f phase=%d" % [max_gap, cl.sim.mode.phase])
+
+
 func test_idle_and_sticks() -> void:
 	# a joined player that sends no input is dropped after IDLE_TIMEOUT ticks; an active one stays
 	var rig := make_rig(0.0, 0.0, 2, 5)
@@ -2380,7 +2453,15 @@ func test_main_local() -> void:   # async
 	check("main local: joined by code (lower case, with a space)", main._online and main.local_host == null and main.lobby._status.text == "Connected as player 1", main.lobby._status.text)
 	check("main local: the lobby knows it is connected", not main.lobby._stop_btn.disabled and main.lobby._host_btn.disabled)
 	check("main local: a local join does not overwrite the saved Online address", NetStore.load_address() == "")
-	check("main local: a joined Play game shows the game, no lobby, only the pause button", main.screen == main.Screen.GAME and not main.training and not main.lobby.visible and main.hud.visible and main.hud.play_mode)
+	check("main local: a joiner waits in the lobby while the server's phase is OFF (no game screen)", main.screen == main.Screen.LOBBY and main.lobby.visible and not main.training and not main.hud.visible and main.lobby.wait_label.visible and not main.lobby.start_btn.visible)
+	server.sim.mode.phase = MatchMode.Phase.COUNTDOWN   # the server's match starts
+	for _i in 300:
+		server.tick()
+		OS.delay_msec(10)
+		await process_frame
+		if main.screen == main.Screen.GAME:
+			break
+	check("main local: when the match starts the joiner goes to the game, no lobby, only the pause button", main.screen == main.Screen.GAME and not main.training and not main.lobby.visible and main.hud.visible and main.hud.play_mode)
 	main.pause.main_menu_btn.pressed.emit()
 	check("main local: Main menu leaves the game as a guest and shows the main menu", not main._online and main.client == null and main.lobby._status.text == "Disconnected" and main.view.sim == main.sim and main.screen == main.Screen.MENU and main.main_menu.visible)
 	# joining a game from the list: its own port counts, not the local port
@@ -2388,6 +2469,7 @@ func test_main_local() -> void:   # async
 	check("main local: a second test server listens", list_ep.listen(bport, ServerCore.MAX_PENDING) == OK)
 	var list_server := ServerCore.new(Config.new(), list_ep, 7, false)
 	main._show_lobby()
+	list_server.sim.mode.phase = MatchMode.Phase.MATCH_OVER   # a match that has just ended: joining is open
 	main.lobby.join_local_requested.emit("127.0.0.1", bport)
 	for _i in 300:
 		list_server.tick()
@@ -2395,6 +2477,10 @@ func test_main_local() -> void:   # async
 		await process_frame
 		if main._online:
 			break
+	for _i in 10:
+		list_server.tick()
+		await process_frame
+	check("main local: a joiner who arrives at match over goes straight to the game", main.screen == main.Screen.GAME and main.client.sim.mode.phase == MatchMode.Phase.MATCH_OVER)
 	check("main local: joining a found game connects to the port it announced", main._online and list_server.players_online() == 1 and main.lobby._status.text == "Connected as player 1")
 	main.lobby.stop_requested.emit()
 	check("main local: Stop leaves a joined game and goes to the main menu", not main._online and main.screen == main.Screen.MENU)
@@ -2418,6 +2504,20 @@ func test_main_local() -> void:   # async
 	check("main local: the page shows the code and the player count", main.lobby._hosting_box.visible and main.lobby._players_label.text.begins_with("Players: 1 of")
 			and (main.local_host.code() == "" or main.lobby._code_label.text == LanCode.grouped(main.local_host.code())), main.lobby._players_label.text)
 	check("main local: hosting did not touch the saved Online address", NetStore.load_address() == "")
+	check("main local: the host waits in the lobby with Start match, enabled with the bots", main.screen == main.Screen.LOBBY and main.lobby.start_btn.visible and not main.lobby.start_btn.disabled and not main.lobby.wait_label.visible and main.local_host.core.sim.mode.phase == MatchMode.Phase.OFF)
+	main.lobby.start_btn.pressed.emit()
+	for _i in 300:
+		await process_frame
+		OS.delay_msec(10)
+		if main.screen == main.Screen.GAME:
+			break
+	check("main local: Start match starts the match on the server and moves the host to the game", main.local_host.core.sim.mode.phase == MatchMode.Phase.COUNTDOWN and main.local_host.core.sim.mode.target == main.train_cfg.target_score and main.screen == main.Screen.GAME and main.client.sim.mode.phase != MatchMode.Phase.OFF)
+	var hmode: MatchMode = main.local_host.core.sim.mode
+	hmode.points[0] = 4
+	hmode.phase = MatchMode.Phase.MATCH_OVER
+	hmode.phase_t = 5.0
+	main._rematch()
+	check("main local: the host's Rematch restarts the match with the same target and zero points", hmode.phase == MatchMode.Phase.COUNTDOWN and hmode.points[0] == 0 and hmode.round == 1 and hmode.target == main.train_cfg.target_score)
 	var tick0: int = main.local_host.core.sim.tick
 	main.hud.gear_pressed.emit()
 	for _i in 30:
@@ -2442,8 +2542,9 @@ func test_main_local() -> void:   # async
 		if main._online:
 			break
 	check("main local: hosting without bots", main._online and not main.local_host.core.sim.players[2].enabled)
+	check("main local: Start match is disabled and refused with one player", main.lobby.start_btn.visible and main.lobby.start_btn.disabled and not main._start_hosted_match() and main.local_host.core.sim.mode.phase == MatchMode.Phase.OFF and main.screen == main.Screen.LOBBY)
 	main.menu.disconnect_requested.emit()
-	check("main local: leaving from the Online page stops the host as well (a Play match then goes to the main menu)", main.local_host == null and not main._online and main.screen == main.Screen.MENU)
+	check("main local: leaving from the Online page stops the host as well (from the lobby it stays there)", main.local_host == null and not main._online and main.screen == main.Screen.LOBBY)
 	main._show_lobby()
 	main.lobby.host_requested.emit(true)
 	for _i in 300:
@@ -2461,6 +2562,104 @@ func test_main_local() -> void:   # async
 	main.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online%d.json" % PORT_OFFSET))
+
+
+## Rounds and points in Play: the target choice, Solo starting a match, the overlay texts, the rematch.
+func test_match_flow() -> void:   # async
+	NetStore.path = "user://test_online%d.json" % PORT_OFFSET
+	var main: Node = load("res://main.tscn").instantiate()
+	root.add_child(main)
+	for _i in 5:
+		await process_frame
+	main.lobby.save_fn = func(_c: Config) -> void: pass   # never write the real settings
+	var ov: MatchOverlay = main.overlay
+	check("match: the target defaults to 10", main.train_cfg.target_score == 10 and main.lobby.target_buttons[0].button_pressed)
+	main.main_menu.play_btn.pressed.emit()
+	await process_frame
+	main.lobby.target_buttons[1].pressed.emit()
+	check("match: choosing First to 15 in the lobby is kept in the settings", main.train_cfg.target_score == 15 and main.train_cfg.to_dict()["target_score"] == 15 and main.lobby.target_buttons[1].button_pressed and not main.lobby.target_buttons[0].button_pressed)
+	check("match: the target is copied into the Play config, not reset by Reset", main._make_play_cfg().target_score == 15 and (func() -> bool:
+		var c := Config.new()
+		c.from_dict(main.train_cfg.to_dict())
+		c.reset()
+		return c.target_score == 15).call())
+	main.lobby.solo_btn.pressed.emit()
+	for _i in 3:
+		await process_frame
+	var m: MatchMode = main.sim.mode
+	check("match: Solo starts a match in the countdown with the chosen target and all players in it", m.phase == MatchMode.Phase.COUNTDOWN and m.target == 15 and m.round == 1 and m.roster[0] and m.roster[1] and main.play_cfg.target_score == 15 and main.screen == main.Screen.GAME)
+	check("match: the countdown shows 3", ov.countdown_label.visible and ov.countdown_label.text == "3" and not ov.panel.visible)
+	m.phase_t = 1.3
+	await process_frame
+	check("match: then 2", ov.countdown_label.text == "2")
+	m.phase_t = 2.3
+	await process_frame
+	check("match: then 1", ov.countdown_label.text == "1")
+	m.phase_t = 2.99
+	for _i in 100:
+		await process_frame
+		if m.phase == MatchMode.Phase.PLAY:
+			break
+	check("match: GO! shows when play begins", m.phase == MatchMode.Phase.PLAY and ov.countdown_label.visible and ov.countdown_label.text == "GO!")
+	ov.update(main.sim, 0, true, true, true, 1.0)
+	check("match: GO! goes away and nothing is shown during play", m.phase == MatchMode.Phase.PLAY and not ov.countdown_label.visible and not ov.panel.visible)
+	# result
+	m.phase = MatchMode.Phase.RESULT
+	m.phase_t = 0.2
+	m.last_scorer = 2
+	m.points[2] = 1
+	await process_frame
+	check("match: the result panel waits a moment after the last hit", not ov.panel.visible)
+	m.phase_t = 1.0
+	await process_frame
+	var bot2: String = ToyFigure.NAMES[main.sim.players[2].skin] + " (bot)"
+	var row0: Node = ov.rows_box.get_child(0)
+	check("match: the result panel names the round and the scorer", ov.panel.visible and ov.heading_label.text == "Round 1" and ov.scorer_label.text == bot2 + " scores!" and not ov.rematch_btn.visible, ov.scorer_label.text)
+	check("match: the scoreboard lists every player, the leader first with its point and the marker", ov.rows_box.get_child_count() == Config.NUM_PLAYERS and row0.get_child(1).text == bot2 and row0.get_child(2).text == "+1" and row0.get_child(3).text == "1" and ov.target_label.text == "FIRST TO 15",
+			"%d %s %s %s %s" % [ov.rows_box.get_child_count(), row0.get_child(1).text, row0.get_child(2).text, row0.get_child(3).text, ov.target_label.text])
+	m.last_scorer = -1
+	ov._shown_key = ""
+	await process_frame
+	check("match: simultaneous deaths show Nobody scores", ov.scorer_label.text == "Nobody scores")
+	m.last_scorer = 0
+	ov._shown_key = ""
+	await process_frame
+	check("match: the own score says You", ov.scorer_label.text == "You score!")
+	# match over and rematch
+	m.points[0] = 15
+	m.winner = 0
+	m.phase = MatchMode.Phase.MATCH_OVER
+	m.phase_t = 0.3
+	await process_frame
+	check("match: match over also waits a moment", not ov.panel.visible)
+	m.phase_t = 1.0
+	await process_frame
+	check("match: match over names the winner and offers Rematch and Main menu", ov.panel.visible and ov.heading_label.text == "You win the match!" and ov.rematch_btn.visible and not ov.wait_label.visible and ov.main_menu_btn.visible)
+	m.winner = 3
+	m.points[3] = 15
+	ov._shown_key = ""
+	await process_frame
+	check("match: another winner is named by figure", ov.heading_label.text == ToyFigure.NAMES[main.sim.players[3].skin] + " (bot) wins the match!")
+	ov.update(main.sim, 0, true, false, false, 0.0)
+	check("match: a joiner sees Waiting for the host instead of Rematch", not ov.rematch_btn.visible and ov.wait_label.visible and ov.heading_label.text == ToyFigure.NAMES[main.sim.players[3].skin] + " wins the match!")
+	ov.rematch_btn.pressed.emit()
+	ov.update(main.sim, 0, true, true, true, 0.0)
+	ov.rematch_btn.pressed.emit()
+	await process_frame
+	check("match: Rematch starts again with zero points and the same target", m.phase == MatchMode.Phase.COUNTDOWN and m.round == 1 and m.points.all(func(v: int) -> bool: return v == 0) and m.target == 15 and m.winner == -1 and not ov.panel.visible)
+	m.phase = MatchMode.Phase.MATCH_OVER
+	m.phase_t = 1.0
+	await process_frame
+	ov.main_menu_btn.pressed.emit()
+	await process_frame
+	check("match: Main menu of the match-over panel leaves to the main menu", main.screen == main.Screen.MENU and not ov.visible)
+	# Training has no match
+	main.main_menu.training_btn.pressed.emit()
+	for _i in 10:
+		await process_frame
+	check("match: Training starts no match and shows no overlay", main.training and main.sim.mode.phase == MatchMode.Phase.OFF and not ov.visible and not ov.countdown_label.visible)
+	main.queue_free()
+	await process_frame
 
 
 ## A default server takes the modifiers a client sends (`--server`, the Online tab); one with `accept_client_mods`
@@ -2584,8 +2783,8 @@ func _initialize() -> void:
 		test_lan_code, test_pick_address, test_lan_beacon, test_local_host, test_menu_local, test_main_local,
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
-		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
-		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu,
+		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
+		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_match_flow,
 	]
 	for g in groups:
 		if stop_early and fails > 0:

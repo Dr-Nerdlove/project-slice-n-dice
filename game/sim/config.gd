@@ -109,6 +109,8 @@ var mods_you: Dictionary = Mods.empty_levels()
 var mods_bots: Dictionary = Mods.empty_levels()
 ## The figure the human player chose (0..SKIN_COUNT-1). Saved with the settings, but not a tuning value: reset leaves it.
 var character := 0
+## Points that win a Play match (one of MatchMode.TARGETS). Saved with the settings like `character`, not reset.
+var target_score := MatchMode.DEFAULT_TARGET
 
 const DEFAULTS := {
 	"player_radius": 0.5,
@@ -152,6 +154,7 @@ func to_dict() -> Dictionary:
 	d["mods_you"] = mods_you.duplicate()
 	d["mods_bots"] = mods_bots.duplicate()
 	d["character"] = character
+	d["target_score"] = target_score
 	return d
 
 
@@ -160,6 +163,8 @@ func from_dict(d: Dictionary) -> void:
 	mods_bots = Mods.sanitize(d.get("mods_bots"))
 	var ch: Variant = d.get("character")
 	character = posmod(int(ch), SKIN_COUNT) if (ch is int or (ch is float and is_finite(ch))) else 0
+	var ts: Variant = d.get("target_score")
+	target_score = int(ts) if (ts is int or (ts is float and is_finite(ts))) and MatchMode.TARGETS.has(int(ts)) else MatchMode.DEFAULT_TARGET
 	for k: String in DEFAULTS:
 		if not d.has(k):
 			continue

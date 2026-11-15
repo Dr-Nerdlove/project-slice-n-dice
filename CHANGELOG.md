@@ -23,6 +23,13 @@ The game has a new name and a new start screen: **Spinback Rumble**.
   quits from the main menu.
 - The update notice now shows in the main menu (and in Settings), not during a game.
 - All menus and texts are now in English.
+- **Rounds and points in Play** (mode **Last Standing**): nobody respawns within a round, the last one standing gets
+  a point, the first to 10, 15 or 20 points (your choice in the lobby) wins the match. Each round starts with a big
+  3-2-1-GO. After a round you see who scored and the scoreboard; the next round starts by itself after a few
+  seconds. When the match ends you can play a **Rematch** (Solo and the host) or go back to the main menu.
+- **Solo** starts a match straight away. In **Together** the host presses **Start match** once at least two players
+  (bots count) are in; the others wait in the lobby. Nobody can join while a match is running; joining is open
+  again when it is over. Training is unchanged (it still respawns, no rounds).
 - The app is now called **Spinback Rumble** (it installs over the old app as usual and keeps your saved settings).
 - New fonts for the new screens (Unbounded and Rubik, free under the SIL Open Font License).
 
