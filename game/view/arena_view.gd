@@ -318,7 +318,7 @@ func shake(strength: float, time: float) -> void:
 
 
 func handle_event(e: Dictionary) -> void:
-	var pos: Vector2 = e["pos"]
+	var pos: Vector2 = e.get("pos", Vector2.ZERO)   # match events (round_end, shop_open, ...) have none
 	match e["type"]:
 		"kill":
 			# The figure itself pops into its pieces and confetti (ToyFigure), drawn where it is shown.

@@ -297,6 +297,7 @@ func _initialize() -> void:
 	_range_tests()
 	_match_tests()
 	_coin_tests()
+	_shop_tests()
 	_zone_tests()
 
 var _frames := 0
@@ -2026,7 +2027,9 @@ func _zone_tests() -> void:
 	s.mode.zone_t = 40.0
 	s.players[0].zone_t = 2.0
 	kill_i(s, 1)
-	for _t in 400:
+	s.step(idle4())
+	next_round(s)
+	for _t in 200:
 		s.step(idle4())
 	check("zone: the round after a finished one starts clean", s.mode.round == 2 and s.mode.zone_t < 1.0 and s.players[0].zone_t == 0.0)
 
@@ -2090,6 +2093,16 @@ func to_play(s: Sim) -> void:
 	for _t in int(MatchMode.COUNTDOWN_TIME * 60.0) + 2:
 		s.step(idle4())
 
+## From RESULT through the shop (everybody done at once) to the next round's countdown.
+func next_round(s: Sim) -> void:
+	for _t in int((MatchMode.RESULT_TIME + Economy.SHOP_TIME) * 60.0) + 10:
+		if s.mode.phase == MatchMode.Phase.COUNTDOWN: return
+		if s.mode.phase == MatchMode.Phase.SHOP:
+			for i in s.players.size():
+				s.shop_done(i)
+		s.step(idle4())
+
+
 func _match_tests() -> void:
 	var M := MatchMode.Phase
 	var s := mk([0])
@@ -2142,11 +2155,9 @@ func _match_tests() -> void:
 	for _t in 30:
 		s.step([inp(Vector2.RIGHT), inp(), inp(), inp()])
 	check("match: world frozen in RESULT", s.players[0].pos == pos_frozen and s.mode.phase == M.RESULT)
-	for _t in int(MatchMode.RESULT_TIME * 60.0) + 2:
-		if s.mode.phase == M.COUNTDOWN: break
-		s.step(idle4())
+	next_round(s)
 	var everyone := s.players[0].alive and s.players[1].alive and s.players[2].alive
-	check("match: next round after RESULT_TIME with all alive and a clean arena", s.mode.phase == M.COUNTDOWN and s.mode.round == 2 and everyone and s.wires.is_empty() and s.shards.is_empty() and s.mode.points[0] == 1)
+	check("match: next round after the result and the shop with all alive and a clean arena", s.mode.phase == M.COUNTDOWN and s.mode.round == 2 and everyone and s.wires.is_empty() and s.shards.is_empty() and s.mode.points[0] == 1)
 
 	# simultaneous deaths: nobody scores
 	s = mk([0, 1]); s.start_match(10); to_play(s)
@@ -2219,8 +2230,7 @@ func _coin_tests() -> void:
 	check("coins: losers get the base", s.mode.coins[1] == E.COINS_BASE and s.mode.coins[2] == E.COINS_BASE and s.mode.coins[3] == 0)
 	check("coins: nobody is underdog or leader while level", not s.mode.underdog.has(true) and not s.mode.leader.has(true))
 	# coins are kept into the next round, kill counts are not
-	for _t in int(MatchMode.RESULT_TIME * 60.0) + 2:
-		s.step(idle4())
+	next_round(s)
 	check("coins: kept over rounds, round kills reset", s.mode.round == 2 and s.mode.coins[1] == E.COINS_BASE and s.mode.round_kills == [0, 0, 0, 0])
 	check("coins: leader and underdog from the points at round start", s.mode.leader == [true, false, false, false] and s.mode.underdog == [false, true, true, false])
 	to_play(s)
@@ -2245,6 +2255,139 @@ func _coin_tests() -> void:
 	s = mk([0, 1, 2]); s.start_match(10); to_play(s)
 	s._kill(s.players[0], s.players[0])
 	check("coins: a self-kill counts nothing", s.mode.round_kills[0] == 0)
+
+
+## A two- or three-player match in its first shop, with `coins` coins for everybody.
+func shop_sim(only: Array, coins: int) -> Sim:
+	var s := mk(only); s.start_match(10); to_play(s)
+	for i in range(1, only.size()):
+		kill_i(s, only[i])
+	s.step(idle4())
+	for _t in int(MatchMode.RESULT_TIME * 60.0) + 2:
+		if s.mode.phase == MatchMode.Phase.SHOP: break
+		s.step(idle4())
+	for i in s.players.size():
+		s.mode.coins[i] = coins
+	return s
+
+
+func _shop_tests() -> void:
+	var M := MatchMode.Phase
+	check("shop: the numbers decided in docs/PLAN.md", Economy.SHOP_TIME == 20.0 and Economy.REROLL_PRICE == 1 and Economy.OFFERS == 3 and Economy.SLOTS == 5)
+	var s := shop_sim([0, 1, 2], 20)
+	check("shop: opens after the result", s.mode.phase == M.SHOP and s.mode.round == 1 and s.mode.running() and s.mode.frozen())
+	var o0: Array = s.mode.offers[0]
+	var distinct := {}
+	for id: String in o0:
+		distinct[id] = true
+	check("shop: three different offers per roster player, none outside", o0.size() == 3 and distinct.size() == 3 and s.mode.offers[1].size() == 3 and s.mode.offers[3].is_empty(), str(s.mode.offers))
+	var pos0 := s.players[0].pos
+	s.step([inp(Vector2.RIGHT), inp(), inp(), inp()])
+	check("shop: the world stands still", s.players[0].pos == pos0)
+	# buying
+	var id: String = o0[0]
+	var seq: int = s.mode.shop_seq[0]
+	check("shop: a buy with an old counter is refused", not s.shop_buy(0, 0, seq + 1) and s.mode.coins[0] == 20)
+	check("shop: buying costs the price and gives level 1", s.shop_buy(0, 0, seq) and s.mode.coins[0] == 20 - Mods.price(id) and s.mode.owned[0] == {id: 1} and s.lv(s.players[0], id) == 1 and s.mode.offers[0][0] == "")
+	check("shop: the same request again is refused", not s.shop_buy(0, 0, seq) and not s.shop_buy(0, 0, s.mode.shop_seq[0]) and s.mode.owned[0] == {id: 1})
+	s.mode.coins[0] = 0
+	check("shop: too expensive is refused", not s.shop_buy(0, 1, s.mode.shop_seq[0]) and s.mode.owned[0].size() == 1)
+	check("shop: no reroll without coins", not s.shop_reroll(0, s.mode.shop_seq[0]))
+	s.mode.coins[0] = 5
+	var before: Array = s.mode.offers[0].duplicate()
+	var all_distinct := true
+	var probe := shop_sim([0, 1], 99)
+	for _r in 40:
+		probe.shop_reroll(0, probe.mode.shop_seq[0])
+		var seen := {}
+		for x: String in probe.mode.offers[0]:
+			seen[x] = true
+		all_distinct = all_distinct and seen.size() == Economy.OFFERS
+	check("shop: offers are always different from each other", all_distinct)
+	var probe_seq: int = probe.mode.shop_seq[0]
+	probe.shop_buy(0, 0, probe_seq)
+	check("shop: a buy moves the counter, so a request sent before it is refused", not probe.shop_reroll(0, probe_seq) and probe.mode.coins[0] == 99 - 40 - Mods.price(probe.mode.owned[0].keys()[0]))
+	check("shop: a reroll costs 1 and draws a full new set", s.shop_reroll(0, s.mode.shop_seq[0]) and s.mode.coins[0] == 4 and s.mode.offers[0].size() == 3 and not s.mode.offers[0].has(""), str(before) + str(s.mode.offers[0]))
+	# levels by copies
+	s.mode.owned[0][id] = 2
+	s.mode.offers[0][0] = id
+	s.mode.coins[0] = 20
+	check("shop: the third copy makes level 2", s.shop_buy(0, 0, s.mode.shop_seq[0]) and s.lv(s.players[0], id) == 2 and s.mode.levels_of(0)[id] == 2)
+	s.mode.owned[0][id] = 6
+	check("shop: a modifier at level 3 is not offered or bought", not s.mode.can_take(0, id))
+	s.shop_reroll(0, s.mode.shop_seq[0])
+	check("shop: ... not offered after a reroll", not s.mode.offers[0].has(id))
+	# slots
+	var five := {}
+	for k in Economy.SLOTS:
+		five[Mods.ORDER[k]] = 1
+	s.mode.owned[1] = five
+	s.mode.coins[1] = 50
+	s.shop_reroll(1, s.mode.shop_seq[1])
+	var only_owned := true
+	for x: String in s.mode.offers[1]:
+		only_owned = only_owned and five.has(x)
+	check("shop: with all slots full only owned modifiers are offered", only_owned and not s.mode.can_take(1, Mods.ORDER[Economy.SLOTS]) and s.mode.can_take(1, Mods.ORDER[0]))
+	# done and the end of the shop
+	check("shop: done blocks buying", s.shop_done(0) and s.mode.shop_ready[0] and not s.shop_buy(0, 1, s.mode.shop_seq[0]) and not s.shop_done(0))
+	s.step(idle4())
+	check("shop: stays open while someone shops", s.mode.phase == M.SHOP)
+	s.set_player_enabled(2, false)
+	s.shop_done(1)
+	s.step(idle4())
+	check("shop: closes when everybody still there is done; the next round starts", s.mode.phase == M.COUNTDOWN and s.mode.round == 2)
+	check("shop: bought modifiers stay for the next round", s.lv(s.players[0], id) == 2 and s.mode.owned[0][id] == 6)
+	s = shop_sim([0, 1], 0)
+	for _t in int(Economy.SHOP_TIME * 60.0) + 2:
+		if s.mode.phase != M.SHOP: break
+		s.step(idle4())
+	check("shop: closes after the time limit", s.mode.phase == M.COUNTDOWN and s.mode.round == 2 and s.mode.phase_t < 0.1)
+	# the deciding round has no shop; a rematch clears the build
+	s = shop_sim([0, 1], 10)
+	s.shop_buy(0, 0, s.mode.shop_seq[0])
+	var bought: String = s.mode.owned[0].keys()[0]
+	next_round(s); to_play(s)
+	s.mode.points[0] = 9
+	kill_i(s, 1)
+	s.step(idle4())
+	for _t in 600:
+		s.step(idle4())
+	check("shop: none after the deciding round", s.mode.phase == M.MATCH_OVER)
+	var snap := s.save_state()
+	var twin := mk([0, 1]); twin.load_state(snap)
+	check("shop: the build is in the snapshot", twin.mode.owned == s.mode.owned and twin.lv(twin.players[0], bought) == 1)
+	s.start_match(10)
+	check("shop: a rematch clears the build and the modifiers", s.mode.owned[0].is_empty() and s.lv(s.players[0], bought) == 0)
+	# deterministic offers
+	var a := shop_sim([0, 1, 2], 9)
+	var b := shop_sim([0, 1, 2], 9)
+	a.shop_reroll(1, a.mode.shop_seq[1]); b.shop_reroll(1, b.mode.shop_seq[1])
+	check("shop: offers and rerolls are deterministic", a.mode.offers == b.mode.offers)
+	# bots
+	s = shop_sim([0, 1, 2], 8)
+	Bot.shop(s, 1)
+	check("bot shop: waits a moment first", not s.mode.shop_ready[1] and s.mode.coins[1] == 8)
+	s.mode.phase_t = Economy.BOT_SHOP_DELAY
+	var o1: Array = s.mode.offers[1].duplicate()
+	Bot.shop(s, 1)
+	var spent: int = 8 - int(s.mode.coins[1])
+	check("bot shop: buys, then is done", s.mode.shop_ready[1] and spent > 0 and not s.mode.owned[1].is_empty(), "%s %s" % [str(o1), str(s.mode.owned[1])])
+	check("bot shop: never goes below zero", s.mode.coins[1] >= 0)
+	s.mode.owned[2] = {o1[0]: 1}
+	s.mode.offers[2] = [Mods.ORDER[9] if o1[0] != Mods.ORDER[9] else Mods.ORDER[8], o1[0], ""]
+	s.mode.coins[2] = 8
+	Bot.shop(s, 2)
+	check("bot shop: a copy of an owned modifier first", int(s.mode.owned[2][o1[0]]) == 2, str(s.mode.owned[2]))
+	s = shop_sim([0, 1], 1)
+	s.mode.phase_t = 5.0
+	s.mode.offers[1] = ["warhead", "twin", "steer"]
+	Bot.shop(s, 1)
+	check("bot shop: does not waste its coins on rerolls it cannot use", s.mode.coins[1] == 1 and s.mode.shop_ready[1])
+	# texts
+	check("shop text: levels by copies", ShopPanel.level_text(0) == "New" and ShopPanel.level_text(1) == "Copy 1 of 2 for level II" and ShopPanel.level_text(2) == "Level II" and ShopPanel.level_text(3) == "Copy 1 of 3 for level III" and ShopPanel.level_text(5) == "Level III", ShopPanel.level_text(1) + " / " + ShopPanel.level_text(3))
+	var mm := MatchMode.new()
+	mm.owned[0] = {"bounce": 3, "tripwire": 1}
+	check("shop text: the build in the modifier order", ShopPanel.build_text(mm, 0) == "Build 2/5: Tripwire I, Ricochet II" and ShopPanel.build_text(mm, 1) == "Build 0/5: nothing yet", ShopPanel.build_text(mm, 0))
 
 
 func _rm(path: String) -> void:
