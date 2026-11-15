@@ -1489,15 +1489,71 @@ func _train_tests() -> void:
 				overlap = true
 	check("train: the crate is pushed off the track and never overlaps a car (a whole lap)", moved and not overlap, "moved=%s overlap=%s crate=%s" % [moved, overlap, s.crate_pos])
 
-	# a yo-yo head lying on the rails is not touched
+	# yo-yo heads: the cars are solid for them (like the crate)
+	var cs0 := xm - TrainTrack.point(0.0).x      # train_s that puts the locomotive at x = xm on the top side
+	var thrown := {}
+	for variant in ["off", "on", "bounce", "pierce2"]:
+		s = train_sim([0], 0.0 if variant == "off" else 0.001)
+		s.train_s = cs0; s.prev_train_s = cs0
+		place(s, 0, Vector2(xm, line_y + 5.0))
+		if variant == "bounce": setm(s, 0, {"bounce": 1})
+		if variant == "pierce2": setm(s, 0, {"pierce": 2})
+		throw_i(s, 0, Vector2.UP, 60)
+		thrown[variant] = [s.players[0].heads[0].pos.y, s.players[0].heads[0].bounces, s.players[0].heads[0].state]
+	var hr0 := s.head_r(s.players[0])
+	check("train: without the train a thrown head flies past the spot of the locomotive", thrown["off"][0] < line_y - 0.5, str(thrown))
+	check("train: a head thrown at a car lands in front of it", thrown["on"][2] == HS.OUT and thrown["on"][0] > line_y + TrainTrack.CAR_RADIUS + hr0 - 0.05 and thrown["on"][0] < line_y + TrainTrack.CAR_RADIUS + hr0 + 0.3, str(thrown))
+	check("train: with the bounce modifier the head ricochets off a car", thrown["bounce"][1] == 1 and thrown["bounce"][0] > line_y, str(thrown))
+	check("train: a head with pierce level 2 passes the cars like the crate", thrown["pierce2"][0] < line_y - 0.5, str(thrown))
+
+	# a head lying on the rails is shoved out of the way when a car arrives (and never overlaps a car afterwards)
 	s = train_sim([0])
 	place(s, 0, Vector2(2, line_y))
 	var h := s.players[0].heads[0]
 	h.state = HS.OUT; h.pos = Vector2(xm, line_y); h.prev_pos = h.pos
-	s.step(idle4())
-	var hp := h.pos
-	run(s, 90, func(_t: int) -> Array: return idle4())
-	check("train: a yo-yo head lying on the track is neither moved nor removed", h.state == HS.OUT and h.pos == hp and s.players[0].alive and s.train_s > 6.0)
+	s.train_s = cs0 - 2.0; s.prev_train_s = s.train_s
+	var start_h := h.pos
+	var overlap_h := false
+	for _t in 40:
+		s.step(idle4())
+		for k in TrainTrack.CARS:
+			if h.pos.distance_to(car_pos(s, k)) < TrainTrack.CAR_RADIUS + s.head_r(s.players[0]) - 0.01:
+				overlap_h = true
+	check("train: a head lying on the track is shoved aside by the cars and stays OUT", h.state == HS.OUT and h.pos.distance_to(start_h) > 0.5 and not overlap_h and s.players[0].alive, "pos=%s overlap=%s" % [h.pos, overlap_h])
+	s = train_sim([0])
+	place(s, 0, Vector2(2, line_y))
+	h = s.players[0].heads[0]
+	h.state = HS.OUT; h.pos = Vector2(xm, line_y); h.prev_pos = h.pos
+	var shove_blk := Rect2(xm + 0.5, line_y - 1.0, 1.0, 2.0)
+	s.statics.append(shove_blk)
+	s.train_s = cs0 - 1.5; s.prev_train_s = s.train_s
+	var in_block := false
+	for _t in 40:
+		s.step(idle4())
+		if Collide.push_out_rect(h.pos, s.head_r(s.players[0]), shove_blk).length() > 0.02: in_block = true
+	check("train: a head shoved by a car is stopped by a block (never pushed into it)", not in_block and h.state == HS.OUT, "pos=%s" % h.pos)
+	s = train_sim([0], 0.0)
+	place(s, 0, Vector2(2, line_y))
+	h = s.players[0].heads[0]
+	h.state = HS.OUT; h.pos = Vector2(xm, line_y); h.prev_pos = h.pos
+	s.train_s = cs0; s.prev_train_s = cs0
+	run(s, 30, func(_t: int) -> Array: return idle4())
+	check("train: speed 0 leaves a lying head alone", h.state == HS.OUT and h.pos == Vector2(xm, line_y))
+
+	# a retracting head with a car between it and the player lies down
+	s = train_sim([0], 0.0)
+	place(s, 0, Vector2(xm, line_y + 5.0))
+	throw_i(s, 0, Vector2.UP, 60)
+	var p := s.players[0]
+	s.cfg.train_speed = 0.001
+	s.train_s = cs0; s.prev_train_s = cs0
+	for _t in 5: s.step(only0(inp(Vector2.ZERO, Vector2.ZERO, true)))
+	s.step(only0(inp()))
+	var out_again := false
+	for _t in 120:
+		s.step(idle4())
+		if p.ystate == Y.OUT: out_again = true; break
+	check("train: a retracting head blocked by a car ends OUT behind it", out_again and p.head.y < line_y, "state=%d head=%s" % [p.ystate, p.head])
 
 	# respawn: never into a car. Big players make several spawn points unsafe for a car standing near them.
 	var bad := 0
