@@ -188,17 +188,27 @@ The tuning menu has a "Werte kopieren" button. It copies one compact text block 
 
 ## 7. Hosting
 
-- **Available:** A Proxmox server at the owner's home on the LAN, already running public applications. Domain via Cloudflare.
-- **For the MVP:** A container or VM on the Proxmox with the headless server, UDP port forwarding on the router.
-- **Constraints:**
-  - The Cloudflare proxy and the free tunnel do not forward UDP. The game server needs a DNS record without proxy pointing directly at the home IP.
-  - The home IP is therefore visible to other players. Acceptable among friends.
-  - A public IPv4 address is needed. Whether the connection uses DS-Lite has not been checked yet.
-- **Before a store release:** Put a small VPS in front or move to one. The server code stays the same.
+- **Decision (owner, 2026-11-15): hosting on a server is shelved for now.** The earlier plan (a container on the
+  home Proxmox server with UDP port forwarding on the router) does not work:
+  - The home internet connection is DS-Lite / CGNAT: it has no public IPv4 address, so nothing can be reached from
+    outside by forwarding a port.
+  - The Cloudflare proxy and the free Cloudflare tunnel carry no UDP, so the domain cannot help either.
+- **For testing: local play.** One phone hosts the match itself and the others on the same Wi-Fi or in the hotspot of
+  that phone join it (see section 8). The dedicated server (`--server`) stays available for a PC in the same network
+  and for tests.
+- **Before a store release:** Rent a small VPS with a public IPv4 address (or use a relay service) and run the same
+  headless server there. The server code stays the same.
 - **Important:** Changes to router, DNS or Proxmox only after consulting the owner.
 
 ## 8. Lobby and matchmaking
 
+- **LAN mode (built, version 0.5.0):** a phone opens a match (menu tab "Lokal"), the others on the same Wi-Fi or in
+  its hotspot pick the game from a list of found games or type a short code. The host runs the authoritative server
+  inside its own app (`LocalHost`); its own game connects to it through 127.0.0.1 like every other player. The match
+  uses the host's tuned values and ends when the host leaves or closes the app. The code (`LanCode`, 4 to 7
+  characters) encodes the host's IPv4 address, so joining by code needs only plain unicast UDP; the list is fed by a
+  once-a-second UDP broadcast (`LanBeacon`, port 24566) and is an extra. Details and the facts for a later iOS port are
+  in `AGENTS.md` ("Local play").
 - **MVP:** Private rooms with a room code, plus a LAN mode.
 - **Later:** Public matchmaking. The architecture must not rule it out, but it is not built for the MVP.
 
@@ -363,7 +373,7 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
 - Confirmation of defence, harmless string and dash (see section 3).
 - Number of modifier slots (proposal: five).
 - Target score and exact point scoring.
-- Check for a public IPv4 address on the home connection.
+- Where to host a server for play over the internet (the home connection has no public IPv4, see section 7).
 - Product language(s) of the game UI (the prototype menu is German for now).
 
 ## 11. Next step

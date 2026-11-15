@@ -28,6 +28,7 @@ const REBUFFER_AFTER := 30         # ticks without any new input: collect the ta
 const HELLO_TIMEOUT := 300         # ticks a new connection may stay silent before it is dropped
 const IDLE_TIMEOUT := 1800         # ticks (30 s) without any input from a joined player: the slot is freed
 const MAX_PENDING := 8             # connections that have not said hello yet
+const MAX_TICKS_PER_FRAME := 5     # after a long stall `run` catches up a little, never in a spiral
 
 var cfg: Config
 var sim: Sim
@@ -48,6 +49,7 @@ var delay_count := 0
 var skipped_inputs := 0                    # input numbers the server never received (lost, not covered by redundancy)
 var last_snapshot_bytes := 0
 
+var _acc := 0.0                    # seconds not yet turned into ticks (see `run`)
 var _pending := {}                 # peer -> ticks since connecting (no hello yet)
 var _peer_slot := {}               # peer -> slot index
 
@@ -118,6 +120,17 @@ func pump() -> void:
 				_on_leave(peer)
 			NetEndpoint.Kind.PACKET:
 				_on_packet(peer, ev["data"])
+
+
+## Frame driver for hosts that live in a node (dedicated server, local host): network in every frame, then as
+## many fixed 60 Hz ticks as `delta` allows, at most MAX_TICKS_PER_FRAME.
+func run(delta: float) -> void:
+	pump()
+	var dt := 1.0 / Config.TICK_RATE
+	_acc = minf(_acc + delta, dt * MAX_TICKS_PER_FRAME)
+	while _acc >= dt:
+		_acc -= dt
+		tick()
 
 
 ## One 60 Hz step: network in, inputs, sim, snapshots out.

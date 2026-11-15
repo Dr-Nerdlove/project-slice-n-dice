@@ -195,7 +195,7 @@ missing, with a recommendation, and let the people choose.
   templates, JDK 17 and the Android SDK configured in Godot's editor settings). Tests: `tests/run.sh` (needs `godot` on the
   PATH; ~70 s, nearly all of it the netcode suite) runs the headless checks of the simulation and the menus in
   `tests/test_sim.gd`, of the netcode in `tests/test_net.gd` (loopback with fake clock, real ENet on localhost, the
-  real main scene), of the update notice in `tests/test_update.gd` and of the toy figures, their poses and the
+  real main scene, and local play: LanCode, LanBeacon over real UDP, LocalHost, the Lokal page), of the update notice in `tests/test_update.gd` and of the toy figures, their poses and the
   arena geometry in `tests/test_view.gd`; `tests/run.sh sim|net|update|view ...` runs only
   the named suites; it prints only failures and a summary and exits non-zero on a failed check, an engine/script
   error or zero checks. `GAME_DIR=<copy of game/>` runs the tests against a copy and `TEST_PORT_OFFSET=N` shifts the
@@ -205,8 +205,9 @@ missing, with a recommendation, and let the people choose.
   working tree is never modified; the script checks that `game/` is identical afterwards), runs only the suite that
   covers an entry (prefix 1-7 sim, 8 net, 9 update, 0 view; an entry that needs another suite goes into
   `SUITES_OVERRIDE`), stops the net suite after its first failing group, and runs `-j N` entries in parallel
-  (default: half the CPU cores). All 190 entries take about 10 min with 6 workers (no gain beyond that on a 12-thread machine) (the old one-by-one run with the
-  whole suite per entry: about 2.5 h); `--full` runs the whole suite for every entry. When game code is refactored,
+  (default: half the CPU cores). All entries (about 320 now; 190 took about 10 min with 6 workers, no gain beyond that on a 12-thread machine; the
+  old one-by-one run with the whole suite per entry took about 2.5 h) take roughly 15 to 20 min. The live list `SB` is
+  the one at the END of the file (an older, dead copy of it stands above it, ignored); `--full` runs the whole suite for every entry. When game code is refactored,
   its patterns may go stale (the script reports "pattern count 0" and fails): update them. New testable behaviour
   gets a check in `tests/test_sim.gd` (netcode: `tests/test_net.gd`) and, if sensible, an entry in
   `tests/sabotage.py`. The tests live outside `game/` so the APK does not contain them. A new
@@ -228,6 +229,31 @@ missing, with a recommendation, and let the people choose.
   24565; no hosting is set up); check a running one with
   `godot --headless --path game -s tests/net_probe.gd -- HOST[:PORT] [--lag MS] [--loss PCT]`. Decisions and what is
   not done yet: `docs/PLAN.md` (M2).
+- **Local play (version 0.5.0):** one device hosts, the others on the same Wi-Fi or in the host phone's hotspot join (menu
+  tab "Lokal"; the Online tab and `--server` stay). Three classes in `game/net/`: `LanCode` (pure) turns the host's IPv4
+  address into a code of 4 to 7 characters (2 class bits, then the address bits, zero padding to a multiple of 5 bits;
+  192.168.x.y 4 characters, 172.16/12 5, 10.x.y.z 6, any other 7; alphabet of 32 without 0 O 1 I; decoding ignores case,
+  spaces and dashes; the port is always `NetProto.DEFAULT_PORT` 24565) and `pick_local_address` chooses the address to
+  host on from `IP.get_local_interfaces()` (never loopback, link-local, IPv6; 192.168 before 172.16/12 before 10 before
+  the rest; Wi-Fi / hotspot interface names before mobile data). `LanBeacon` is the discovery: the host broadcasts a 10 byte
+  hand-rolled packet ("SND1", protocol version, game port, players, max) once a second to UDP port 24566, to
+  255.255.255.255 and to a.b.c.255 of every local network; a looking device binds 24566 (only while the tab "Lokal" is open
+  and it is neither hosting nor connected; the listener is owned by `TuningMenu`) and lists games of the same protocol
+  version, expiring after 3.5 s, with caps against floods. Hand-rolled bytes because `bytes_to_var` prints engine errors on
+  garbage. `LocalHost` is the embedded server (`ENetEndpoint` + `ServerCore` on a COPY of the host's `Config`, plus the
+  announcer); `main.gd` drives it every frame (also with the menu open) and connects the host's OWN client to 127.0.0.1
+  through the normal client path (`_start_client`; a local join never overwrites the saved Online address). Leaving, joining
+  elsewhere or closing the app stops the host (the match ends). `ServerCore.run(delta)` is the shared frame driver (also
+  used by `ServerMain`). A port that is taken is probed with a plain UDP bind first because a failing ENet listen prints an
+  engine error. Android needs `ACCESS_WIFI_STATE` and `CHANGE_WIFI_MULTICAST_STATE` (export preset keys
+  `permissions/access_wifi_state`, `permissions/change_wifi_multicast_state`, checked against Godot's Android export source):
+  without the second the system drops received broadcasts; Godot takes the MulticastLock when a socket calls
+  `set_broadcast_enabled(true)`. Facts for a later iOS port: unicast UDP (joining by code) needs only the Local Network
+  prompt (`NSLocalNetworkUsageDescription`); sending or receiving broadcast or multicast needs Apple's
+  `com.apple.developer.networking.multicast` entitlement (to be requested from Apple) or Bonjour with a declared service type
+  through a native plugin; an app cannot switch the hotspot on (iOS: not at all; Android: only a local-only hotspot with a
+  random name and password); broadcast from the hotspot phone itself is unreliable on some Android devices, hence the code;
+  a backgrounded or closed host app ends the match. Not verified on real devices yet (broadcast on real Wi-Fi, the hotspot case).
 - **Look (toy figures, playroom):** all in `game/view`, view only. `toy_kit.gd`: the shared materials (glossy
   plastic with clearcoat and rim, plush, wood) and unit meshes; share them, do not create materials per figure.
   `toy_figure.gd`: builds the four figures (sizes in player radii, +z is the front) and applies the pose;
@@ -257,7 +283,7 @@ missing, with a recommendation, and let the people choose.
   `MAJOR.MINOR.PATCH`; `tools/set-version.sh` writes it to `application/config/version` in `game/project.godot` (what
   the game shows and compares), and `version/name` and `version/code` (= MAJOR*10000 + MINOR*100 + PATCH, so MINOR
   and PATCH stay below 100) in `game/export_presets.cfg`. The committed files hold the version of the NEXT release
-  (now 0.4.2); a test checks that they agree. CI builds of branches use the committed version plus the suffix
+  (now 0.5.0); a test checks that they agree. CI builds of branches use the committed version plus the suffix
   `-dev+<commit>` in `application/config/version` only (set by the `apk` job), so the game shows it is a dev build and
   never offers an update for the same version. How the app finds updates: `game/update/update_check.gd` (pure logic)
   and `main.gd` ask `https://api.github.com/repos/Joni9993/slice-n-dice-releases/releases/latest` once, 3 s after the

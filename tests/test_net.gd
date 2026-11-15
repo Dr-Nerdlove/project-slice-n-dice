@@ -2019,10 +2019,449 @@ func test_main_scene() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online%d.json" % PORT_OFFSET))
 
 
+# ---------------------------------------------------------------- local play: code, beacon, host, menu
+
+const LAN_PORT_BASE := 24700   # + PORT_OFFSET; the discovery tests use their own ports, never the real 24566
+
+
+## A port that is free for UDP and ENet on localhost, searched from `first` + PORT_OFFSET.
+func lan_free_port(first: int) -> int:
+	for p in range(first + PORT_OFFSET, first + PORT_OFFSET + 14):
+		var u := PacketPeerUDP.new()
+		var ok := u.bind(p, "127.0.0.1") == OK
+		u.close()
+		var e := ENetEndpoint.new()
+		var ok2 := e.listen(p, 4) == OK
+		e.close()
+		if ok and ok2:
+			return p
+	return 0
+
+
+func test_lan_code() -> void:
+	var samples := ["192.168.0.0", "192.168.1.20", "192.168.43.1", "192.168.255.255", "172.16.0.0", "172.20.10.1", "172.31.255.255",
+			"10.0.0.0", "10.1.2.3", "10.255.255.255", "8.8.8.8", "255.255.255.255", "0.0.0.0", "172.32.0.1", "172.15.255.255", "193.168.1.1", "127.0.0.1", "192.169.1.1"]
+	var round_ok := true
+	var bad := ""
+	for ip: String in samples:
+		if LanCode.decode(LanCode.encode(ip)) != ip:
+			round_ok = false
+			bad = ip
+	check("lan code: round trip of every class and the edges", round_ok, bad)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var rnd_ok := true
+	for i in 3000:
+		var ip := "%d.%d.%d.%d" % [rng.randi_range(0, 255), rng.randi_range(0, 255), rng.randi_range(0, 255), rng.randi_range(0, 255)]
+		if i % 3 == 0:
+			ip = "192.168.%d.%d" % [rng.randi_range(0, 255), rng.randi_range(0, 255)]
+		elif i % 3 == 1:
+			ip = "172.%d.%d.%d" % [rng.randi_range(16, 31), rng.randi_range(0, 255), rng.randi_range(0, 255)]
+		if LanCode.decode(LanCode.encode(ip)) != ip:
+			rnd_ok = false
+			bad = ip
+	check("lan code: random addresses survive the round trip", rnd_ok, bad)
+	check("lan code: lengths 4 / 5 / 6 / 7 by class", LanCode.encode("192.168.1.20").length() == 4 and LanCode.encode("172.20.1.1").length() == 5
+			and LanCode.encode("10.9.8.7").length() == 6 and LanCode.encode("8.8.8.8").length() == 7 and LanCode.encode("172.32.0.1").length() == 7)
+	check("lan code: 32 distinct characters without the look-alikes 0 O 1 I", LanCode.ALPHABET.length() == 32 and LanCode.ALPHABET.find("O") < 0 and LanCode.ALPHABET.find("I") < 0
+			and LanCode.ALPHABET.find("0") < 0 and LanCode.ALPHABET.find("1") < 0)
+	var c := LanCode.encode("192.168.1.20")
+	check("lan code: case, spaces and dashes are ignored", LanCode.decode(c.to_lower()) == "192.168.1.20" and LanCode.decode(" " + c.substr(0, 2) + "-" + c.substr(2) + " ") == "192.168.1.20"
+			and LanCode.decode(LanCode.grouped(LanCode.encode("10.9.8.7"))) == "10.9.8.7")
+	check("lan code: grouped shows 4 characters per group", LanCode.grouped("ABCDEFG") == "ABCD EFG" and LanCode.grouped("ABCD") == "ABCD")
+	check("lan code: not an IPv4 address gives an empty code", LanCode.encode("") == "" and LanCode.encode("1.2.3") == "" and LanCode.encode("256.1.1.1") == "" and LanCode.encode("a.b.c.d") == ""
+			and LanCode.encode("1.2.3.4.5") == "" and LanCode.encode("::1") == "" and LanCode.encode("01.2.3.4") == "" and LanCode.encode("1.2.3.-4") == "" and LanCode.encode("example.org") == "")
+	check("lan code: wrong characters are refused", LanCode.decode("0ABC") == "" and LanCode.decode("OABC") == "" and LanCode.decode("1ABC") == "" and LanCode.decode("IABC") == "" and LanCode.decode("AB!D") == "")
+	check("lan code: wrong lengths are refused", LanCode.decode("") == "" and LanCode.decode("ABC") == "" and LanCode.decode(c + "A") == "" and LanCode.decode("ABCDEFGH") == ""
+			and LanCode.decode(LanCode.encode("10.9.8.7").substr(0, 5)) == "" and LanCode.decode(LanCode.encode("8.8.8.8") + "A") == "")
+	var flipped := c.substr(0, 3) + LanCode.ALPHABET[LanCode.ALPHABET.find(c[3]) ^ 1]
+	check("lan code: non-zero padding bits are refused", LanCode.decode(flipped) == "", flipped)
+	var canon := true
+	for i in 32:
+		for j in 32:
+			var cd := "A" + LanCode.ALPHABET[i] + LanCode.ALPHABET[j] + "A"
+			var d := LanCode.decode(cd)
+			if d != "" and LanCode.encode(d) != cd:
+				canon = false
+	check("lan code: a code that decodes is the canonical code of its address", canon)
+
+
+func test_pick_address() -> void:
+	var lo := {"name": "lo", "addresses": ["127.0.0.1", "::1"]}
+	var wlan := {"name": "wlan0", "addresses": ["fe80::1", "192.168.1.5"]}
+	var mobile := {"name": "rmnet_data0", "addresses": ["10.20.30.40"]}
+	check("pick address: Wi-Fi 192.168 beats mobile data, loopback and IPv6 are never taken", LanCode.pick_local_address([lo, mobile, wlan]) == "192.168.1.5")
+	check("pick address: only mobile data still gives its address", LanCode.pick_local_address([lo, mobile]) == "10.20.30.40")
+	check("pick address: nothing usable gives an empty string", LanCode.pick_local_address([lo, {"name": "wlan0", "addresses": ["169.254.3.4", "fe80::2"]}]) == "" and LanCode.pick_local_address([]) == "")
+	check("pick address: 192.168 beats 172.16/12 beats 10 beats the rest",
+			LanCode.pick_local_address([{"name": "eth0", "addresses": ["8.8.4.4"]}, {"name": "eth1", "addresses": ["10.1.1.1"]}, {"name": "eth2", "addresses": ["172.20.0.9"]}]) == "172.20.0.9"
+			and LanCode.pick_local_address([{"name": "eth1", "addresses": ["10.1.1.1"]}, {"name": "eth2", "addresses": ["172.20.0.9"]}, {"name": "eth3", "addresses": ["192.168.7.7"]}]) == "192.168.7.7"
+			and LanCode.pick_local_address([{"name": "eth0", "addresses": ["8.8.4.4"]}, {"name": "eth1", "addresses": ["10.1.1.1"]}]) == "10.1.1.1")
+	check("pick address: the address class counts before the interface name", LanCode.pick_local_address([{"name": "wlan0", "addresses": ["10.0.0.2"]}, {"name": "rmnet0", "addresses": ["192.168.9.9"]}]) == "192.168.9.9")
+	check("pick address: among equal addresses Wi-Fi / hotspot names beat unknown, those beat mobile data",
+			LanCode.pick_local_address([{"name": "rmnet0", "addresses": ["192.168.9.9"]}, {"name": "ap0", "addresses": ["192.168.43.1"]}]) == "192.168.43.1"
+			and LanCode.pick_local_address([{"name": "ccmni1", "addresses": ["192.168.9.9"]}, {"name": "foo0", "addresses": ["192.168.8.8"]}]) == "192.168.8.8"
+			and LanCode.pick_local_address([{"name": "foo0", "addresses": ["192.168.8.8"]}, {"name": "swlan0", "addresses": ["192.168.7.1"]}]) == "192.168.7.1"
+			and LanCode.pick_local_address([{"name": "pdp0", "addresses": ["10.9.9.9"]}, {"name": "enp3s0", "addresses": ["10.1.1.1"]}]) == "10.1.1.1")
+	check("pick address: a PackedStringArray of addresses works too (as the engine returns it)", LanCode.pick_local_address([{"name": "wlan0", "addresses": PackedStringArray(["192.168.2.2"])}]) == "192.168.2.2")
+
+
+## Only the entries heard from 127.0.0.1 (a test announcer also reaches the machine's real network addresses).
+func lan_local_only(games: Array) -> Array:
+	return games.filter(func(e: Dictionary) -> bool: return e["ip"] == "127.0.0.1")
+
+
+func lan_raw_send(port: int, data: PackedByteArray) -> void:
+	var u := PacketPeerUDP.new()
+	u.set_dest_address("127.0.0.1", port)
+	u.put_packet(data)
+	u.close()
+
+
+func lan_wait(listener: LanBeacon, now: int, want: Callable, tries := 60) -> Array:
+	var games: Array = []
+	for _i in tries:
+		games = listener.poll(now)
+		if want.call(games):
+			break
+		OS.delay_msec(10)
+	return games
+
+
+func test_lan_beacon() -> void:
+	var pk := LanBeacon.build(NetProto.VERSION, 24565, 2, 4)
+	var g := LanBeacon.parse(pk)
+	check("beacon: build and parse round trip", pk.size() == LanBeacon.PACKET_SIZE and g == {"version": NetProto.VERSION, "port": 24565, "players": 2, "max": 4}, str(g))
+	var wrong_magic := pk.duplicate()
+	wrong_magic[0] = 88
+	var pl_over := LanBeacon.build(NetProto.VERSION, 24565, 5, 4)
+	check("beacon: parse refuses a wrong magic, length, port 0 and more players than places",
+			LanBeacon.parse(wrong_magic).is_empty() and LanBeacon.parse(pk.slice(0, 9)).is_empty() and LanBeacon.parse(pk + PackedByteArray([0])).is_empty()
+			and LanBeacon.parse(PackedByteArray()).is_empty() and LanBeacon.parse(LanBeacon.build(NetProto.VERSION, 0, 1, 4)).is_empty() and LanBeacon.parse(pl_over).is_empty())
+	check("beacon: garbage of any kind is refused without an engine error", LanBeacon.parse("hello world!".to_utf8_buffer()).is_empty() and LanBeacon.parse(var_to_bytes([1, 2])).is_empty())
+	var targets := LanBeacon.broadcast_targets([{"name": "wlan0", "addresses": ["192.168.1.7", "fe80::1"]}, {"name": "lo", "addresses": ["127.0.0.1"]},
+			{"name": "rmnet0", "addresses": ["10.4.5.6", "169.254.1.1"]}, {"name": "x", "addresses": ["192.168.1.9"]}], ["127.0.0.1"])
+	check("beacon: broadcast targets are the global one, a.b.c.255 per network, then the extras", targets == ["255.255.255.255", "192.168.1.255", "10.4.5.255", "127.0.0.1"], str(targets))
+	var port := lan_free_port(LAN_PORT_BASE)
+	check("beacon: a test port is free", port != 0)
+	if port == 0:
+		return
+	var listener := LanBeacon.new()
+	check("beacon: the listener opens its socket", listener.start_listening(port) == OK)
+	check("beacon: nothing heard at the start", listener.poll(0).is_empty())
+	var ann := LanBeacon.new()
+	ann.start_announcing(port, ["127.0.0.1"])
+	ann.announce(0, 2, 4)
+	var games := lan_local_only(lan_wait(listener, 100, func(a: Array) -> bool: return not lan_local_only(a).is_empty()))
+	check("beacon: a real UDP round trip finds the game", games.size() == 1 and games[0]["ip"] == "127.0.0.1" and games[0]["port"] == NetProto.DEFAULT_PORT
+			and games[0]["players"] == 2 and games[0]["max"] == 4 and games[0]["code"] == LanCode.encode("127.0.0.1"), str(games))
+	check("beacon: an entry stays while it is heard recently and expires after EXPIRE_MS",
+			listener.poll(100 + LanBeacon.EXPIRE_MS - 100).size() >= 1 and listener.poll(100 + LanBeacon.EXPIRE_MS + 1).is_empty())
+	ann.close()
+	# the announcement rate, counted on a raw socket
+	var raw := PacketPeerUDP.new()
+	var rport := lan_free_port(LAN_PORT_BASE + 14)
+	raw.bind(rport, "127.0.0.1")
+	var ann2 := LanBeacon.new()
+	ann2.start_announcing(rport, ["127.0.0.1"])
+	ann2.announce(5000, 1, 4)
+	ann2.announce(5500, 1, 4)
+	ann2.announce(5000 + LanBeacon.INTERVAL_MS - 1, 1, 4)
+	OS.delay_msec(50)
+	var first := raw.get_available_packet_count()
+	ann2.announce(5000 + LanBeacon.INTERVAL_MS, 3, 4)
+	OS.delay_msec(50)
+	var second := raw.get_available_packet_count()
+	check("beacon: at most one announcement per interval", first == 1 and second == 2, "first=%d second=%d" % [first, second])
+	raw.close()
+	ann2.close()
+	# other protocol versions, garbage and floods
+	listener.close()
+	check("beacon: the listener restarts", listener.start_listening(port) == OK)
+	lan_raw_send(port, LanBeacon.build(NetProto.VERSION + 1, 24565, 1, 4))
+	lan_raw_send(port, "not a beacon".to_utf8_buffer())
+	lan_raw_send(port, LanBeacon.build(NetProto.VERSION, 0, 1, 4))
+	OS.delay_msec(50)
+	check("beacon: another protocol version, garbage and an invalid packet are ignored", listener.poll(0).is_empty())
+	for i in 40:
+		lan_raw_send(port, LanBeacon.build(NetProto.VERSION, 1000 + i, 1, 4))
+	OS.delay_msec(100)
+	games = listener.poll(0)
+	check("beacon: a flood of different games keeps at most MAX_GAMES", games.size() == LanBeacon.MAX_GAMES, str(games.size()))
+	games = listener.poll(0)
+	check("beacon: the remembered games stay at the cap", games.size() == LanBeacon.MAX_GAMES)
+	listener.close()
+	listener.start_listening(port)
+	for _i in LanBeacon.MAX_PACKETS_PER_POLL + 6:
+		lan_raw_send(port, LanBeacon.build(NetProto.VERSION, 5000, 1, 4))
+	lan_raw_send(port, LanBeacon.build(NetProto.VERSION, 6000, 2, 4))
+	OS.delay_msec(100)
+	games = listener.poll(0)
+	var ports1: Array = games.map(func(e: Dictionary) -> int: return e["port"])
+	games = listener.poll(0)
+	var ports2: Array = games.map(func(e: Dictionary) -> int: return e["port"])
+	check("beacon: one poll reads only a capped number of packets", ports1 == [5000] and ports2 == [5000, 6000], "%s %s" % [ports1, ports2])
+	listener.close()
+	check("beacon: after close nothing is heard and the port can be bound again", listener.poll(0).is_empty() and listener.start_listening(port) == OK)
+	listener.close()
+	var busy := PacketPeerUDP.new()
+	busy.bind(port, "0.0.0.0")
+	check("beacon: a port that is taken gives an error and no crash", LanBeacon.new().start_listening(port) != OK)
+	busy.close()
+
+
+func test_local_host() -> void:
+	var port := lan_free_port(LAN_PORT_BASE + 28)
+	var bport := lan_free_port(LAN_PORT_BASE + 42)
+	check("local host: test ports are free", port != 0 and bport != 0)
+	if port == 0 or bport == 0:
+		return
+	var cfg := Config.new()
+	cfg.player_speed = 7.5
+	var host := LocalHost.new()
+	host.beacon_port = bport
+	host.beacon_targets = ["127.0.0.1"]
+	check("local host: starts on a test port", host.start(cfg, true, port) == OK and host.is_running())
+	cfg.player_speed = 9.5
+	check("local host: the match runs on a copy of the host's values", host.core.cfg != cfg and is_equal_approx(host.core.cfg.player_speed, 7.5), str(host.core.cfg.player_speed))
+	check("local host: with bots the free places are bots", host.core.sim.players[2].enabled)
+	var listener := LanBeacon.new()
+	check("local host: the discovery listener opens", listener.start_listening(bport) == OK)
+	var ep := ENetEndpoint.new()
+	check("local host: the own client socket opens", ep.connect_to("127.0.0.1", port) == OK)
+	var cl := ClientCore.new(ep)
+	var found: Array = []
+	var t_before: int = host.core.sim.tick
+	host.process(10.0)
+	check("local host: after a long stall the host catches up by a few ticks only", host.core.sim.tick - t_before == ServerCore.MAX_TICKS_PER_FRAME, str(host.core.sim.tick - t_before))
+	for _i in 300:
+		host.process(1.0 / 60.0)
+		cl.poll(1.0 / 60.0)
+		cl.tick(SimInput.new() if cl.state != ClientCore.State.ONLINE else inp(Vector2.RIGHT))
+		found = lan_local_only(listener.poll(0))
+		OS.delay_msec(8)
+		if cl.state == ClientCore.State.ONLINE and cl.snapshots_applied > 10 and found.size() > 0 and found[0]["players"] == 1:
+			break
+	check("local host: a client over real ENet to 127.0.0.1 gets online as player 1", cl.state == ClientCore.State.ONLINE and cl.slot == 0 and host.players() == 1, "state=%d" % cl.state)
+	check("local host: the client plays with the host's values", is_equal_approx(cl.sim.cfg.player_speed, 7.5), str(cl.sim.cfg.player_speed))
+	check("local host: the server runs ticks and gets the client's inputs", host.core.sim.tick > 20 and host.core.slots[0].last_consumed > 5)
+	check("local host: it announces itself with the player count and its port", found.size() == 1 and found[0]["players"] == 1 and found[0]["max"] == Config.NUM_PLAYERS and found[0]["port"] == port, str(found))
+	check("local host: the code is the code of the address", host.code() == LanCode.encode(host.address()))
+	cl.close()
+	for _i in 30:
+		host.process(1.0 / 60.0)
+		OS.delay_msec(5)
+	check("local host: it notices the client leaving", host.players() == 0)
+	host.stop()
+	check("local host: stop ends the match", not host.is_running() and host.players() == 0)
+	listener.start_listening(bport)   # fresh: forgets what it heard before
+	OS.delay_msec(1300)
+	check("local host: nothing is announced after stop", lan_local_only(listener.poll(0)).is_empty())
+	listener.close()
+	var again := LocalHost.new()
+	again.beacon_port = bport
+	check("local host: after stop the port is free (a second start on it works), without bots the places stay empty", again.start(Config.new(), false, port) == OK and not again.core.sim.players[2].enabled)
+	var third := LocalHost.new()
+	check("local host: a port that is taken is reported", third.start(Config.new(), false, port) != OK and not third.is_running())
+	again.stop()
+	again.stop()
+	check("local host: stopping twice is harmless", not again.is_running())
+
+
+func test_menu_local() -> void:   # async
+	var port := lan_free_port(LAN_PORT_BASE + 56)
+	var menu := TuningMenu.new()
+	root.add_child(menu)
+	menu.setup(Config.new())
+	await process_frame
+	var got: Array = []
+	menu.host_requested.connect(func(b: bool) -> void: got.append(["host", b]))
+	menu.local_stop_requested.connect(func() -> void: got.append(["stop"]))
+	menu.join_code_requested.connect(func(c: String) -> void: got.append(["code", c]))
+	menu.join_local_requested.connect(func(ip: String, p: int) -> void: got.append(["join", ip, p]))
+	var now := [1000]
+	menu.clock = func() -> int: return now[0]
+	menu.discovery_port = port
+	menu.open_menu()
+	menu._show_page(0)
+	await process_frame
+	check("menu local: no listener while another page is shown", menu._listener == null)
+	menu._show_page(4)
+	check("menu local: the Lokal page can be shown", menu._local_page.visible and not menu._online_page.visible and not menu._values_page.visible and menu._tab_local.text == "Lokal" and menu._tab_online.text == "Online")
+	await process_frame
+	check("menu local: the listener runs on the page and the list is empty", menu._listener != null and menu._local_empty_label.visible and menu._local_empty_label.text == "Noch kein Spiel gefunden" and menu._local_found_buttons.is_empty())
+	check("menu local: Mit Bots auffüllen is on by default and the buttons start right", menu._local_bots_check.button_pressed and menu._local_bots_check.text == "Mit Bots auffüllen"
+			and menu._local_host_btn.text == "Spiel eröffnen" and not menu._local_host_btn.disabled and menu._local_stop_btn.text == "Beenden" and menu._local_stop_btn.disabled and not menu._local_hosting_box.visible)
+	menu._local_host_btn.pressed.emit()
+	menu._local_bots_check.button_pressed = false
+	menu._local_host_btn.pressed.emit()
+	menu._local_code_edit.text = "ab cd"
+	menu._local_join_btn.pressed.emit()
+	check("menu local: Spiel eröffnen reports the bot choice, Beitreten the typed code", got == [["host", true], ["host", false], ["code", "ab cd"]], str(got))
+	var ann := LanBeacon.new()
+	ann.start_announcing(port, ["127.0.0.1"])
+	ann.announce(0, 1, 4, 24999)
+	for _i in 30:
+		await process_frame
+		OS.delay_msec(10)
+		if not menu._local_found_buttons.is_empty():
+			break
+	var key := "127.0.0.1:24999"
+	check("menu local: a found game shows up as a button with code and players", menu._local_found_buttons.has(key) and not menu._local_empty_label.visible
+			and (menu._local_found_buttons[key] as Button).text == "Spiel %s – 1/4 Spieler" % LanCode.grouped(LanCode.encode("127.0.0.1")), str(menu._local_found_buttons.keys()))
+	got.clear()
+	(menu._local_found_buttons[key] as Button).pressed.emit()
+	check("menu local: pressing the game reports its address and port", got == [["join", "127.0.0.1", 24999]], str(got))
+	now[0] += LanBeacon.EXPIRE_MS + 500
+	await process_frame
+	await process_frame
+	check("menu local: a game that is no longer heard disappears", menu._local_found_buttons.is_empty() and menu._local_empty_label.visible)
+	menu.set_local_status("Ungültiger Code")
+	check("menu local: the Lokal page has a status of its own", menu._local_status.text == "Ungültiger Code" and menu._online_status.text == "Nicht verbunden")
+	menu.set_local_session(true, true, "ABCDE", 2)
+	await process_frame
+	check("menu local: while hosting the listener is closed, the code is shown grouped and big", menu._listener == null and menu._local_hosting_box.visible and menu._local_code_label.text == "ABCD E"
+			and menu._local_code_label.get_theme_font_size("font_size") >= 60 and menu._local_players_label.text == "Spieler: 2 von %d" % Config.NUM_PLAYERS)
+	check("menu local: while hosting only Beenden is enabled", menu._local_host_btn.disabled and menu._local_join_btn.disabled and not menu._local_stop_btn.disabled)
+	menu._local_stop_btn.pressed.emit()
+	check("menu local: Beenden is announced", got.back() == ["stop"])
+	menu.set_local_session(true, true, "", 1)
+	check("menu local: without an address the page says so", menu._local_code_label.text == "" and menu._local_players_label.text.contains("Keine Netzwerk-Adresse"))
+	menu.set_local_session(false, true, "", 0)
+	await process_frame
+	check("menu local: as a guest there is no listener either and Beenden works", menu._listener == null and not menu._local_hosting_box.visible and not menu._local_stop_btn.disabled and menu._local_host_btn.disabled)
+	menu.set_local_session(false, false, "", 0)
+	await process_frame
+	check("menu local: back to nothing, the listener runs again", menu._listener != null and not menu._local_host_btn.disabled and menu._local_stop_btn.disabled)
+	menu.close_menu()
+	await process_frame
+	check("menu local: closing the menu closes the listener", menu._listener == null)
+	menu.open_menu()
+	menu._show_page(4)
+	var sp: float = menu.cfg.player_speed
+	menu.cfg.player_speed = sp + 1.0
+	menu._on_reset()
+	check("menu local: reset on the Lokal page does not reset the tuning values", is_equal_approx(menu.cfg.player_speed, sp + 1.0))
+	ann.close()
+	menu.queue_free()
+	await process_frame
+
+
+func test_main_local() -> void:   # async
+	NetStore.path = "user://test_online%d.json" % PORT_OFFSET
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(NetStore.path))
+	var port := lan_free_port(LAN_PORT_BASE + 70)
+	var bport := lan_free_port(LAN_PORT_BASE + 84)
+	check("main local: test ports are free", port != 0 and bport != 0)
+	if port == 0 or bport == 0:
+		return
+	var main: Node = load("res://main.tscn").instantiate()
+	root.add_child(main)
+	main.local_port = port
+	main.beacon_port = bport
+	main.beacon_targets = ["127.0.0.1"]
+	main.menu.discovery_port = bport
+	await process_frame
+	main.menu.join_code_requested.emit("0000")
+	check("main local: an invalid code shows a status and does not connect", main.menu._local_status.text == "Ungültiger Code" and main.client == null and not main._online)
+	main.menu.join_code_requested.emit("")
+	check("main local: an empty code is invalid too", main.menu._local_status.text == "Ungültiger Code" and main.client == null)
+	main.menu.join_local_requested.emit("not an address", port)
+	check("main local: a found game with a bad address is refused", main.menu._local_status.text == "Ungültige Adresse" and main.client == null)
+	# join by code: an ordinary server on the local port
+	var server_ep := ENetEndpoint.new()
+	check("main local: the test server listens", server_ep.listen(port, ServerCore.MAX_PENDING) == OK)
+	var server := ServerCore.new(Config.new(), server_ep, 7, false)
+	main.menu.join_code_requested.emit(LanCode.grouped(LanCode.encode("127.0.0.1")).to_lower())
+	check("main local: joining by code connects and shows the status on the Lokal page", main.client != null and main.menu._local_status.text == "Verbinde …")
+	for _i in 300:
+		server.tick()
+		OS.delay_msec(10)
+		await process_frame
+		if main._online:
+			break
+	check("main local: joined by code (lower case, with a space)", main._online and main.local_host == null and main.menu._local_status.text == "Verbunden als Spieler 1", main.menu._local_status.text)
+	check("main local: the Lokal page knows it is connected", not main.menu._local_stop_btn.disabled and main.menu._local_host_btn.disabled)
+	check("main local: a local join does not overwrite the saved Online address", NetStore.load_address() == "")
+	main.menu.local_stop_requested.emit()
+	check("main local: Beenden leaves the game as a guest", not main._online and main.client == null and main.menu._local_status.text == "Getrennt" and main.view.sim == main.sim)
+	# joining a game from the list: its own port counts, not the local port
+	var list_ep := ENetEndpoint.new()
+	check("main local: a second test server listens", list_ep.listen(bport, ServerCore.MAX_PENDING) == OK)
+	var list_server := ServerCore.new(Config.new(), list_ep, 7, false)
+	main.menu.join_local_requested.emit("127.0.0.1", bport)
+	for _i in 300:
+		list_server.tick()
+		OS.delay_msec(10)
+		await process_frame
+		if main._online:
+			break
+	check("main local: joining a found game connects to the port it announced", main._online and list_server.players_online() == 1 and main.menu._local_status.text == "Verbunden als Spieler 1")
+	main.menu.local_stop_requested.emit()
+	list_ep.close()
+	# hosting while the port is taken
+	main.menu.host_requested.emit(true)
+	check("main local: hosting on a port that is taken says so", main.local_host == null and main.client == null and main.menu._local_status.text.begins_with("Spiel konnte nicht eröffnet werden"), main.menu._local_status.text)
+	server_ep.close()
+	main.cfg.player_speed = 7.5
+	main.menu.host_requested.emit(true)
+	check("main local: hosting starts a host and connects the own client", main.local_host != null and main.client != null and main.menu._local_status.text == "Verbinde …")
+	for _i in 300:
+		await process_frame
+		OS.delay_msec(10)
+		if main._online:
+			break
+	check("main local: the host goes online as a player through the real main scene", main._online and main.client.slot == 0 and main.local_host.players() == 1 and main.menu._local_status.text == "Verbunden als Spieler 1")
+	check("main local: the match uses the host's values", is_equal_approx(main.client.sim.cfg.player_speed, 7.5))
+	check("main local: the page shows the code and the player count", main.menu._local_hosting_box.visible and main.menu._local_players_label.text.begins_with("Spieler: 1 von")
+			and (main.local_host.code() == "" or main.menu._local_code_label.text == LanCode.grouped(main.local_host.code())), main.menu._local_players_label.text)
+	check("main local: hosting did not touch the saved Online address", NetStore.load_address() == "")
+	var tick0: int = main.local_host.core.sim.tick
+	main.menu.open_menu()
+	for _i in 30:
+		await process_frame
+		OS.delay_msec(10)
+	check("main local: the host keeps serving while the menu is open", main.local_host.core.sim.tick > tick0 + 10 and main.menu._listener == null)
+	main.menu.lag_changed.emit(30.0, 0.0)
+	check("main local: the lag tool works on the own client", main.lag.delay_ms == 30.0)
+	var host: LocalHost = main.local_host
+	main.menu.local_stop_requested.emit()
+	check("main local: Beenden stops the host and returns to the offline game", main.local_host == null and not host.is_running() and not main._online and main.client == null
+			and main.view.sim == main.sim and main.menu._local_status.text == "Spiel beendet" and not main.menu._local_hosting_box.visible)
+	var probe := ENetEndpoint.new()
+	check("main local: the port is free again", probe.listen(port, 4) == OK)
+	probe.close()
+	main.menu.host_requested.emit(false)
+	for _i in 300:
+		await process_frame
+		OS.delay_msec(10)
+		if main._online:
+			break
+	check("main local: hosting without bots", main._online and not main.local_host.core.sim.players[2].enabled)
+	main.menu.disconnect_requested.emit()
+	check("main local: leaving from the Online page stops the host as well", main.local_host == null and not main._online)
+	main.menu.host_requested.emit(true)
+	for _i in 300:
+		await process_frame
+		OS.delay_msec(10)
+		if main._online:
+			break
+	main.menu.connect_requested.emit("a b")
+	check("main local: connecting elsewhere leaves and stops the host", main.local_host == null and main.client == null)
+	main.menu.host_requested.emit(true)
+	var host2: LocalHost = main.local_host
+	main._notification(Node.NOTIFICATION_WM_CLOSE_REQUEST)
+	check("main local: closing the app stops the host", main.local_host == null and not host2.is_running())
+	main.queue_free()
+	await process_frame
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online%d.json" % PORT_OFFSET))
+
+
 func _initialize() -> void:
 	# TEST_STOP_ON_FAIL=1 (set by tests/sabotage.py): stop after the first test group that fails.
 	var stop_early := OS.get_environment("TEST_STOP_ON_FAIL") == "1"
 	var groups: Array[Callable] = [
+		test_lan_code, test_pick_address, test_lan_beacon, test_local_host, test_menu_local, test_main_local,
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
 		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
