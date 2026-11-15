@@ -220,7 +220,7 @@ missing, with a recommendation, and let the people choose.
   drawn from `ClientCore.display_sim`, an interpolation between buffered snapshots about 4+ ticks in the past (switch
   "Gegner glätten"; `ArenaView.set_others`), except their yo-yo heads that are out and their shards: those are drawn
   from the predicted sim, in the present, with a decaying visual offset against pops (`ClientCore._apply_predicted`,
-  `predict_heads`). Hits are decided on present positions and not lag-compensated (open design decision in
+  `predict_heads`). Admission: a joined player with no input for `IDLE_TIMEOUT` (30 s) loses the slot, and `NetProto.decode_input` refuses stick values above `MAX_STICK` (2; a huge value becomes inf, then NaN, and poisons the sim). A per-address limit on slots was rejected: friends in one house share one public address and would be refused; a join code/password is the planned answer once a public server exists. Hits are decided on present positions and not lag-compensated (open design decision in
   `docs/PLAN.md`). The server's input buffer per player is adaptive (`ServerCore.Slot.target`). `Sim.save_state()` /
   `load_state()` snapshot every script variable by reflection (`game/sim/state_io.gd`): a variable that is not
   state (computed property, static data) must be listed in its class's `STATE_SKIP`, everything else is included
