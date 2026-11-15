@@ -275,6 +275,13 @@ SB=[
  ("1 train: not in the snapshot","sim/sim.gd",'const STATE_SKIP := ["cfg", "rng", "statics", "wall_count", "events"]','const STATE_SKIP := ["cfg", "rng", "statics", "wall_count", "events", "train_s"]'),
  ("1 train: track too close to an obstacle","sim/train_track.gd","const CENTER := Vector2(16.0, 7.2)","const CENTER := Vector2(16.0, 6.4)"),
  ("1 train: spawn on the rails","sim/config.gd","Vector2(10.9, 1.5), Vector2(21.1, 12.9),","Vector2(12.2, 3.6), Vector2(21.1, 12.9),"),
+ ("1 train: heads fly through (flight)","sim/sim.gd","\t\tpos += Collide.push_out_rect(pos, r, crate_rect())\n\t\tpos = _push_train(pos, r)\n","\t\tpos += Collide.push_out_rect(pos, r, crate_rect())\n"),
+ ("1 train: retracting heads pass cars","sim/sim.gd","\t\t\tpos = _push_train(pos, r)\n\t\tpos = _push_statics(pos, r, count)\n\treturn pos","\t\tpos = _push_statics(pos, r, count)\n\treturn pos"),
+ ("1 train: lying heads not shoved","sim/sim.gd","\t\t\t\tif pushed != h.pos:","\t\t\t\tif false:"),
+ ("1 train: shove ignores walls","sim/sim.gd","h.pos = _sweep_head(h.pos, pushed - h.pos, hr, false)","h.pos = pushed"),
+ ("1 train: cars solid at speed 0","sim/sim.gd","func _push_train(pos: Vector2, r: float) -> Vector2:\n\tif cfg.train_speed <= 0.0:\n\t\treturn pos\n","func _push_train(pos: Vector2, r: float) -> Vector2:\n"),
+ ("1 train: pierce 2 stopped by cars","sim/sim.gd","\tif pass_level < 2:\n\t\tpos += Collide.push_out_rect(pos, r, crate_rect())\n\t\tpos = _push_train(pos, r)","\tif pass_level < 2:\n\t\tpos += Collide.push_out_rect(pos, r, crate_rect())\n\tif true:\n\t\tpos = _push_train(pos, r)"),
+ ("1 train: car radius too small for heads","sim/sim.gd","\t\tvar reach := TrainTrack.CAR_RADIUS + r\n\t\tvar l2","\t\tvar reach := TrainTrack.CAR_RADIUS * 0.5 + r\n\t\tvar l2"),
  ("1 train: slider missing","view/tuning_menu.gd",'	["train_speed", "Eisenbahn-Tempo", 0.0, 10.0, 0.1, "m/s"],\n',''),
  ("1 train: bot ignores cars","input/bot.gd","\tif sim.cfg.train_speed > 0.0:\n\t\tfor k in TrainTrack.CARS:\n\t\t\tvar cs","\tif false:\n\t\tfor k in TrainTrack.CARS:\n\t\t\tvar cs"),
  ("1 train: bot dashes into cars","input/bot.gd"," and not _train_near(sim, me, cfg.dash_distance):",":"),
@@ -396,6 +403,12 @@ SB=[
  ("0 look: the bunny is too small for its hit circle","view/toy_figure.gd","Vector3(1.95, 1.6, 1.9))","Vector3(1.4, 1.2, 1.4))"),
  ("7 menu: the preview ignores the choice","view/tuning_menu.gd","_figure_preview.show_figure(cfg.character,","_figure_preview.show_figure(0,"),
  ("7 menu: the preview is not refreshed","view/tuning_menu.gd","if _figure_preview.figure == null or _figure_preview.figure.kind != cfg.character:","if _figure_preview.figure == null:"),
+ ("1 pickup: walking over the head does nothing","sim/sim.gd","\t\t_pickup_touched_heads(p)\n","\t\tpass\n"),
+ ("1 pickup: also heads in flight","sim/sim.gd","\t\tif h.state == HS.OUT and p.pos.distance_to(h.pos) <= catch_dist:","\t\tif (h.state == HS.OUT or h.state == HS.FLIGHT) and p.pos.distance_to(h.pos) <= catch_dist:"),
+ ("1 pickup: stunned players pick up too","sim/sim.gd","\t\tp.stun_t = maxf(0.0, p.stun_t - dt)\n","\t\tp.stun_t = maxf(0.0, p.stun_t - dt)\n\t\t_pickup_touched_heads(p)\n"),
+ ("1 pickup: catch distance far too large","sim/sim.gd","\t\tif h.state == HS.OUT and p.pos.distance_to(h.pos) <= catch_dist:","\t\tif h.state == HS.OUT and p.pos.distance_to(h.pos) <= catch_dist * 6.0:"),
+ ("1 pickup: every head is taken, not only the touched one","sim/sim.gd","\t\tif h.state == HS.OUT and p.pos.distance_to(h.pos) <= catch_dist:","\t\tif h.state == HS.OUT and (p.pos.distance_to(h.pos) <= catch_dist or p.heads.size() > 1):"),
+ ("1 pickup: a pickup starts a retract (shards, blast)","sim/sim.gd","\t\t\t_to_hand(p, h)\n\t\t\tpicked = true","\t\t\t_start_retract(p, h)\n\t\t\tpicked = true"),
 ]
 
 def suites_for(name, full):
