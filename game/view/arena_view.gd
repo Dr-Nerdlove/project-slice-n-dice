@@ -330,6 +330,8 @@ func handle_event(e: Dictionary) -> void:
 			shake(Config.SHAKE_STRENGTH * 0.5, Config.SHAKE_TIME * 0.6)
 		"wire":
 			burst(pos, PLAYER_COLORS[e["owner"] as int], 12, 4.0)
+		"pickup":
+			burst(pos, PLAYER_COLORS[e["player"] as int], 6, 2.5)
 		"stun":
 			burst(pos, Color(1, 0.95, 0.3), 10, 3.5)
 

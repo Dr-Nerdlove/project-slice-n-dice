@@ -6,11 +6,13 @@ there is none. Write it for testers, in plain words.
 
 ## 0.4.2
 
-The toy train now gets in the way of yo-yos.
+The toy train gets in the way of yo-yos, and a lying yo-yo can be picked up by walking over it.
 
 - **The train blocks yo-yos:** a thrown yo-yo stops in front of a car (or bounces off it with the bounce modifier),
   a yo-yo coming back is stopped by it, and a yo-yo lying on the track is pushed aside by the arriving train. Yo-yos
   with the second pierce level still pass, like they pass the crate. Strings and shards still go over the train.
+- **New:** walking over your own lying yo-yo picks it up again, no tap or hold needed. It works for every
+  variant and for both yo-yos of the Zwilling. A stunned player does not pick it up.
 
 ## 0.4.1
 

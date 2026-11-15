@@ -381,6 +381,12 @@ SB=[
  ("0 look: the bunny is too small for its hit circle","view/toy_figure.gd","Vector3(1.95, 1.6, 1.9))","Vector3(1.4, 1.2, 1.4))"),
  ("7 menu: the preview ignores the choice","view/tuning_menu.gd","_figure_preview.show_figure(cfg.character,","_figure_preview.show_figure(0,"),
  ("7 menu: the preview is not refreshed","view/tuning_menu.gd","if _figure_preview.figure == null or _figure_preview.figure.kind != cfg.character:","if _figure_preview.figure == null:"),
+ ("1 pickup: walking over the head does nothing","sim/sim.gd","\t\t_pickup_touched_heads(p)\n","\t\tpass\n"),
+ ("1 pickup: also heads in flight","sim/sim.gd","\t\tif h.state == HS.OUT and p.pos.distance_to(h.pos) <= catch_dist:","\t\tif (h.state == HS.OUT or h.state == HS.FLIGHT) and p.pos.distance_to(h.pos) <= catch_dist:"),
+ ("1 pickup: stunned players pick up too","sim/sim.gd","\t\tp.stun_t = maxf(0.0, p.stun_t - dt)\n","\t\tp.stun_t = maxf(0.0, p.stun_t - dt)\n\t\t_pickup_touched_heads(p)\n"),
+ ("1 pickup: catch distance far too large","sim/sim.gd","\t\tif h.state == HS.OUT and p.pos.distance_to(h.pos) <= catch_dist:","\t\tif h.state == HS.OUT and p.pos.distance_to(h.pos) <= catch_dist * 6.0:"),
+ ("1 pickup: every head is taken, not only the touched one","sim/sim.gd","\t\tif h.state == HS.OUT and p.pos.distance_to(h.pos) <= catch_dist:","\t\tif h.state == HS.OUT and (p.pos.distance_to(h.pos) <= catch_dist or p.heads.size() > 1):"),
+ ("1 pickup: a pickup starts a retract (shards, blast)","sim/sim.gd","\t\t\t_to_hand(p, h)\n\t\t\tpicked = true","\t\t\t_start_retract(p, h)\n\t\t\tpicked = true"),
 ]
 
 def suites_for(name, full):

@@ -42,7 +42,7 @@ The prototype arena is a playroom (32 x 14.4 m). A toy train runs a closed loop 
 | Ready | Yo-yo in hand, throw possible. |
 | Charging | Right stick held. The aim line shows direction and landing distance; the longer the hold, the further the throw. |
 | Flight | After release, flies in the aimed direction to the charged distance. Lethal. A yo-yo that hits a wall simply stops and lies there. |
-| Out | Stays where it landed and keeps spinning. Lethal, blocks space. No new throw is possible while it is out. |
+| Out | Stays where it landed and keeps spinning. Lethal, blocks space. No new throw is possible while it is out. Walking over your own lying yo-yo (within the catch distance, same as the end of a pull) puts it back in the hand without a retract: no shards, wire or blast. Stunned players do not pick up, and neither do other players. A head that lands at once within the catch distance (a short bounce back to the feet) is picked up at once. |
 | Retract | A short tap on the right stick pulls it back. Lethal on the way back, interacts with the environment (dragging objects along, triggering switches, hitting destructibles). Walls and obstacles stop it: the head then lies there again (Out) and can be tapped or pulled to again. |
 | Pull | Holding the right stick while the yo-yo is out pulls the character to the yo-yo. This works wherever the yo-yo lies, not only when it is anchored in terrain. |
 
