@@ -160,8 +160,8 @@ model for rhythm and feel only; nothing of an existing game is copied (see secti
 ### Maps and map rotation
 
 More maps with their own design follow later (decided by the owner on 2026-11-15), so the match needs a **map
-rotation**: the map changes between rounds (proposal, not yet confirmed: the next map in a shuffled list, each map
-once before any repeats). A map is therefore its own data unit: size, walls, obstacles, crate, train track, spawn
+rotation**: the map changes between rounds (confirmed by the owner on 2026-11-15: the next map in a shuffled list,
+each map once before any repeats). A map is therefore its own data unit: size, walls, obstacles, crate, train track, spawn
 points, free areas for the final zone, and its look in `game/view`. Today the geometry of the one playroom lives in
 `game/sim/config.gd` and `game/sim/train_track.gd`; it moves into such a map unit when the second map is built.
 
@@ -183,7 +183,7 @@ Every player gets coins automatically at the end of every round, whatever their 
 Rewards for good play and activity, while the catch-up coins keep trailing players in the match (hard requirement:
 no snowballing).
 
-### Proposals not yet confirmed by the owner
+### Numbers (confirmed by the owner on 2026-11-15, to be tuned in play)
 
 Numbers, to be tuned in play (all in one central table, like `game/sim/mods.gd`):
 - If the last players die at the same moment (for example by their own explosion), the round has no winner and
