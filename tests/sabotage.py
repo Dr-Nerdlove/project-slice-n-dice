@@ -524,6 +524,14 @@ SB=[
  ("9 name: the package has the old name","export_presets.cfg",'package/name="Spinback Rumble"','package/name="Slice n Dice (Prototype)"'),
  ("9 name: the package id changed","export_presets.cfg",'package/unique_name="io.slicendice.prototype"','package/unique_name="io.spinbackrumble.game"'),
  ("9 name: Android back quits the app","project.godot","config/quit_on_go_back=false\n",""),
+ ("2 match no respawn in play","sim/sim.gd","\t\tif mode.phase != MatchMode.Phase.OFF:\n\t\t\treturn   # in a match","\t\tif false:\n\t\t\treturn   # in a match"),
+ ("2 match scorer gets no point","sim/sim.gd","\t\tm.points[scorer] += 1","\t\tpass"),
+ ("2 match simultaneous deaths score","sim/last_standing.gd","return alive[0] if alive.size() == 1 else -1","return alive[0] if alive.size() == 1 else (0 if alive.is_empty() else -1)"),
+ ("2 match target not validated","sim/sim.gd","mode.target = target if MatchMode.TARGETS.has(target) else MatchMode.DEFAULT_TARGET","mode.target = target"),
+ ("2 match countdown not frozen","sim/match_mode.gd","return phase == Phase.COUNTDOWN or phase == Phase.RESULT or phase == Phase.MATCH_OVER","return phase == Phase.RESULT or phase == Phase.MATCH_OVER"),
+ ("2 match start without two players","sim/sim.gd","\tif n < 2:\n\t\treturn false","\tif n < 1:\n\t\treturn false"),
+ ("2 match arena not reset","sim/sim.gd","\twires.clear()\n\tshards.clear()\n\tcrate_pos = Config.CRATE_START","\tcrate_pos = Config.CRATE_START"),
+ ("8 match lock in hello","net/server_core.gd","\tif match_locked():\n\t\t_log","\tif false:\n\t\t_log"),
 ]
 
 def suites_for(name, full):

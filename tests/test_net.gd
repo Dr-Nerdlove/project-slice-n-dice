@@ -1581,6 +1581,79 @@ func test_join_rules() -> void:
 	check("bots: the bots produce input", bot_moved)
 
 
+func hello_reason(rig: Dictionary) -> String:
+	var raw := join_raw(rig)
+	for ev: Dictionary in raw.poll():
+		if ev["kind"] == NetEndpoint.Kind.PACKET:
+			var m := NetProto.unpack(ev["data"], 65536)
+			if not m.is_empty() and m[0] == NetProto.T_REJECT:
+				return str(m[1])
+			if not m.is_empty() and m[0] == NetProto.T_WELCOME:
+				return "welcome"
+	return ""
+
+
+func test_match_lock() -> void:
+	var M := MatchMode.Phase
+	var rig := make_rig(0.0, 0.0, 2, 6)
+	check("match lock: two clients join", warm_up(rig))
+	var server: ServerCore = rig["server"]
+	check("match lock: open in free play", not server.match_locked() and hello_reason(rig) == "welcome")
+	var rig_b := make_rig(0.0, 0.0, 2, 6)
+	warm_up(rig_b)
+	var sb: ServerCore = rig_b["server"]
+	check("match lock: server starts the match", sb.start_match(10) and sb.match_locked() and sb.sim.mode.phase == M.COUNTDOWN)
+	check("match lock: hello refused with 'started' in COUNTDOWN", hello_reason(rig_b) == "started")
+	for _t in 200:
+		step_rig(rig_b, func(_k: int) -> SimInput: return SimInput.new())
+	check("match lock: still refused in PLAY", sb.sim.mode.phase == M.PLAY and hello_reason(rig_b) == "started")
+	sb.sim.mode.phase = M.RESULT
+	check("match lock: refused in RESULT", hello_reason(rig_b) == "started")
+	sb.sim.mode.phase = M.MATCH_OVER
+	check("match lock: open again in MATCH_OVER", not sb.match_locked() and hello_reason(rig_b) == "welcome")
+	# an empty server cannot start
+	var rig_c := make_rig(0.0, 0.0, 1, 6)
+	warm_up(rig_c)
+	check("match lock: one player cannot start", not (rig_c["server"] as ServerCore).start_match(10))
+	# a refused ClientCore ends FAILED with the reason
+	var rig_d := make_rig(0.0, 0.0, 2, 7)
+	warm_up(rig_d)
+	(rig_d["server"] as ServerCore).start_match(10)
+	var late := ClientCore.new((rig_d["hub"] as LoopbackHub).connect_client())
+	for _t in 30:
+		(rig_d["hub"] as LoopbackHub).advance(DT_MS)
+		late.poll(DT_MS / 1000.0)
+		(rig_d["server"] as ServerCore).tick()
+		for c: ClientCore in rig_d["clients"]:
+			c.poll(DT_MS / 1000.0)
+			c.tick(SimInput.new())
+	check("match lock: a client core fails with reason 'started'", late.state == ClientCore.State.FAILED and late.fail_reason == "started", "reason=%s" % late.fail_reason)
+
+	# prediction stays consistent through countdown -> play
+	var rig_e := make_rig(60.0, 0.0, 2, 8)
+	warm_up(rig_e)
+	var se: ServerCore = rig_e["server"]
+	se.start_match(10)
+	var cl: ClientCore = rig_e["clients"][0]
+	var moved_early := false
+	var max_gap := 0.0
+	var play_seen := false
+	for t in 330:
+		var p0 := cl.sim.players[cl.slot].pos
+		step_rig(rig_e, func(k: int) -> SimInput:
+			var i := SimInput.new()
+			if k == 0: i.move = Vector2.RIGHT
+			return i)
+		if cl.sim.mode.phase == M.COUNTDOWN and cl.sim.players[cl.slot].pos != p0 and t > 30:
+			moved_early = true
+		if cl.sim.mode.phase == M.PLAY:
+			play_seen = true
+		if t > 250:
+			max_gap = maxf(max_gap, cl.sim.players[cl.slot].pos.distance_to(se.sim.players[cl.slot].pos))
+	check("match lock: client prediction does not move in countdown", not moved_early)
+	check("match lock: client reaches play and stays near the server", play_seen and se.sim.mode.phase == M.PLAY and max_gap < 1.5, "gap=%.2f phase=%d" % [max_gap, cl.sim.mode.phase])
+
+
 func test_idle_and_sticks() -> void:
 	# a joined player that sends no input is dropped after IDLE_TIMEOUT ticks; an active one stays
 	var rig := make_rig(0.0, 0.0, 2, 5)
@@ -2584,7 +2657,7 @@ func _initialize() -> void:
 		test_lan_code, test_pick_address, test_lan_beacon, test_local_host, test_menu_local, test_main_local,
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
-		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
+		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
 		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu,
 	]
 	for g in groups:

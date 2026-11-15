@@ -388,6 +388,7 @@ const STATUS := {
 	"ended": "Game ended",
 	"full": "Server is full (%d players)",
 	"version": "Wrong version: the app and the server do not match",
+	"started": "The match has already started.",
 	"disconnected": "Disconnected",
 	"not_connected": "Not connected",
 	"bad_code": "Invalid code",
@@ -560,6 +561,8 @@ func _reason_key(reason: String, was_online: bool) -> String:
 			return "full"
 		"version":
 			return "version"
+		"started":
+			return "started"
 		"timeout", "unreachable":
 			return "connect_failed"
 	return "disconnected" if was_online else "not_connected"

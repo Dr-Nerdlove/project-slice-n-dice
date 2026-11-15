@@ -320,6 +320,17 @@ func _on_packet(peer: int, data: PackedByteArray) -> void:
 			dropped_packets += 1
 
 
+## Starts a match with the players connected now (false: fewer than two).
+func start_match(target: int) -> bool:
+	return sim.start_match(target)
+
+
+## True while a match is running (countdown, play, result): nobody new may join. Free play and a finished match are open.
+func match_locked() -> bool:
+	var ph := sim.mode.phase
+	return ph == MatchMode.Phase.COUNTDOWN or ph == MatchMode.Phase.PLAY or ph == MatchMode.Phase.RESULT
+
+
 func _on_hello(peer: int, msg: Array) -> void:
 	if msg.size() != 2 or not (msg[1] is int):
 		dropped_packets += 1
@@ -327,6 +338,10 @@ func _on_hello(peer: int, msg: Array) -> void:
 	if msg[1] != NetProto.VERSION:
 		_log("refused a client: protocol version %s, expected %d" % [str(msg[1]), NetProto.VERSION])
 		_reject(peer, "version")
+		return
+	if match_locked():
+		_log("refused a client: match already started")
+		_reject(peer, "started")
 		return
 	var free := -1
 	for k in slots.size():

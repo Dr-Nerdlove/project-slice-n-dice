@@ -37,7 +37,7 @@ const HEAD_MAX_OFFSET := 6.0       # metres: a bigger visual offset is a telepor
 
 var net: NetEndpoint
 var state := State.CONNECTING
-var fail_reason := ""              # "version", "full", "timeout", "refused" or "closed"
+var fail_reason := ""              # "version", "full", "started", "timeout", "refused" or "closed"
 var slot := -1
 var cfg: Config                    # the server's configuration (set on welcome)
 var sim: Sim                       # the predicted sim (set on welcome, valid while ONLINE)

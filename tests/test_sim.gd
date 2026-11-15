@@ -295,6 +295,7 @@ func _initialize() -> void:
 	_self_damage_tests()
 	_phase_dash_tests()
 	_range_tests()
+	_match_tests()
 
 var _frames := 0
 func _process(_delta: float) -> bool:
@@ -1890,3 +1891,128 @@ func _range_tests() -> void:
 	throw0(s, Vector2.RIGHT, 60)
 	var d: float = s.players[0].head.x - 3.0
 	check("default config: full charge throws ~10 m", s.players[0].ystate == Y.OUT and absf(d - 10.0) < 0.2, "dist=%.2f" % d)
+
+
+# ================================================================ rounds and match (Last Standing)
+func kill_i(s: Sim, i: int) -> void:
+	s._kill(s.players[i], null)
+
+func to_play(s: Sim) -> void:
+	for _t in int(MatchMode.COUNTDOWN_TIME * 60.0) + 2:
+		s.step(idle4())
+
+func _match_tests() -> void:
+	var M := MatchMode.Phase
+	var s := mk([0])
+	check("match: needs two players", not s.start_match(10) and s.mode.phase == M.OFF)
+	s = mk([0, 1, 2])
+	check("match: starts with three players", s.start_match(15) and s.mode.phase == M.COUNTDOWN and s.mode.round == 1 and s.mode.target == 15)
+	check("match: roster is the enabled players", s.mode.roster == [true, true, true, false])
+	var spawned := {}
+	var all_alive := true
+	for i in 3:
+		all_alive = all_alive and s.players[i].alive
+		spawned[s.players[i].pos] = true
+	check("match: roster alive on distinct spawn points", all_alive and spawned.size() == 3 and not s.players[3].alive)
+	check("match: round_start event", s.events.any(func(e: Dictionary) -> bool: return e["type"] == "round_start"))
+	var s2 := mk([0, 1, 2]); s2.rng.seed = 1
+	s2.start_match(15)
+	check("match: spawn shuffle is deterministic", s2.players[0].pos == s.players[0].pos)
+	var s3 := mk([0, 1])
+	s3.start_match(7)
+	check("match: invalid target becomes 10", s3.mode.target == 10)
+
+	# countdown freezes inputs, play does not
+	s = mk([0, 1]); s.start_match(10)
+	var p0 := s.players[0].pos
+	for _t in 30:
+		s.step([inp(Vector2.RIGHT), inp(), inp(), inp()])
+	check("match: countdown freezes movement", s.players[0].pos == p0 and s.mode.phase == M.COUNTDOWN)
+	for _t in 200:
+		if s.mode.phase == M.PLAY: break
+		s.step(idle4())
+	check("match: countdown ends after COUNTDOWN_TIME", s.mode.phase == M.PLAY and absf(float(s.tick) - MatchMode.COUNTDOWN_TIME * 60.0) <= 31.0)
+	p0 = s.players[0].pos
+	for _t in 20:
+		s.step([inp(Vector2.RIGHT), inp(), inp(), inp()])
+	check("match: movement works in play", s.players[0].pos != p0)
+
+	# no respawn in play; last alive scores, result follows
+	s = mk([0, 1, 2]); s.start_match(10); to_play(s)
+	kill_i(s, 2)
+	for _t in 600:
+		s.step(idle4())
+	check("match: no respawn during play", not s.players[2].alive and s.mode.phase == M.PLAY)
+	kill_i(s, 1)
+	s.step(idle4())
+	check("match: last one alive scores 1 and RESULT follows", s.mode.points[0] == 1 and s.mode.last_scorer == 0 and s.mode.phase == M.RESULT and s.events.any(func(e: Dictionary) -> bool: return e["type"] == "round_end" and e["scorer"] == 0))
+
+	# result -> next round
+	s.wires.append(SimWire.new()); s.shards.append(SimShard.new())
+	var pos_frozen := s.players[0].pos
+	for _t in 30:
+		s.step([inp(Vector2.RIGHT), inp(), inp(), inp()])
+	check("match: world frozen in RESULT", s.players[0].pos == pos_frozen and s.mode.phase == M.RESULT)
+	for _t in int(MatchMode.RESULT_TIME * 60.0) + 2:
+		if s.mode.phase == M.COUNTDOWN: break
+		s.step(idle4())
+	var everyone := s.players[0].alive and s.players[1].alive and s.players[2].alive
+	check("match: next round after RESULT_TIME with all alive and a clean arena", s.mode.phase == M.COUNTDOWN and s.mode.round == 2 and everyone and s.wires.is_empty() and s.shards.is_empty() and s.mode.points[0] == 1)
+
+	# simultaneous deaths: nobody scores
+	s = mk([0, 1]); s.start_match(10); to_play(s)
+	kill_i(s, 0); kill_i(s, 1)
+	s.step(idle4())
+	check("match: both last players dying together scores nobody", s.mode.points == [0, 0, 0, 0] and s.mode.last_scorer == -1 and s.mode.phase == M.RESULT)
+
+	# target reached -> match over, stays
+	s = mk([0, 1]); s.start_match(10)
+	s.mode.points[0] = 9
+	to_play(s)
+	kill_i(s, 1)
+	s.step(idle4())
+	check("match: reaching the target ends the match", s.mode.phase == M.MATCH_OVER and s.mode.winner == 0 and s.mode.points[0] == 10 and s.events.any(func(e: Dictionary) -> bool: return e["type"] == "match_over" and e["winner"] == 0))
+	for _t in 600:
+		s.step(idle4())
+	check("match: MATCH_OVER stays", s.mode.phase == M.MATCH_OVER and s.mode.round == 1)
+	check("match: rematch resets points and starts again", s.start_match(20) and s.mode.points == [0, 0, 0, 0] and s.mode.round == 1 and s.mode.winner == -1 and s.mode.target == 20 and s.mode.phase == M.COUNTDOWN)
+
+	# leaving player counts dead and keeps points
+	s = mk([0, 1, 2]); s.start_match(10); to_play(s)
+	s.mode.points[2] = 4
+	s.set_player_enabled(2, false)
+	s.step(idle4())
+	check("match: a leaver keeps points and the round goes on", s.mode.points[2] == 4 and s.mode.phase == M.PLAY)
+	s.set_player_enabled(1, false)
+	s.step(idle4())
+	check("match: leaving counts as dead", s.mode.phase == M.RESULT and s.mode.points[0] == 1)
+	s = mk([0, 1, 2]); s.start_match(10); to_play(s)
+	s.set_player_enabled(2, false)
+	s.set_player_enabled(2, true)
+	for _t in 300:
+		s.step(idle4())
+	check("match: a slot enabled mid-round stays dead", not s.players[2].alive)
+
+	# free play unchanged
+	s = mk([0, 1])
+	kill_i(s, 1)
+	for _t in 400:
+		s.step(idle4())
+	check("match: OFF still respawns (Training unchanged)", s.players[1].alive and s.mode.phase == M.OFF)
+
+	# snapshot round trip mid-round
+	s = mk([0, 1, 2]); s.start_match(15); to_play(s)
+	for _t in 50:
+		s.step([inp(Vector2.RIGHT), inp(Vector2.UP), inp(), inp()])
+	kill_i(s, 2)
+	s.step(idle4())
+	var snap := s.save_state()
+	var twin := mk([0, 1, 2])
+	twin.load_state(snap)
+	check("match: snapshot carries the mode", twin.mode.phase == M.PLAY and twin.mode.target == 15 and twin.mode.roster == s.mode.roster and twin.mode.round == 1)
+	var ins := [inp(Vector2.LEFT), inp(Vector2.DOWN), inp(), inp()]
+	for _t in 120:
+		s.step(ins); twin.step(ins)
+	kill_i(s, 1); kill_i(twin, 1)
+	s.step(idle4()); twin.step(idle4())
+	check("match: restored state continues identically", var_to_bytes(s.save_state()) == var_to_bytes(twin.save_state()) and twin.mode.phase == M.RESULT)

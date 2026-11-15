@@ -22,8 +22,10 @@ var shards: Array[SimShard] = []
 ## The toy train: position of the locomotive along `TrainTrack` (metres) and its value one tick earlier.
 var train_s := 0.0
 var prev_train_s := 0.0
+## Rounds and score. Phase OFF (the default) is free play with respawns; `start_match` begins a match.
+var mode: MatchMode = LastStanding.new()
 ## Events of the last tick (dictionaries with "type"): kill, bounce, ricochet, box_break, respawn,
-## explosion, wire, stun. A kill by the train has "killer": -1 and "cause": "train", a death by the own explosion "killer": -1 and "cause": "self".
+## explosion, wire, stun, round_start, round_end ("scorer"), match_over ("winner"). A kill by the train has "killer": -1 and "cause": "train", a death by the own explosion "killer": -1 and "cause": "self".
 var events: Array = []
 
 var _hit := false  # scratch flag set by head sweeps
@@ -109,15 +111,114 @@ func apply_mods(i: int, levels: Dictionary) -> void:
 		p.dash_cd = 0.0
 
 
+## Starts a match for the players enabled right now (needs at least two). A target that is not offered
+## becomes the default. Also the rematch: points are zeroed.
+func start_match(target: int) -> bool:
+	var n := 0
+	for p in players:
+		if p.enabled:
+			n += 1
+	if n < 2:
+		return false
+	mode.target = target if MatchMode.TARGETS.has(target) else MatchMode.DEFAULT_TARGET
+	for i in players.size():
+		mode.roster[i] = players[i].enabled
+		mode.points[i] = 0
+	mode.round = 1
+	mode.last_scorer = -1
+	mode.winner = -1
+	_start_round()
+	return true
+
+
+## Fresh arena for the next round: roster players alive on shuffled spawn points, everybody else out.
+func _start_round() -> void:
+	wires.clear()
+	shards.clear()
+	crate_pos = Config.CRATE_START
+	prev_crate_pos = crate_pos
+	box_active = true
+	box_timer = 0.0
+	train_s = 0.0
+	prev_train_s = 0.0
+	var spawns: Array = Config.SPAWNS.duplicate()
+	for k in range(spawns.size() - 1, 0, -1):
+		var j := rng.randi_range(0, k)
+		var tmp: Vector2 = spawns[k]
+		spawns[k] = spawns[j]
+		spawns[j] = tmp
+	var centre := Config.ARENA_SIZE * 0.5
+	var next := 0
+	for i in players.size():
+		var p := players[i]
+		if not (mode.roster[i] and p.enabled):
+			p.alive = false
+			p.respawn_t = 0.0
+			_reset_yoyo(p)
+			continue
+		var at: Vector2 = spawns[next]
+		next += 1
+		p.alive = true
+		p.pos = at
+		p.prev_pos = at
+		_reset_yoyo(p)
+		p.stun_t = 0.0
+		p.facing = (centre - at).normalized()
+		p.aim_dir = p.facing
+		p.dash_cd = 0.0
+		p.dash_charges = dash_max(p)
+	mode.phase = MatchMode.Phase.COUNTDOWN
+	mode.phase_t = 0.0
+	events.append({"type": "round_start", "round": mode.round})
+
+
+func _step_match(dt: float) -> void:
+	var m := mode
+	m.phase_t += dt
+	match m.phase:
+		MatchMode.Phase.COUNTDOWN:
+			if m.phase_t >= MatchMode.COUNTDOWN_TIME:
+				m.phase = MatchMode.Phase.PLAY
+				m.phase_t = 0.0
+		MatchMode.Phase.RESULT:
+			if m.phase_t >= MatchMode.RESULT_TIME:
+				m.round += 1
+				_start_round()
+
+
+## After a PLAY tick: ends the round when the mode says so.
+func _check_round_end() -> void:
+	var m := mode
+	if not m.round_over(self):
+		return
+	var scorer := m.round_scorer(self)
+	if scorer >= 0:
+		m.points[scorer] += 1
+	m.last_scorer = scorer
+	m.phase_t = 0.0
+	events.append({"type": "round_end", "scorer": scorer, "round": m.round})
+	var w := m.match_winner(self)
+	if w >= 0:
+		m.winner = w
+		m.phase = MatchMode.Phase.MATCH_OVER
+		events.append({"type": "match_over", "winner": w})
+	else:
+		m.phase = MatchMode.Phase.RESULT
+
+
 func step(inputs: Array) -> void:
 	events.clear()
 	tick += 1
 	var dt := 1.0 / Config.TICK_RATE
 	prev_crate_pos = crate_pos
+	prev_train_s = train_s
 	for p in players:
 		p.prev_pos = p.pos
 		for h in p.heads:
 			h.prev_pos = h.pos
+	if mode.frozen():
+		_step_match(dt)
+		return
 	for i in players.size():
 		if players[i].enabled:
 			_step_player(players[i], inputs[i], dt)
@@ -128,6 +229,8 @@ func step(inputs: Array) -> void:
 	_step_wires(dt)
 	_check_kills()
 	_step_box(dt)
+	if mode.phase == MatchMode.Phase.PLAY:
+		_check_round_end()
 
 
 # ---------------------------------------------------------------- queries
@@ -270,8 +373,10 @@ func _sync_heads(p: SimPlayer) -> void:
 func _step_player(p: SimPlayer, inp: SimInput, dt: float) -> void:
 	_sync_heads(p)
 	if not p.alive:
-		p.respawn_t -= dt
 		p.held_prev = inp.aim_held
+		if mode.phase != MatchMode.Phase.OFF:
+			return   # in a match the dead stay out until the next round
+		p.respawn_t -= dt
 		if p.respawn_t <= 0.0:
 			_respawn(p)
 		return
