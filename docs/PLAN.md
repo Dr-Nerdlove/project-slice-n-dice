@@ -151,8 +151,19 @@ model for rhythm and feel only; nothing of an existing game is copied (see secti
 - **No round time limit; a shrinking zone instead** (decided by the owner on 2026-11-15, like battle royale games):
   the playable zone gets smaller during the round, and a player who stays outside it too long dies (a death without
   kill credit, like the train).
+- **The final zone lies on a random free area every round** (decided by the owner on 2026-11-15): drawn by the
+  server's seeded random generator, never on a block, the crate or the train track, and fully inside the arena.
+  The choice of free areas comes from the map, so every map can define where a final zone may lie.
 - The mode is its own unit in the code, so later modes (e.g. teams, kill count) can plug in their own rules for
   "round over", "who scores" and "match over".
+
+### Maps and map rotation
+
+More maps with their own design follow later (decided by the owner on 2026-11-15), so the match needs a **map
+rotation**: the map changes between rounds (proposal, not yet confirmed: the next map in a shuffled list, each map
+once before any repeats). A map is therefore its own data unit: size, walls, obstacles, crate, train track, spawn
+points, free areas for the final zone, and its look in `game/view`. Today the geometry of the one playroom lives in
+`game/sim/config.gd` and `game/sim/train_track.gd`; it moves into such a map unit when the second map is built.
 
 ### Shop between rounds
 
@@ -183,11 +194,10 @@ Numbers, to be tuned in play (all in one central table, like `game/sim/mods.gd`)
 - Prices per copy: `Mods.PRICES` (3 / 5 / 8 by tier). Reroll 1 coin. Shop time 20 s. No interest for now (interest
   rewards the leader; the old plan had it).
 - Underdog and leader are decided by points at the start of the round.
-- Zone: full arena for the first 20 s, then a rectangle with the arena's proportions shrinks towards the arena
-  centre over 30 s down to about a quarter of the arena's width and height, and stays there. Outside the zone a
+- Zone: full arena for the first 20 s, then a rectangle with the arena's proportions shrinks over 30 s down to about
+  a quarter of the arena's width and height, and stays there. It shrinks towards its final area (see below). Outside the zone a
   per-player timer fills (dead at 3 s) and drains again inside; it shows on the HUD, and the zone edge is visible on
-  the floor. The zone is simulation state (it must be identical on server and client). Open: whether the final zone
-  should sit somewhere random instead of the centre (the centre block and the train are there).
+  the floor. The zone is simulation state (it must be identical on server and client).
 
 ## 6. Technology
 
