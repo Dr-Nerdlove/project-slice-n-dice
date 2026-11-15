@@ -111,6 +111,9 @@ func _source_tests() -> void:
 	rx.compile("(?m)^version/code=(\\d+)")
 	m = rx.search(presets)
 	check("update: export preset code is MAJOR*10000+MINOR*100+PATCH", m != null and m.get_string(1).to_int() == UpdateCheck.version_code(running))
+	check("name: the app is called Spinback Rumble", ProjectSettings.get_setting("application/config/name") == "Spinback Rumble" and presets.contains('package/name="Spinback Rumble"'))
+	check("name: the package id is unchanged (a new id would be a separate app and lose the testers' data)", presets.contains('package/unique_name="io.slicendice.prototype"'))
+	check("name: Android back does not quit on its own (main.gd handles it)", ProjectSettings.get_setting("application/config/quit_on_go_back") == false)
 	var src := _read("res://main.gd")
 	var server_at := src.find('has("--server")')
 	var timer_at := src.find("create_timer(UPDATE_CHECK_DELAY)")
@@ -122,20 +125,21 @@ func _wiring_tests() -> void:
 	var main: Node = load("res://main.tscn").instantiate()
 	root.add_child(main)
 	await process_frame
-	check("update: no banner and no request at the start", not main.hud.update_banner.visible and main._update_http == null)
+	check("update: no banner and no request at the start", not main.main_menu.update_banner.visible and main._update_http == null)
 	check("update: the menu shows the running version", main.menu._version_label.text == "Version " + UpdateCheck.running_version() and not main.menu._update_btn.visible)
 	main.offer_update({})
-	check("update: nothing newer shows nothing", not main.hud.update_banner.visible and not main.menu._update_btn.visible)
+	check("update: nothing newer shows nothing", not main.main_menu.update_banner.visible and not main.menu._update_btn.visible)
 	var info := UpdateCheck.parse_release(release("v0.3.1", [apk()]), "0.3.0")
 	main.offer_update(info)
-	check("update: a newer version shows the banner with the text", main.hud.update_banner.visible and main.hud._update_label.text == "Neue Version 0.3.1 verfügbar", main.hud._update_label.text)
+	check("update: a newer version shows the banner with the text", main.main_menu.update_banner.visible and main.main_menu._banner_label.text == "New version 0.3.1 available", main.main_menu._banner_label.text)
 	check("update: the menu shows the new version and the button", main.menu._update_btn.visible and main.menu._version_label.text.contains("0.3.1"))
 	await process_frame
 	await process_frame
 	await process_frame
-	var banner_rect: Rect2 = main.hud.update_banner.get_global_rect()
+	var banner_rect: Rect2 = main.main_menu.update_banner.get_global_rect()
 	check("update: the banner sits inside the screen", banner_rect.size.x > 100.0 and banner_rect.size.y > 20.0 and Rect2(Vector2.ZERO, main.get_viewport().get_visible_rect().size).encloses(banner_rect), str(banner_rect))
-	check("update: touches on the banner do not steer the player", main.router.exclude_rects.has(banner_rect) and main.router.exclude_rects.has(main.hud.gear_rect()))
+	check("update: the banner is a main menu thing: it is not in the game HUD and only the pause button blocks touches there", main.main_menu.visible and main.router.exclude_rects == [main.hud.gear_rect()])
+	check("update: Settings shows the update button and the new version", main.main_menu.settings_update_btn.visible and main.main_menu.settings_version_label.text.contains("0.3.1"))
 	var menu_signals := [0]
 	main.menu.update_requested.connect(func() -> void: menu_signals[0] += 1)
 	var opened := []
@@ -143,18 +147,18 @@ func _wiring_tests() -> void:
 	main.menu._update_btn.pressed.emit()
 	check("update: the menu button reaches main", menu_signals[0] == 1)
 	check("update: the menu button opens the download link", opened == [GOOD_URL], str(opened))
-	main.hud.update_download_pressed.emit()
+	main.main_menu.update_requested.emit()
 	check("update: the banner button opens the download link", opened == [GOOD_URL, GOOD_URL])
 	main._update["url"] = "https://evil.example/a.apk"
 	main._download_update()
 	check("update: a link outside the releases repository is never opened", opened.size() == 2)
 	main._update["url"] = GOOD_URL
-	main.hud.update_banner.find_children("*", "Button", true, false).back().pressed.emit()
-	check("update: Später hides the banner", not main.hud.update_banner.visible)
+	main.main_menu.update_banner.find_children("*", "Button", true, false).back().pressed.emit()
+	check("update: Later hides the banner", not main.main_menu.update_banner.visible)
 	await process_frame
-	check("update: a hidden banner no longer blocks touches", main.router.exclude_rects.size() == 1)
+	check("update: Later is remembered for the session", main._update_dismissed)
 	main.offer_update(info)
-	check("update: Später stays for the session, the menu button stays", not main.hud.update_banner.visible and main.menu._update_btn.visible)
+	check("update: Later stays for the session, the menu button stays", not main.main_menu.update_banner.visible and main.menu._update_btn.visible)
 	main.queue_free()
 	await process_frame
 
@@ -162,7 +166,7 @@ func _wiring_tests() -> void:
 	root.add_child(main2)
 	await process_frame
 	main2.offer_update(UpdateCheck.parse_release(release("v0.3.0", [apk()]), UpdateCheck.running_version()))
-	check("update: the same version shows nothing", not main2.hud.update_banner.visible)
+	check("update: the same version shows nothing", not main2.main_menu.update_banner.visible)
 	main2.queue_free()
 	await process_frame
 
@@ -206,7 +210,7 @@ func _http_tests() -> void:
 		while Time.get_ticks_msec() - t1 < 5000 and main._update_http != null and is_instance_valid(main._update_http) and not main._update_http.is_queued_for_deletion():
 			await process_frame
 		check("update: the request reached the server (%s)" % case[0], seen["request"].begins_with("GET /latest"))
-		var shown: bool = main.hud.update_banner.visible
+		var shown: bool = main.main_menu.update_banner.visible
 		check("update: HTTP round trip (%s) -> banner %s" % [case[0], case[2]], shown == case[2], seen["request"].split("\r\n")[0])
 		if case[2]:
 			var req: String = seen["request"].to_lower()

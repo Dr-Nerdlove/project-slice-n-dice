@@ -18,8 +18,8 @@ var _address := ""
 var _next_address_ms := 0
 
 
-## Starts listening on UDP `port`. The match runs on a COPY of `cfg`: the host's tuned values at this moment are
-## the match's values, later changes in the host's menu do not reach it. Returns an Error code.
+## Starts listening on UDP `port`. The match runs on a COPY of `cfg` (the owner passes the fixed Play values, never
+## the tuned ones), later changes do not reach it; clients cannot change modifiers (`accept_client_mods`). Returns an Error code.
 func start(cfg: Config, with_bots: bool, game_port := NetProto.DEFAULT_PORT, seed_value := 20260101) -> int:
 	stop()
 	var copy := Config.new()
@@ -37,6 +37,7 @@ func start(cfg: Config, with_bots: bool, game_port := NetProto.DEFAULT_PORT, see
 	_endpoint = ep
 	port = game_port
 	core = ServerCore.new(copy, ep, seed_value, with_bots)
+	core.accept_client_mods = false   # a local match is a real game: fixed values, no modifiers from the clients
 	_beacon = LanBeacon.new()
 	_beacon.start_announcing(beacon_port, beacon_targets)
 	_address = LanCode.pick_local_address(IP.get_local_interfaces())

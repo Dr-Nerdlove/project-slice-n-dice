@@ -1930,7 +1930,9 @@ func test_main_scene() -> void:
 	var main: Node = load("res://main.tscn").instantiate()
 	root.add_child(main)
 	await process_frame
-	check("main: offline at the start", not main._online and main.client == null and main.view.sim == main.sim)
+	main.start_training()   # the app starts on the main menu; this test is about the Training game
+	await process_frame
+	check("main: offline at the start", not main._online and main.client == null and main.view.sim == main.sim and main.training and main.screen == main.Screen.GAME and main.hud.visible and not main.hud.play_mode)
 	main.cfg.character = 2
 	await process_frame
 	check("main: offline the player shows the chosen figure and the bots the following ones", main.sim.players[0].skin == 2 and main.sim.players[1].skin == 3 % Config.SKIN_COUNT and main.sim.players[3].skin == 5 % Config.SKIN_COUNT)
@@ -2230,6 +2232,7 @@ func test_local_host() -> void:
 	var ep := ENetEndpoint.new()
 	check("local host: the own client socket opens", ep.connect_to("127.0.0.1", port) == OK)
 	var cl := ClientCore.new(ep)
+	cl.set_mods({"twin": 2})   # a client that tries to bring modifiers into the match
 	var found: Array = []
 	var t_before: int = host.core.sim.tick
 	host.process(10.0)
@@ -2244,6 +2247,7 @@ func test_local_host() -> void:
 			break
 	check("local host: a client over real ENet to 127.0.0.1 gets online as player 1", cl.state == ClientCore.State.ONLINE and cl.slot == 0 and host.players() == 1, "state=%d" % cl.state)
 	check("local host: the client plays with the host's values", is_equal_approx(cl.sim.cfg.player_speed, 7.5), str(cl.sim.cfg.player_speed))
+	check("local host: the host's server ignores the modifiers a client sends", not host.core.accept_client_mods and int(host.core.sim.players[0].mods.get("twin", 0)) == 0 and int(cl.sim.players[0].mods.get("twin", 0)) == 2)
 	check("local host: the server runs ticks and gets the client's inputs", host.core.sim.tick > 20 and host.core.slots[0].last_consumed > 5)
 	check("local host: it announces itself with the player count and its port", found.size() == 1 and found[0]["players"] == 1 and found[0]["max"] == Config.NUM_PLAYERS and found[0]["port"] == port, str(found))
 	check("local host: the code is the code of the address", host.code() == LanCode.encode(host.address()))
@@ -2270,78 +2274,69 @@ func test_local_host() -> void:
 
 func test_menu_local() -> void:   # async
 	var port := lan_free_port(LAN_PORT_BASE + 56)
-	var menu := TuningMenu.new()
+	var menu := PlayLobby.new()
 	root.add_child(menu)
 	menu.setup(Config.new())
 	await process_frame
 	var got: Array = []
 	menu.host_requested.connect(func(b: bool) -> void: got.append(["host", b]))
-	menu.local_stop_requested.connect(func() -> void: got.append(["stop"]))
+	menu.stop_requested.connect(func() -> void: got.append(["stop"]))
 	menu.join_code_requested.connect(func(c: String) -> void: got.append(["code", c]))
 	menu.join_local_requested.connect(func(ip: String, p: int) -> void: got.append(["join", ip, p]))
 	var now := [1000]
 	menu.clock = func() -> int: return now[0]
 	menu.discovery_port = port
-	menu.open_menu()
-	menu._show_page(0)
 	await process_frame
-	check("menu local: no listener while another page is shown", menu._listener == null)
-	menu._show_page(4)
-	check("menu local: the Lokal page can be shown", menu._local_page.visible and not menu._online_page.visible and not menu._values_page.visible and menu._tab_local.text == "Lokal" and menu._tab_online.text == "Online")
+	check("lobby local: no listener while the lobby is not shown", menu._listener == null)
+	menu.open()
 	await process_frame
-	check("menu local: the listener runs on the page and the list is empty", menu._listener != null and menu._local_empty_label.visible and menu._local_empty_label.text == "Noch kein Spiel gefunden" and menu._local_found_buttons.is_empty())
-	check("menu local: Mit Bots auffüllen is on by default and the buttons start right", menu._local_bots_check.button_pressed and menu._local_bots_check.text == "Mit Bots auffüllen"
-			and menu._local_host_btn.text == "Spiel eröffnen" and not menu._local_host_btn.disabled and menu._local_stop_btn.text == "Beenden" and menu._local_stop_btn.disabled and not menu._local_hosting_box.visible)
-	menu._local_host_btn.pressed.emit()
-	menu._local_bots_check.button_pressed = false
-	menu._local_host_btn.pressed.emit()
-	menu._local_code_edit.text = "ab cd"
-	menu._local_join_btn.pressed.emit()
-	check("menu local: Spiel eröffnen reports the bot choice, Beitreten the typed code", got == [["host", true], ["host", false], ["code", "ab cd"]], str(got))
+	check("lobby local: the listener runs on the page and the list is empty", menu._listener != null and menu._empty_label.visible and menu._empty_label.text == "No game found yet" and menu._found_buttons.is_empty())
+	check("lobby local: Mit Bots auffüllen is on by default and the buttons start right", menu._bots_check.button_pressed and menu._bots_check.text == "Fill with bots"
+			and menu._host_btn.text == "Host a game" and not menu._host_btn.disabled and menu._stop_btn.text == "Stop" and menu._stop_btn.disabled and not menu._hosting_box.visible)
+	menu._host_btn.pressed.emit()
+	menu._bots_check.button_pressed = false
+	menu._host_btn.pressed.emit()
+	menu._code_edit.text = "ab cd"
+	menu._join_btn.pressed.emit()
+	check("lobby local: Host a game reports the bot choice, Join the typed code", got == [["host", true], ["host", false], ["code", "ab cd"]], str(got))
 	var ann := LanBeacon.new()
 	ann.start_announcing(port, ["127.0.0.1"])
 	ann.announce(0, 1, 4, 24999)
 	for _i in 30:
 		await process_frame
 		OS.delay_msec(10)
-		if not menu._local_found_buttons.is_empty():
+		if not menu._found_buttons.is_empty():
 			break
 	var key := "127.0.0.1:24999"
-	check("menu local: a found game shows up as a button with code and players", menu._local_found_buttons.has(key) and not menu._local_empty_label.visible
-			and (menu._local_found_buttons[key] as Button).text == "Spiel %s – 1/4 Spieler" % LanCode.grouped(LanCode.encode("127.0.0.1")), str(menu._local_found_buttons.keys()))
+	check("lobby local: a found game shows up as a button with code and players", menu._found_buttons.has(key) and not menu._empty_label.visible
+			and (menu._found_buttons[key] as Button).text == "Game %s – 1/4 players" % LanCode.grouped(LanCode.encode("127.0.0.1")), str(menu._found_buttons.keys()))
 	got.clear()
-	(menu._local_found_buttons[key] as Button).pressed.emit()
-	check("menu local: pressing the game reports its address and port", got == [["join", "127.0.0.1", 24999]], str(got))
+	(menu._found_buttons[key] as Button).pressed.emit()
+	check("lobby local: pressing the game reports its address and port", got == [["join", "127.0.0.1", 24999]], str(got))
 	now[0] += LanBeacon.EXPIRE_MS + 500
 	await process_frame
 	await process_frame
-	check("menu local: a game that is no longer heard disappears", menu._local_found_buttons.is_empty() and menu._local_empty_label.visible)
-	menu.set_local_status("Ungültiger Code")
-	check("menu local: the Lokal page has a status of its own", menu._local_status.text == "Ungültiger Code" and menu._online_status.text == "Nicht verbunden")
-	menu.set_local_session(true, true, "ABCDE", 2)
+	check("lobby local: a game that is no longer heard disappears", menu._found_buttons.is_empty() and menu._empty_label.visible)
+	menu.set_status("Invalid code")
+	check("lobby local: the lobby has a status of its own", menu._status.text == "Invalid code")
+	menu.set_session(true, true, "ABCDE", 2)
 	await process_frame
-	check("menu local: while hosting the listener is closed, the code is shown grouped and big", menu._listener == null and menu._local_hosting_box.visible and menu._local_code_label.text == "ABCD E"
-			and menu._local_code_label.get_theme_font_size("font_size") >= 60 and menu._local_players_label.text == "Spieler: 2 von %d" % Config.NUM_PLAYERS)
-	check("menu local: while hosting only Beenden is enabled", menu._local_host_btn.disabled and menu._local_join_btn.disabled and not menu._local_stop_btn.disabled)
-	menu._local_stop_btn.pressed.emit()
-	check("menu local: Beenden is announced", got.back() == ["stop"])
-	menu.set_local_session(true, true, "", 1)
-	check("menu local: without an address the page says so", menu._local_code_label.text == "" and menu._local_players_label.text.contains("Keine Netzwerk-Adresse"))
-	menu.set_local_session(false, true, "", 0)
+	check("lobby local: while hosting the listener is closed, the code is shown grouped and big", menu._listener == null and menu._hosting_box.visible and menu._code_label.text == "ABCD E"
+			and menu._code_label.get_theme_font_size("font_size") >= 60 and menu._players_label.text == "Players: 2 of %d" % Config.NUM_PLAYERS)
+	check("lobby local: while hosting only Stop is enabled", menu._host_btn.disabled and menu._join_btn.disabled and not menu._stop_btn.disabled)
+	menu._stop_btn.pressed.emit()
+	check("lobby local: Stop is announced", got.back() == ["stop"])
+	menu.set_session(true, true, "", 1)
+	check("lobby local: without an address the page says so", menu._code_label.text == "" and menu._players_label.text.contains("No network address"))
+	menu.set_session(false, true, "", 0)
 	await process_frame
-	check("menu local: as a guest there is no listener either and Beenden works", menu._listener == null and not menu._local_hosting_box.visible and not menu._local_stop_btn.disabled and menu._local_host_btn.disabled)
-	menu.set_local_session(false, false, "", 0)
+	check("lobby local: as a guest there is no listener either and Stop works", menu._listener == null and not menu._hosting_box.visible and not menu._stop_btn.disabled and menu._host_btn.disabled)
+	menu.set_session(false, false, "", 0)
 	await process_frame
-	check("menu local: back to nothing, the listener runs again", menu._listener != null and not menu._local_host_btn.disabled and menu._local_stop_btn.disabled)
-	menu.close_menu()
+	check("lobby local: back to nothing, the listener runs again", menu._listener != null and not menu._host_btn.disabled and menu._stop_btn.disabled)
+	menu.close()
 	await process_frame
-	check("menu local: closing the menu closes the listener", menu._listener == null)
-	menu.open_menu()
-	menu._show_page(4)
-	var sp: float = menu.cfg.player_speed
-	menu.cfg.player_speed = sp + 1.0
-	menu._on_reset()
-	check("menu local: reset on the Lokal page does not reset the tuning values", is_equal_approx(menu.cfg.player_speed, sp + 1.0))
+	check("lobby local: closing the lobby closes the listener", menu._listener == null)
 	ann.close()
 	menu.queue_free()
 	await process_frame
@@ -2360,78 +2355,87 @@ func test_main_local() -> void:   # async
 	main.local_port = port
 	main.beacon_port = bport
 	main.beacon_targets = ["127.0.0.1"]
-	main.menu.discovery_port = bport
+	main.lobby.discovery_port = bport
 	await process_frame
-	main.menu.join_code_requested.emit("0000")
-	check("main local: an invalid code shows a status and does not connect", main.menu._local_status.text == "Ungültiger Code" and main.client == null and not main._online)
-	main.menu.join_code_requested.emit("")
-	check("main local: an empty code is invalid too", main.menu._local_status.text == "Ungültiger Code" and main.client == null)
-	main.menu.join_local_requested.emit("not an address", port)
-	check("main local: a found game with a bad address is refused", main.menu._local_status.text == "Ungültige Adresse" and main.client == null)
+	main.main_menu.play_btn.pressed.emit()
+	check("main local: Play opens the lobby", main.screen == main.Screen.LOBBY and main.lobby.visible and not main.main_menu.visible)
+	main.lobby.join_code_requested.emit("0000")
+	check("main local: an invalid code shows a status and does not connect", main.lobby._status.text == "Invalid code" and main.client == null and not main._online)
+	main.lobby.join_code_requested.emit("")
+	check("main local: an empty code is invalid too", main.lobby._status.text == "Invalid code" and main.client == null)
+	main.lobby.join_local_requested.emit("not an address", port)
+	check("main local: a found game with a bad address is refused", main.lobby._status.text == "Invalid address" and main.client == null)
 	# join by code: an ordinary server on the local port
 	var server_ep := ENetEndpoint.new()
 	check("main local: the test server listens", server_ep.listen(port, ServerCore.MAX_PENDING) == OK)
 	var server := ServerCore.new(Config.new(), server_ep, 7, false)
-	main.menu.join_code_requested.emit(LanCode.grouped(LanCode.encode("127.0.0.1")).to_lower())
-	check("main local: joining by code connects and shows the status on the Lokal page", main.client != null and main.menu._local_status.text == "Verbinde …")
+	main.lobby.join_code_requested.emit(LanCode.grouped(LanCode.encode("127.0.0.1")).to_lower())
+	check("main local: joining by code connects and shows the status in the lobby", main.client != null and main.lobby._status.text == "Connecting …")
 	for _i in 300:
 		server.tick()
 		OS.delay_msec(10)
 		await process_frame
 		if main._online:
 			break
-	check("main local: joined by code (lower case, with a space)", main._online and main.local_host == null and main.menu._local_status.text == "Verbunden als Spieler 1", main.menu._local_status.text)
-	check("main local: the Lokal page knows it is connected", not main.menu._local_stop_btn.disabled and main.menu._local_host_btn.disabled)
+	check("main local: joined by code (lower case, with a space)", main._online and main.local_host == null and main.lobby._status.text == "Connected as player 1", main.lobby._status.text)
+	check("main local: the lobby knows it is connected", not main.lobby._stop_btn.disabled and main.lobby._host_btn.disabled)
 	check("main local: a local join does not overwrite the saved Online address", NetStore.load_address() == "")
-	main.menu.local_stop_requested.emit()
-	check("main local: Beenden leaves the game as a guest", not main._online and main.client == null and main.menu._local_status.text == "Getrennt" and main.view.sim == main.sim)
+	check("main local: a joined Play game shows the game, no lobby, only the pause button", main.screen == main.Screen.GAME and not main.training and not main.lobby.visible and main.hud.visible and main.hud.play_mode)
+	main.pause.main_menu_btn.pressed.emit()
+	check("main local: Main menu leaves the game as a guest and shows the main menu", not main._online and main.client == null and main.lobby._status.text == "Disconnected" and main.view.sim == main.sim and main.screen == main.Screen.MENU and main.main_menu.visible)
 	# joining a game from the list: its own port counts, not the local port
 	var list_ep := ENetEndpoint.new()
 	check("main local: a second test server listens", list_ep.listen(bport, ServerCore.MAX_PENDING) == OK)
 	var list_server := ServerCore.new(Config.new(), list_ep, 7, false)
-	main.menu.join_local_requested.emit("127.0.0.1", bport)
+	main._show_lobby()
+	main.lobby.join_local_requested.emit("127.0.0.1", bport)
 	for _i in 300:
 		list_server.tick()
 		OS.delay_msec(10)
 		await process_frame
 		if main._online:
 			break
-	check("main local: joining a found game connects to the port it announced", main._online and list_server.players_online() == 1 and main.menu._local_status.text == "Verbunden als Spieler 1")
-	main.menu.local_stop_requested.emit()
+	check("main local: joining a found game connects to the port it announced", main._online and list_server.players_online() == 1 and main.lobby._status.text == "Connected as player 1")
+	main.lobby.stop_requested.emit()
+	check("main local: Stop leaves a joined game and goes to the main menu", not main._online and main.screen == main.Screen.MENU)
 	list_ep.close()
 	# hosting while the port is taken
-	main.menu.host_requested.emit(true)
-	check("main local: hosting on a port that is taken says so", main.local_host == null and main.client == null and main.menu._local_status.text.begins_with("Spiel konnte nicht eröffnet werden"), main.menu._local_status.text)
+	main._show_lobby()
+	main.lobby.host_requested.emit(true)
+	check("main local: hosting on a port that is taken says so", main.local_host == null and main.client == null and main.lobby._status.text.begins_with("Could not open the game"), main.lobby._status.text)
 	server_ep.close()
-	main.cfg.player_speed = 7.5
-	main.menu.host_requested.emit(true)
-	check("main local: hosting starts a host and connects the own client", main.local_host != null and main.client != null and main.menu._local_status.text == "Verbinde …")
+	main.train_cfg.player_speed = 7.5
+	main.train_cfg.mods_you["twin"] = 2   # tuned values and sandbox modifiers of Training
+	main.lobby.host_requested.emit(true)
+	check("main local: hosting starts a host and connects the own client", main.local_host != null and main.client != null and main.lobby._status.text == "Connecting …")
 	for _i in 300:
 		await process_frame
 		OS.delay_msec(10)
 		if main._online:
 			break
-	check("main local: the host goes online as a player through the real main scene", main._online and main.client.slot == 0 and main.local_host.players() == 1 and main.menu._local_status.text == "Verbunden als Spieler 1")
-	check("main local: the match uses the host's values", is_equal_approx(main.client.sim.cfg.player_speed, 7.5))
-	check("main local: the page shows the code and the player count", main.menu._local_hosting_box.visible and main.menu._local_players_label.text.begins_with("Spieler: 1 von")
-			and (main.local_host.code() == "" or main.menu._local_code_label.text == LanCode.grouped(main.local_host.code())), main.menu._local_players_label.text)
+	check("main local: the host goes online as a player through the real main scene", main._online and main.client.slot == 0 and main.local_host.players() == 1 and main.lobby._status.text == "Connected as player 1")
+	check("main local: the match uses the fixed default values, not the tuned ones", is_equal_approx(main.client.sim.cfg.player_speed, Config.DEFAULTS["player_speed"]) and is_equal_approx(main.local_host.core.cfg.player_speed, Config.DEFAULTS["player_speed"]) and main.cfg == main.play_cfg and not main.training)
+	check("main local: the page shows the code and the player count", main.lobby._hosting_box.visible and main.lobby._players_label.text.begins_with("Players: 1 of")
+			and (main.local_host.code() == "" or main.lobby._code_label.text == LanCode.grouped(main.local_host.code())), main.lobby._players_label.text)
 	check("main local: hosting did not touch the saved Online address", NetStore.load_address() == "")
 	var tick0: int = main.local_host.core.sim.tick
-	main.menu.open_menu()
+	main.hud.gear_pressed.emit()
 	for _i in 30:
 		await process_frame
 		OS.delay_msec(10)
-	check("main local: the host keeps serving while the menu is open", main.local_host.core.sim.tick > tick0 + 10 and main.menu._listener == null)
+	check("main local: the host keeps serving while the pause panel is open", main.pause.visible and main.local_host.core.sim.tick > tick0 + 10 and main.lobby._listener == null)
+	check("main local: the host player has no modifiers (the Play client sends none)", main.local_host.core.sim.players[0].mods.values().all(func(v: int) -> bool: return v == 0) and main.client.sim.players[0].mods.values().all(func(v: int) -> bool: return v == 0))
 	main.menu.lag_changed.emit(30.0, 0.0)
 	check("main local: the lag tool works on the own client", main.lag.delay_ms == 30.0)
 	var host: LocalHost = main.local_host
-	main.menu.local_stop_requested.emit()
-	check("main local: Beenden stops the host and returns to the offline game", main.local_host == null and not host.is_running() and not main._online and main.client == null
-			and main.view.sim == main.sim and main.menu._local_status.text == "Spiel beendet" and not main.menu._local_hosting_box.visible)
+	main.pause.main_menu_btn.pressed.emit()
+	check("main local: Main menu stops the host and leaves the session", main.local_host == null and not host.is_running() and not main._online and main.client == null
+			and main.view.sim == main.sim and main.lobby._status.text == "Game ended" and not main.lobby._hosting_box.visible and main.screen == main.Screen.MENU and not main.pause.visible)
 	var probe := ENetEndpoint.new()
 	check("main local: the port is free again", probe.listen(port, 4) == OK)
 	probe.close()
-	main.menu.host_requested.emit(false)
+	main._show_lobby()
+	main.lobby.host_requested.emit(false)
 	for _i in 300:
 		await process_frame
 		OS.delay_msec(10)
@@ -2439,8 +2443,9 @@ func test_main_local() -> void:   # async
 			break
 	check("main local: hosting without bots", main._online and not main.local_host.core.sim.players[2].enabled)
 	main.menu.disconnect_requested.emit()
-	check("main local: leaving from the Online page stops the host as well", main.local_host == null and not main._online)
-	main.menu.host_requested.emit(true)
+	check("main local: leaving from the Online page stops the host as well (a Play match then goes to the main menu)", main.local_host == null and not main._online and main.screen == main.Screen.MENU)
+	main._show_lobby()
+	main.lobby.host_requested.emit(true)
 	for _i in 300:
 		await process_frame
 		OS.delay_msec(10)
@@ -2448,13 +2453,128 @@ func test_main_local() -> void:   # async
 			break
 	main.menu.connect_requested.emit("a b")
 	check("main local: connecting elsewhere leaves and stops the host", main.local_host == null and main.client == null)
-	main.menu.host_requested.emit(true)
+	main._show_lobby()
+	main.lobby.host_requested.emit(true)
 	var host2: LocalHost = main.local_host
 	main._notification(Node.NOTIFICATION_WM_CLOSE_REQUEST)
 	check("main local: closing the app stops the host", main.local_host == null and not host2.is_running())
 	main.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online%d.json" % PORT_OFFSET))
+
+
+## A default server takes the modifiers a client sends (`--server`, the Online tab); one with `accept_client_mods`
+## off (the host of a Play match) does not.
+func test_client_mods() -> void:
+	var open_rig := make_rig(0.0, 0.0, 1, 3)
+	var c: ClientCore = open_rig["clients"][0]
+	c.set_mods({"twin": 2})
+	warm_up(open_rig)
+	for _t in 30:
+		step_rig(open_rig, func(_k: int) -> SimInput: return SimInput.new())
+	var server: ServerCore = open_rig["server"]
+	check("client mods: a default server accepts them", server.accept_client_mods and int(server.sim.players[c.slot].mods.get("twin", 0)) == 2)
+	var fixed_rig := make_rig(0.0, 0.0, 1, 3)
+	(fixed_rig["server"] as ServerCore).accept_client_mods = false
+	var c2: ClientCore = fixed_rig["clients"][0]
+	c2.set_mods({"twin": 2})
+	warm_up(fixed_rig)
+	for _t in 30:
+		step_rig(fixed_rig, func(_k: int) -> SimInput: return SimInput.new())
+	var server2: ServerCore = fixed_rig["server"]
+	check("client mods: a server with fixed values ignores them", int(server2.sim.players[c2.slot].mods.get("twin", 0)) == 0 and int(c2.sim.players[c2.slot].mods.get("twin", 0)) == 2)
+	check("client mods: ... and nothing counts as a protocol error", server2.dropped_packets == 0 and server2.rejected == 0)
+
+
+## The real main scene from the main menu: Play (fixed values) against Training (tuned values), pause, back.
+func test_main_menu() -> void:   # async
+	NetStore.path = "user://test_online%d.json" % PORT_OFFSET
+	var main: Node = load("res://main.tscn").instantiate()
+	root.add_child(main)
+	for _i in 5:
+		await process_frame
+	check("menu: the app starts on the main menu over the arena", main.screen == main.Screen.MENU and main.main_menu.visible and not main.lobby.visible and not main.hud.visible and not main.pause.visible)
+	check("menu: the sim does not tick while the main menu is open", main.sim.tick == 0)
+	check("menu: the buttons are Play, Training and Settings (no Character button)", main.main_menu.play_btn.text == "Play" and main.main_menu.training_btn.text == "Training" and main.main_menu.settings_btn.text == "Settings"
+			and not main.main_menu.find_children("*", "Button", true, false).any(func(b: Button) -> bool: return b.text.contains("Character")))
+	check("menu: the title and the line are there, the version at the bottom", main.main_menu.find_children("*", "Label", true, false).any(func(l: Label) -> bool: return l.text == "Spinback Rumble") and main.main_menu.find_children("*", "Label", true, false).any(func(l: Label) -> bool: return l.text == "Yo-yo brawls in the playroom. 2 to 8 players.") and main.main_menu.version_label.text == "Version " + UpdateCheck.running_version())
+	check("menu: the input is blocked behind the menu", main.router.blocked)
+	# tuned values and sandbox modifiers in the saved config
+	main.train_cfg.player_speed = 9.0
+	main.train_cfg.dash_distance = 7.0
+	main.train_cfg.mods_you["twin"] = 3
+	main.train_cfg.mods_bots["pierce"] = 2
+	main.train_cfg.bot_mode = Config.BotMode.DUMMY
+	main.train_cfg.character = 3
+	main.main_menu.play_btn.pressed.emit()
+	await process_frame
+	check("menu: Play opens the lobby, the sim still stands", main.screen == main.Screen.LOBBY and main.lobby.visible and not main.main_menu.visible and main.sim.tick == 0)
+	main.lobby.solo_btn.pressed.emit()
+	for _i in 30:
+		await process_frame
+	var pcfg: Config = main.sim.cfg
+	check("play: a solo game runs on the default values, not the tuned ones", main.screen == main.Screen.GAME and not main.training and main.cfg == main.play_cfg and pcfg == main.play_cfg and main.play_cfg != main.train_cfg
+			and pcfg.player_speed == Config.DEFAULTS["player_speed"] and pcfg.dash_distance == Config.DEFAULTS["dash_distance"] and main.sim.tick > 10, str(pcfg.player_speed))
+	check("play: no modifier levels, for the player or the bots", Mods.ORDER.all(func(id: String) -> bool: return pcfg.mods_you[id] == 0 and pcfg.mods_bots[id] == 0 and main.sim.players[0].mods.get(id, 0) == 0 and main.sim.players[1].mods.get(id, 0) == 0))
+	check("play: bots are active whatever the saved bot mode, and the chosen figure counts", pcfg.bot_mode == Config.BotMode.ACTIVE and main.sim.players[1].enabled and main.sim.players[0].skin == 3 and main.sim.players[1].skin == 4)
+	check("play: the HUD shows only the pause button", main.hud.visible and main.hud.play_mode and not main.hud._score_box.visible and not main.hud._chip_box.visible and not main.hud._net_label.visible and not main.router.blocked)
+	# pause
+	var t0: int = main.sim.tick
+	main.hud.gear_pressed.emit()
+	for _i in 10:
+		await process_frame
+	check("pause: the pause panel opens, the offline sim stands and the input is blocked", main.pause.visible and main.sim.tick == t0 and main.router.blocked and not main.menu.visible)
+	main.pause.resume_btn.pressed.emit()
+	for _i in 10:
+		await process_frame
+	check("pause: Resume goes on", not main.pause.visible and main.sim.tick > t0 and not main.router.blocked)
+	main.router.menu_requested.emit()
+	check("pause: Escape opens it too", main.pause.visible)
+	main._notification(Node.NOTIFICATION_WM_GO_BACK_REQUEST)
+	check("pause: Android back closes it again", not main.pause.visible)
+	main.hud.gear_pressed.emit()
+	main.pause.main_menu_btn.pressed.emit()
+	for _i in 3:
+		await process_frame
+	check("pause: Main menu stops the game and shows the menu over a fresh, standing arena", main.screen == main.Screen.MENU and main.main_menu.visible and not main.hud.visible and not main.pause.visible and main.sim.tick == 0 and main.router.blocked)
+	# Training
+	main.main_menu.training_btn.pressed.emit()
+	for _i in 30:
+		await process_frame
+	check("training: runs on the tuned values and the sandbox modifiers", main.screen == main.Screen.GAME and main.training and main.cfg == main.train_cfg and main.sim.cfg.player_speed == 9.0 and main.sim.cfg.dash_distance == 7.0
+			and main.sim.players[0].mods.get("twin", 0) == 3 and main.sim.players[1].mods.get("pierce", 0) == 2 and main.sim.tick > 10)
+	check("training: keeps the saved bot mode, the figure and today's HUD", main.sim.players[1].enabled == (main.train_cfg.bot_mode != Config.BotMode.OFF) and not main.sim.cfg.bot_mode == Config.BotMode.ACTIVE and main.sim.players[0].skin == 3 and main.hud.visible and not main.hud.play_mode and main.hud._score_box.visible)
+	main.hud.gear_pressed.emit()
+	check("training: the pause button opens the tuning menu, not the pause panel", main.menu.visible and not main.pause.visible and main.router.blocked)
+	var t1: int = main.sim.tick
+	for _i in 5:
+		await process_frame
+	check("training: the offline sim stands while the tuning menu is open", main.sim.tick == t1)
+	main._notification(Node.NOTIFICATION_WM_GO_BACK_REQUEST)
+	check("training: Android back closes the tuning menu", not main.menu.visible and not main.router.blocked)
+	main.hud.gear_pressed.emit()
+	main.menu.main_menu_requested.emit()
+	check("training: the Main menu button of the tuning menu goes back", main.screen == main.Screen.MENU and not main.menu.visible and main.main_menu.visible)
+	check("training: and the tuned values are still the tuned ones for the next Training game", main.train_cfg.player_speed == 9.0)
+	# lobby back, settings back
+	main.main_menu.play_btn.pressed.emit()
+	main._notification(Node.NOTIFICATION_WM_GO_BACK_REQUEST)
+	check("back: Android back in the lobby goes to the main menu", main.screen == main.Screen.MENU and main.main_menu.visible and not main.lobby.visible)
+	var quits: Array = []
+	main.quit_hook = func() -> void: quits.append(true)
+	main._notification(Node.NOTIFICATION_WM_GO_BACK_REQUEST)
+	check("back: Android back in the main menu quits the app", quits.size() == 1)
+	main.main_menu.settings_btn.pressed.emit()
+	check("settings: the page shows the version and no update button yet", main.main_menu.settings_page.visible and main.main_menu.settings_version_label.text == "Version " + UpdateCheck.running_version() and not main.main_menu.settings_update_btn.visible)
+	main._notification(Node.NOTIFICATION_WM_GO_BACK_REQUEST)
+	check("back: Android back in Settings goes back to the main page (it does not quit)", quits.size() == 1 and main.screen == main.Screen.MENU and not main.main_menu.settings_page.visible and main.main_menu._main_page.visible)
+	# the update notice is a main menu thing
+	main.offer_update({"version": "9.9.9", "url": "https://github.com/Joni9993/slice-n-dice-releases/releases/download/v9.9.9/x.apk"})
+	check("update: the banner shows in the main menu", main.main_menu.update_banner.visible and main.main_menu.settings_update_btn.visible)
+	main.start_solo()
+	check("update: not during a game", not main.main_menu.visible and main.screen == main.Screen.GAME)
+	main.queue_free()
+	await process_frame
 
 
 func _initialize() -> void:
@@ -2465,7 +2585,7 @@ func _initialize() -> void:
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
 		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
-		test_address_parse, test_enet, test_menu_online, test_main_scene,
+		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu,
 	]
 	for g in groups:
 		if stop_early and fails > 0:

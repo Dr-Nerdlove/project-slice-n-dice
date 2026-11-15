@@ -423,6 +423,7 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
 ### M3: Match loop
 Step order (decided by the owner on 2026-11-15):
 1. UI building blocks in the new style, new main menu "Play" / "Training"; the real game uses fixed `Config` defaults, Training keeps today's tuning; all new text English; the app's shown name becomes Spinback Rumble.
+   **Done (version 0.6.0).** `game/ui/` has `UiKit` (colours, theme, buttons, panels, print title, blurred backdrop, fonts Unbounded and Rubik), the main menu (Play / Training / Settings), the Play lobby (figure choice with live preview, Solo vs bots, Together = the former "Lokal" page) and the pause panel. Play runs on a fresh default `Config` (only the figure is taken from the saved one, no modifier levels; a local host ignores client modifiers); Training keeps the tuned, saved values and the tuning menu. The Play HUD shows only a pause button. Not done: the German Training texts stay German (step 2); the PC user folder name changed with the app name (see AGENTS.md); not yet looked at on a real screen.
 2. Translate all remaining German texts to English.
 3. Rounds and points for Last Standing (no respawn, 1 point, target 10/15/20, round and match result screens; the mode as its own unit).
 4. Shrinking zone.
@@ -463,4 +464,4 @@ Contents:
 
 ## 11. Next step
 
-M3 step 1 (section 9): UI building blocks in the new style, the new main menu "Play" / "Training", and the shown name Spinback Rumble.
+M3 step 2 (section 9): translate all remaining German texts (the Training menu, the HUD of Training, `game/sim/mods.gd`, figure names, status messages) to English.

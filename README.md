@@ -1,4 +1,6 @@
-# Slice n Dice
+# Spinback Rumble
+
+(Working title until version 0.5: "Slice n Dice"; the repository and the file names keep the old name.)
 
 A top-down arena brawler for Android with online multiplayer for 2-8 players. Fast rounds where one hit kills, and the weapon is a yo-yo you throw, leave spinning, retract or pull yourself towards.
 
@@ -15,7 +17,7 @@ Early prototype, milestone 1 (game feel offline). See [docs/PLAN.md](docs/PLAN.m
 Test versions are published in the public repository
 [Joni9993/slice-n-dice-releases](https://github.com/Joni9993/slice-n-dice-releases/releases). On an Android phone:
 download the `.apk` of the newest release, open it and allow installing from this source. From version 0.3.0 on
-the app tells you by itself ("Neue Version ... verfügbar", with a download button; also in the settings) when a
+the app tells you by itself ("New version ... available" in the main menu, with a download button; also in Settings) when a
 newer version exists; installing it over the old one keeps your settings. The check sends nothing about you.
 Versions before 0.2.1 have to be uninstalled once.
 
@@ -47,15 +49,24 @@ Versions before 0.2.1 have to be uninstalled once.
   request and builds the debug APK (download it from the run's artifacts); it also scans the whole git history
   for secrets (gitleaks).
 
+## Main menu: Play and Training
+
+The app starts on the main menu: **Play**, **Training** and **Settings** (version, update).
+
+- **Play** is the real game and always uses the fixed standard values (never the tuned ones). Choose your figure,
+  then **Solo vs bots** or **Together** (below). During a round only a small pause button is shown.
+- **Training** is the sandbox: the tuning sliders, the modifier levels, bots, the **Online** page and the lag tool,
+  with your saved values. The gear (or Escape / Android back) opens the tuning menu; **Main menu** leaves.
+
 ## Playing locally (one phone hosts)
 
 No server needed: everybody must be in the same Wi-Fi, or in the hotspot of one of the phones.
 
-- **Host:** switch on the Wi-Fi connection or the phone's hotspot yourself (the app cannot do that), open the
-  settings (gear), page **Lokal**, **Spiel eröffnen**. The page shows a short code. The match uses the host's values
-  and ends when the host leaves or closes the app.
-- **Guests:** open **Lokal**; the game appears under **Gefundene Spiele**, press it. If the list stays empty (some
-  networks block broadcasts), type the code and press **Beitreten**.
+- **Host:** switch on the Wi-Fi connection or the phone's hotspot yourself (the app cannot do that), open
+  **Play > Together**, **Host a game**. The page shows a short code. The match uses the standard values and no
+  modifiers, and ends when the host leaves or closes the app.
+- **Guests:** open **Play > Together**; the game appears under **Games found**, press it. If the list stays empty
+  (some networks block broadcasts), type the code and press **Join**.
 
 ## Playing online (experiment)
 
@@ -68,7 +79,7 @@ The first netcode experiment: a headless server on a PC, 2-4 phones on the same 
   ```
 
   It prints joins and leaves and a status line every 10 seconds. Allow the port in the PC's firewall.
-- On the phone: open the settings (gear), page **Online**, type the PC's address (`name` or `address:port`),
+- On the phone: start Training, press the gear, page **Online**, type the PC's address (`name` or `address:port`),
   **Verbinden**. The sliders on that page add artificial delay (per direction, so the ping grows by twice that value)
   and packet loss, and the switch **Gegner glätten** (on: the other players are drawn smoothly, a little in the past;
   off: the raw prediction, to compare); the HUD shows ping, correction, open inputs and the delay of the others.

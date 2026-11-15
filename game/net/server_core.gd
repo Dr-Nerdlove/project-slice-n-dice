@@ -37,6 +37,9 @@ var slots: Array[Slot] = []
 var current_inputs: Array[SimInput] = []   # the input each player had in the last tick
 var bots: Array[Bot] = []
 var log_fn: Callable = Callable()
+## False: a client's modifier choice (T_MODS) is ignored, so every player plays with the server's own values. The
+## local host of a real game (Play) sets this; `--server` and the Online tab of the sandbox keep the default.
+var accept_client_mods := true
 
 ## Counters (tests and the status line).
 var dropped_packets := 0
@@ -297,7 +300,9 @@ func _on_packet(peer: int, data: PackedByteArray) -> void:
 		NetProto.T_INPUT:
 			_on_input(slots[i], msg)
 		NetProto.T_MODS:
-			if msg.size() == 2 and msg[1] is Dictionary:
+			if not accept_client_mods:
+				pass   # the match has fixed values: a client's levels are not applied
+			elif msg.size() == 2 and msg[1] is Dictionary:
 				sim.apply_mods(i, Mods.sanitize(msg[1]))
 			else:
 				dropped_packets += 1

@@ -4,6 +4,27 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.6.0
+
+The game has a new name and a new start screen: **Spinback Rumble**.
+
+- **New main menu** with **Play**, **Training** and **Settings**. The app starts here, over the blurred playroom.
+- **Play** is the real game: it always uses the fixed standard values. Your tuned values and test modifiers never
+  reach a Play game. In **Play** you choose your figure (with a live 3D preview) and then start **Solo vs bots** or
+  play **Together** on the same Wi-Fi.
+- **Local play moved** from the old tab "Lokal" to **Play > Together**. It works as before (host with a code, join
+  from the list or by code), now in English, and the host's tuned values are no longer used: everybody plays with
+  the standard values and no modifiers.
+- **Training** keeps everything the prototype had: sliders, modifiers, bots, the Online page and the lag tool. Open
+  it from the main menu. The tabs "Lokal" and "Figur" are gone from it (the figure is chosen in Play, and Training
+  uses the same figure).
+- In a Play round the screen shows only the game and a small pause button in the top right (Resume / Main menu).
+  Training keeps its scoreboard and the gear. The Android back button pauses a game, goes back from the lobby and
+  quits from the main menu.
+- The update notice now shows in the main menu (and in Settings), not during a game.
+- The app is now called **Spinback Rumble** (it installs over the old app as usual and keeps your saved settings).
+- New fonts for the new screens (Unbounded and Rubik, free under the SIL Open Font License).
+
 ## 0.5.0
 
 Play with friends without a server: one phone hosts, the others join.

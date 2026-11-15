@@ -195,7 +195,7 @@ missing, with a recommendation, and let the people choose.
   templates, JDK 17 and the Android SDK configured in Godot's editor settings). Tests: `tests/run.sh` (needs `godot` on the
   PATH; ~70 s, nearly all of it the netcode suite) runs the headless checks of the simulation and the menus in
   `tests/test_sim.gd`, of the netcode in `tests/test_net.gd` (loopback with fake clock, real ENet on localhost, the
-  real main scene, and local play: LanCode, LanBeacon over real UDP, LocalHost, the Lokal page), of the update notice in `tests/test_update.gd` and of the toy figures, their poses and the
+  real main scene, and local play: LanCode, LanBeacon over real UDP, LocalHost, the Play lobby, the main menu flow with Play vs Training, pause), of the update notice in `tests/test_update.gd` and of the toy figures, their poses and the
   arena geometry in `tests/test_view.gd`; `tests/run.sh sim|net|update|view ...` runs only
   the named suites; it prints only failures and a summary and exits non-zero on a failed check, an engine/script
   error or zero checks. `GAME_DIR=<copy of game/>` runs the tests against a copy and `TEST_PORT_OFFSET=N` shifts the
@@ -229,19 +229,18 @@ missing, with a recommendation, and let the people choose.
   24565; no hosting is set up); check a running one with
   `godot --headless --path game -s tests/net_probe.gd -- HOST[:PORT] [--lag MS] [--loss PCT]`. Decisions and what is
   not done yet: `docs/PLAN.md` (M2).
-- **Local play (version 0.5.0):** one device hosts, the others on the same Wi-Fi or in the host phone's hotspot join (menu
-  tab "Lokal"; the Online tab and `--server` stay). Three classes in `game/net/`: `LanCode` (pure) turns the host's IPv4
+- **Local play (version 0.5.0, in the Play lobby since 0.6.0):** one device hosts, the others on the same Wi-Fi or in the host phone's hotspot join (Play > Together, the former tab "Lokal"; the Online tab and `--server` stay in Training). Three classes in `game/net/`: `LanCode` (pure) turns the host's IPv4
   address into a code of 4 to 7 characters (2 class bits, then the address bits, zero padding to a multiple of 5 bits;
   192.168.x.y 4 characters, 172.16/12 5, 10.x.y.z 6, any other 7; alphabet of 32 without 0 O 1 I; decoding ignores case,
   spaces and dashes; the port is always `NetProto.DEFAULT_PORT` 24565) and `pick_local_address` chooses the address to
   host on from `IP.get_local_interfaces()` (never loopback, link-local, IPv6; 192.168 before 172.16/12 before 10 before
   the rest; Wi-Fi / hotspot interface names before mobile data). `LanBeacon` is the discovery: the host broadcasts a 10 byte
   hand-rolled packet ("SND1", protocol version, game port, players, max) once a second to UDP port 24566, to
-  255.255.255.255 and to a.b.c.255 of every local network; a looking device binds 24566 (only while the tab "Lokal" is open
-  and it is neither hosting nor connected; the listener is owned by `TuningMenu`) and lists games of the same protocol
+  255.255.255.255 and to a.b.c.255 of every local network; a looking device binds 24566 (only while the lobby is open
+  and it is neither hosting nor connected; the listener is owned by `PlayLobby`, runs only while the lobby is open) and lists games of the same protocol
   version, expiring after 3.5 s, with caps against floods. Hand-rolled bytes because `bytes_to_var` prints engine errors on
-  garbage. `LocalHost` is the embedded server (`ENetEndpoint` + `ServerCore` on a COPY of the host's `Config`, plus the
-  announcer); `main.gd` drives it every frame (also with the menu open) and connects the host's OWN client to 127.0.0.1
+  garbage. `LocalHost` is the embedded server (`ENetEndpoint` + `ServerCore` on a COPY of the config it is given, which `main.gd` makes the fixed Play config, with `accept_client_mods` off; plus the
+  announcer); `main.gd` drives it every frame (also with a menu open) and connects the host's OWN client to 127.0.0.1
   through the normal client path (`_start_client`; a local join never overwrites the saved Online address). Leaving, joining
   elsewhere or closing the app stops the host (the match ends). `ServerCore.run(delta)` is the shared frame driver (also
   used by `ServerMain`). A port that is taken is probed with a plain UDP bind first because a failing ENet listen prints an
@@ -254,6 +253,32 @@ missing, with a recommendation, and let the people choose.
   through a native plugin; an app cannot switch the hotspot on (iOS: not at all; Android: only a local-only hotspot with a
   random name and password); broadcast from the hotspot phone itself is unreliable on some Android devices, hence the code;
   a backgrounded or closed host app ends the match. Not verified on real devices yet (broadcast on real Wi-Fi, the hotspot case).
+- **Menus, Play and Training (version 0.6.0):** `game/main.gd` has three screens (`Screen.MENU`, `LOBBY`, `GAME`); the app starts on
+  the main menu over the dimmed arena and the offline sim ticks only in `GAME` (and not while the tuning menu or the pause
+  panel is open; online it never waits). **Rule: Play never sees tuned values.** `train_cfg` is the tuned config
+  (`TuningStore`, edited by `TuningMenu`, used by Training and the Online page); `play_cfg = _make_play_cfg()` is a fresh
+  `Config.new()` with only `character` copied from the saved one, `bot_mode` ACTIVE and no modifier levels, made anew for every
+  Play game / local host / join. The fixed values go to `LocalHost.start`; `ServerCore.accept_client_mods` (default true, so
+  `--server` and the Online tab behave as before) is set false by `LocalHost`, so a client's `T_MODS` is ignored. Files in
+  `game/ui/`: `UiKit` (static helpers: colour constants of the mockup, the shared cached `Theme` with button variations
+  Main/Paper/Dark/Quiet and panels Paper/Ink, `title` with offset print shadow, `eyebrow`, `backdrop` = dim + blur shader reading
+  `hint_screen_texture`; menu screens set `root.theme = UiKit.theme()`, the old `TuningMenu` and `Hud` do not use it), `MainMenu`
+  (also Settings page and the update banner, which no longer lives in the HUD), `PlayLobby` (mode card, figure choice with
+  `FigurePreview` drawn with default sizes, Solo, Together; it edits only `character` of the saved config and saves it at once),
+  `PauseMenu`. The HUD has `play_mode` (only a pause button drawn as two bars). The pause button / Escape / Android back
+  (`NOTIFICATION_WM_GO_BACK_REQUEST`, `application/config/quit_on_go_back=false`): in a Play game the pause panel (Resume /
+  Main menu), in Training the tuning menu (which has a Main menu button), in the lobby back, in the main menu leave Settings
+  or quit (`main.quit_hook` replaces the quit in tests). `Main menu` ends any session (`_end_session`); a Play session that
+  ends by itself (host left, connection lost) returns to the main menu (`_leave_online`). Connection status texts have a
+  German (Online page of Training) and an English (lobby) version in `main.gd` `STATUS`. Fonts (`game/ui/fonts/`): Unbounded and
+  Rubik, variable TTFs from github.com/google/fonts, both SIL Open Font License 1.1 (licence texts next to the fonts; keep them
+  when fonts are updated); weights through `FontVariation` (`UiKit.font`). The UI was written without being able to look at it
+  (no display here): spacing and sizes need a look on the phone. **Name:** `application/config/name` and the export preset
+  `package/name` are "Spinback Rumble"; `package/unique_name` stays `io.slicendice.prototype` (a new id would be a separate app
+  and the testers would lose their data). On PC Godot derives the `user://` folder from the project name, so the saved
+  Training values of the old name ("Slice n Dice (Prototype)") are not found any more (Android is not affected); copying
+  `tuning.json` over is enough. `use_custom_user_dir` was not used: Godot puts a custom dir directly under the data path
+  (not under `godot/app_userdata/`), so it would not match the old folder on every platform.
 - **Look (toy figures, playroom):** all in `game/view`, view only. No UI during a round (UI only between rounds; information lives in the world) and the UI style (flat, one tomato-red accent, yellow price tags, fonts Unbounded and Rubik): see `docs/PLAN.md` (sections 5 and 6) and `docs/ui-mockup.html`. `toy_kit.gd`: the shared materials (glossy
   plastic with clearcoat and rim, plush, wood) and unit meshes; share them, do not create materials per figure.
   `toy_figure.gd`: builds the four figures (sizes in player radii, +z is the front) and applies the pose;
@@ -268,8 +293,8 @@ missing, with a recommendation, and let the people choose.
   on missing `libXcursor` / `libwayland-client`; headless only has the dummy renderer). The look is checked on the
   phone; rendering in CI (Xvfb with Mesa on a GitHub runner) would be an option.
 - **Toy train:** a moving hazard in the simulation (`Sim._step_train`, geometry in `game/sim/train_track.gd`: a rounded rectangle around the arena centre, scaled with the arena; speed `Config.train_speed`, default 5.7, 0 = off). It kills players with `_kill(victim, null)` (event `killer: -1`, `cause: "train"`, no kill credit), shoves the crate; its cars are solid for yo-yo heads like the crate (`Sim._push_train` in `_resolve_head` and `_sweep_retract` when `pass_level < 2`; a head lying OUT is shoved aside in `_step_train` and can kill that way), while strings, wires and shards still pass over it; its position is ordinary state. Tests switch it off in `mk()` (test_sim) and `make_rig()` (test_net, `with_train` turns it on) because the client's world clock follows the server's, so a client with a moving train is never equal to a purely local sim. When the arena or the obstacles change, the geometry checks at the end of `_train_tests` (clearance to obstacles, walls, spawns, the gap around the centre block) must still hold.
-- **Figure choice:** `SimPlayer.skin` says which toy figure a player is drawn as (presentation only: the simulation never reads it, but it is in the snapshot). `Config.SKIN_COUNT` must equal `ToyFigure.NAMES.size()` (a test checks it): when a figure is added, raise it. The human's choice is `Config.character` (saved with the settings, not reset by "Zurücksetzen"; tab "Figur" in the tuning menu). Offline `main.gd` gives player 0 the choice and bot i `character + i`; online the client sends `NetProto.T_SKIN` and the server validates the range. `ClientCore` keeps its own choice on top of snapshots.
-- **Modifiers:** Modifier definitions, German texts and all their numbers live in `game/sim/mods.gd`.
+- **Figure choice:** `SimPlayer.skin` says which toy figure a player is drawn as (presentation only: the simulation never reads it, but it is in the snapshot). `Config.SKIN_COUNT` must equal `ToyFigure.NAMES.size()` (a test checks it): when a figure is added, raise it. The human's choice is `Config.character` (saved with the settings, not reset by "Zurücksetzen"; in the Play lobby). Offline `main.gd` gives player 0 the choice and bot i `character + i`; online the client sends `NetProto.T_SKIN` and the server validates the range. `ClientCore` keeps its own choice on top of snapshots.
+- **Modifiers:** Modifier definitions (only Training's sandbox sets levels; Play has none until the shop exists), German texts and all their numbers live in `game/sim/mods.gd`.
 - **Release:** Testers get APKs from the PUBLIC repository `Joni9993/slice-n-dice-releases` (this one is private).
   How a release is made: (1) add a section `## MAJOR.MINOR.PATCH` to `CHANGELOG.md` (the workflow fails without it;
   it becomes the release notes); (2) merge to `main`, or tag the branch you want to release; (3) push the tag

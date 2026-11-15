@@ -1124,27 +1124,53 @@ func _menu_tests() -> void:
 	menu._show_page(0)
 	menu._on_reset()
 	check("menu: reset on the values page resets the values but not the levels", cfgm.player_speed == Config.DEFAULTS["player_speed"] and cfgm.mods_you["shards"] == 1)
-	menu._show_page(3)
-	check("menu: figure tab shows only the figure page", menu._figure_page.visible and not menu._values_page.visible and not menu._mods_page.visible and not menu._online_page.visible and menu._tab_figure.button_pressed)
-	check("menu: figure page has one button per figure named after it and a preview area first", menu._figure_buttons.size() == Config.SKIN_COUNT and menu._figure_buttons[Config.SKIN_COUNT - 1].text == ToyFigure.NAMES[Config.SKIN_COUNT - 1] and menu._figure_preview.get_index() == 0 and menu._figure_buttons[0].button_pressed and not menu._figure_buttons[1].button_pressed)
-	check("menu: the preview shows the configured figure at the start", menu._figure_preview.figure != null and menu._figure_preview.figure.kind == 0)
-	menu._figure_buttons[2].pressed.emit()
-	check("menu: pressing a figure button sets the choice", cfgm.character == 2)
-	check("menu: only the chosen figure shows pressed", menu._figure_buttons[2].button_pressed and menu._figure_buttons.filter(func(b: Button) -> bool: return b.button_pressed).size() == 1)
-	check("menu: the preview shows the pressed figure", menu._figure_preview.figure != null and menu._figure_preview.figure.kind == 2)
-	menu._figure_buttons[Config.SKIN_COUNT - 1].pressed.emit()
-	check("menu: ... and changes with the next button", menu._figure_preview.figure.kind == Config.SKIN_COUNT - 1 and cfgm.character == Config.SKIN_COUNT - 1)
-	menu._figure_buttons[2].pressed.emit()
-	menu._on_reset()
-	check("menu: reset on the figure page leaves the figure", cfgm.character == 2 and menu._figure_buttons[2].button_pressed)
-	cfgm.character = 1
-	menu.refresh()
-	check("menu: refresh shows the choice from the config", menu._figure_buttons[1].button_pressed and not menu._figure_buttons[2].button_pressed)
-	check("menu: refresh also moves the preview", menu._figure_preview.figure.kind == 1)
+	check("menu: the Training menu has no figure or Lokal page any more (they live in the Play lobby)", not ["_figure_page", "_local_page", "_tab_figure", "_tab_local"].any(func(n: String) -> bool: return menu.get_property_list().any(func(d: Dictionary) -> bool: return d["name"] == n)))
+	var main_requests := [0]
+	menu.main_menu_requested.connect(func() -> void: main_requests[0] += 1)
+	var to_main: Button = menu.find_children("*", "Button", true, false).filter(func(b: Button) -> bool: return b.text == "Main menu").front()
+	to_main.pressed.emit()
+	check("menu: the Training menu has a Main menu button that reports it", main_requests[0] == 1)
 	menu._show_page(0)
 	menu._on_export()
 	check("menu: export shows the text and the confirmation", menu._export_panel.visible and menu._export_text.text == cfgm.export_text() and menu._export_status.text == "In die Zwischenablage kopiert" and not menu._export_text.editable)
 	menu.queue_free()
+	_lobby_tests()
+
+
+## The Play lobby: the mode card, and the figure choice (the preview, one button per figure, the saved choice).
+func _lobby_tests() -> void:
+	var lob := PlayLobby.new()
+	root.add_child(lob)
+	var saved := Config.new()
+	saved.player_speed = 9.0   # a tuned value: the lobby must neither use nor change it
+	var saves: Array = []
+	var chosen: Array = []
+	lob.save_fn = func(c: Config) -> void: saves.append(c.character)
+	lob.figure_chosen.connect(func(i: int) -> void: chosen.append(i))
+	lob.setup(saved)
+	lob.open()
+	check("lobby: shows the one mode card Last Standing, selected", lob.mode_card != null and lob.mode_card.find_children("*", "Label", true, false).any(func(l: Label) -> bool: return l.text == "Last Standing"))
+	check("lobby: the figure area has one button per figure named after it and a preview", lob.figure_buttons.size() == Config.SKIN_COUNT and lob.figure_buttons[Config.SKIN_COUNT - 1].text == ToyFigure.NAMES[Config.SKIN_COUNT - 1] and lob.figure_preview != null and lob.figure_buttons[0].button_pressed and not lob.figure_buttons[1].button_pressed)
+	check("lobby: the preview shows the saved figure at the start", lob.figure_preview.figure != null and lob.figure_preview.figure.kind == 0)
+	lob.figure_buttons[2].pressed.emit()
+	check("lobby: pressing a figure button sets the choice, saves it and reports it", saved.character == 2 and saves == [2] and chosen == [2])
+	check("lobby: only the chosen figure shows pressed", lob.figure_buttons[2].button_pressed and lob.figure_buttons.filter(func(b: Button) -> bool: return b.button_pressed).size() == 1)
+	check("lobby: the preview shows the pressed figure", lob.figure_preview.figure.kind == 2)
+	lob.figure_buttons[Config.SKIN_COUNT - 1].pressed.emit()
+	check("lobby: ... and changes with the next button", lob.figure_preview.figure.kind == Config.SKIN_COUNT - 1 and saved.character == Config.SKIN_COUNT - 1)
+	check("lobby: the figure choice leaves the tuned values alone", saved.player_speed == 9.0)
+	saved.character = 1
+	lob.open()
+	check("lobby: opening again shows the choice of the config", lob.figure_buttons[1].button_pressed and not lob.figure_buttons[2].button_pressed and lob.figure_preview.figure.kind == 1)
+	var solo: Array = []
+	lob.solo_requested.connect(func() -> void: solo.append(true))
+	lob.solo_btn.pressed.emit()
+	check("lobby: Go starts a solo game", solo.size() == 1 and lob.solo_btn.text == "Go")
+	var backs: Array = []
+	lob.back_pressed.connect(func() -> void: backs.append(true))
+	lob.back_btn.pressed.emit()
+	check("lobby: Back reports", backs.size() == 1)
+	lob.queue_free()
 
 
 # ---------------------------------------------------------------- string = flight path
