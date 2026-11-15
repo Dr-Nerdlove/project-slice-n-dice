@@ -14,9 +14,6 @@ SUITES_OVERRIDE={}
 PORT_STEP=100   # distance of the localhost port ranges of two workers (each test uses a range of 40)
 SB=[
  ("1 bounce bonus values","sim/mods.gd",'"bonus_dist": [1.5, 3.0, 5.0]','"bonus_dist": [0.0, 2.0, 4.0]'),
- ("2 throw not curved","sim/sim.gd","h.throw_curved = bulge > 0.0","h.throw_curved = false"),
- ("2 aim line straight","sim/sim.gd","\tif bulge <= 0.0:\n\t\tpts.append(p.pos + p.aim_dir * aim_range(p))","\tif true:\n\t\tpts.append(p.pos + p.aim_dir * aim_range(p))"),
- ("2 circle blocked by blocks","sim/sim.gd","h.pos = _sweep_retract(h.pos, target - h.pos, r, 2)","h.pos = _sweep_retract(h.pos, target - h.pos, r, 0)"),
  ("3 twin heads 3/5","sim/mods.gd",'"heads": [2, 2, 2]','"heads": [2, 3, 5]'),
  ("3 no cross","sim/sim.gd",'mv(p, "twin", "cross", 0.0) > 0.0','mv(p, "twin", "cross", 0.0) > 5.0'),
  ("3 no retract x1.5","sim/sim.gd",' * mv(p, "twin", "retract_mult", 1.0)',''),
@@ -139,9 +136,6 @@ SB=[
 ]
 SB=[
  ("1 bounce bonus values","sim/mods.gd",'"bonus_dist": [1.5, 3.0, 5.0]','"bonus_dist": [0.0, 2.0, 4.0]'),
- ("2 throw not curved","sim/sim.gd","h.throw_curved = bulge > 0.0","h.throw_curved = false"),
- ("2 aim line straight","sim/sim.gd","\tif bulge <= 0.0:\n\t\tpts.append(p.pos + p.aim_dir * aim_range(p))","\tif true:\n\t\tpts.append(p.pos + p.aim_dir * aim_range(p))"),
- ("2 circle blocked by blocks","sim/sim.gd","h.pos = _sweep_retract(h.pos, target - h.pos, r, 2)","h.pos = _sweep_retract(h.pos, target - h.pos, r, 0)"),
  ("3 twin heads 3/5","sim/mods.gd",'"heads": [2, 2, 2]','"heads": [2, 3, 5]'),
  ("3 no cross","sim/sim.gd",'mv(p, "twin", "cross", 0.0) > 0.0','mv(p, "twin", "cross", 0.0) > 5.0'),
  ("3 no retract x1.5","sim/sim.gd",' * mv(p, "twin", "retract_mult", 1.0)',''),
@@ -412,6 +406,27 @@ SB=[
  ("1 pickup: catch distance far too large","sim/sim.gd","\t\tif h.state == HS.OUT and p.pos.distance_to(h.pos) <= catch_dist:","\t\tif h.state == HS.OUT and p.pos.distance_to(h.pos) <= catch_dist * 6.0:"),
  ("1 pickup: every head is taken, not only the touched one","sim/sim.gd","\t\tif h.state == HS.OUT and p.pos.distance_to(h.pos) <= catch_dist:","\t\tif h.state == HS.OUT and (p.pos.distance_to(h.pos) <= catch_dist or p.heads.size() > 1):"),
  ("1 pickup: a pickup starts a retract (shards, blast)","sim/sim.gd","\t\t\t_to_hand(p, h)\n\t\t\tpicked = true","\t\t\t_start_retract(p, h)\n\t\t\tpicked = true"),
+ ("6 steer: flight direction never turns","sim/sim.gd","h.throw_dir = h.throw_dir.rotated(clampf(h.throw_dir.angle_to(steer), -turn_max, turn_max))","h.throw_dir = h.throw_dir.rotated(0.0)"),
+ ("6 steer: turns only one way","sim/sim.gd","clampf(h.throw_dir.angle_to(steer), -turn_max, turn_max)","clampf(h.throw_dir.angle_to(steer), 0.0, turn_max)"),
+ ("6 steer: turn rate L1 too low","sim/mods.gd",'"turn_rate": [360.0, 600.0, 3600.0]','"turn_rate": [30.0, 600.0, 3600.0]'),
+ ("6 steer: L2 turns like L1","sim/mods.gd",'"turn_rate": [360.0, 600.0, 3600.0]','"turn_rate": [360.0, 360.0, 3600.0]'),
+ ("6 steer: flight not steered at all","sim/sim.gd","_step_flight(p, h, dt, steer)","_step_flight(p, h, dt)"),
+ ("6 steer: dead zone ignored","sim/sim.gd","if not inp.aim_held or inp.aim.length() < cfg.aim_deadzone:","if not inp.aim_held:"),
+ ("6 steer: stick works with a head in hand","sim/sim.gd"," or p.charging or p.pulling or p.hand_index() >= 0:"," or p.pulling:"),
+ ("6 steer: a steered press still taps","sim/sim.gd","if p.press_t < cfg.tap_threshold and not p.press_steered:","if p.press_t < cfg.tap_threshold:"),
+ ("6 steer: a steered press still pulls","sim/sim.gd","and p.count_state(HS.OUT) == p.heads.size() and not p.press_steered:","and p.count_state(HS.OUT) == p.heads.size():"),
+ ("6 steer: stick press not noticed","sim/sim.gd","\t\tp.press_steered = true  # Lenkwurf: a press that steers neither taps nor pulls","\t\tpass"),
+ ("6 steer: L2 range bonus missing","sim/sim.gd",' * (1.0 + mv(p, "steer", "range_pct", 0.0) / 100.0)',''),
+ ("6 steer: range bonuses add up instead of multiplying","sim/sim.gd",'return base * (1.0 + mv(p, "pierce", "range_pct", 0.0) / 100.0) * (1.0 + mv(p, "steer", "range_pct", 0.0) / 100.0)','return base * (1.0 + mv(p, "pierce", "range_pct", 0.0) / 100.0 + mv(p, "steer", "range_pct", 0.0) / 100.0)'),
+ ("6 steer: no pin at the corner","sim/sim.gd","\t\t\th.pins.append(from)\n","\t\t\tpass\n"),
+ ("6 steer: no pins along the bend","sim/sim.gd","\tif h.pin_acc >= Mods.PATH_PIN_SPACING:\n\t\th.pins.append(to)","\tif false:\n\t\th.pins.append(to)"),
+ ("6 steer: telekinesis for every level","sim/sim.gd",'if steer != Vector2.ZERO and mv(p, "steer", "tk", 0.0) > 0.0:','if steer != Vector2.ZERO:'),
+ ("6 steer: telekinesis speed","sim/sim.gd",'var dist := mv(p, "steer", "tk_speed", 0.0) * stick.length() * dt','var dist := mv(p, "steer", "tk_speed", 0.0) * dt'),
+ ("6 steer: telekinesis ignores the string limit","sim/sim.gd","\t\tif anchor.distance_to(res) > room:","\t\tif false:"),
+ ("6 steer: telekinesis through walls","sim/sim.gd","var res := _resolve_head(from + dir * step, r, true, pass_level)\n\t\t# Never more","var res := from + dir * step\n\t\t# Never more"),
+ ("6 steer: telekinesis ignores pierce","sim/sim.gd","\tvar dist := mv(p, \"steer\", \"tk_speed\", 0.0)","\tpass_level = 0\n\tvar dist := mv(p, \"steer\", \"tk_speed\", 0.0)"),
+ ("6 steer: telekinesis never winds the string up","sim/sim.gd","\t\t\th.pins.resize(h.pins.size() - 1)  # back onto the last pin: the string winds up","\t\t\tpass"),
+ ("6 steer: winding back counts as a bend","sim/sim.gd","bent and not winding","bent"),
 ]
 
 def suites_for(name, full):

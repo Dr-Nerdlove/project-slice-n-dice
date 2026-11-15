@@ -20,20 +20,18 @@ const BODY_LETHAL_MARGIN := 0.15    # lethal body reach beyond touching (players
 const FLING_MIN_PROGRESS := 0.3      # a fling step that gains less than this share ends the fling
 const PIERCE_EXIT_STEP := 0.1        # step used to leave a block a pierced head landed in
 const PIERCE_EXIT_MAX_STEPS := 400
-const ARC_MIN_CHORD := 0.6           # shorter throws fly straight; a shorter distance gets no circle
-const ARC_THROW_MAX_RATIO := 0.6     # an arced throw never bulges more than this share of its distance
-const PATH_PIN_SPACING := 0.7        # a curved throw leaves a path point (pin) every this many metres flown
+const PATH_PIN_SPACING := 0.7        # a bent flight leaves a path point (pin) every this many metres flown
+const MAX_PATH_PINS := 60            # no more pins than this per head (steered flight, telekinesis)
+const STEER_MIN_TURN := 0.0005       # radians: a smaller change of direction in one step does not bend the string
 const PIN_REACH := 0.15              # a head / player counts as having reached a pin within this distance
 const PIN_STUCK_PROGRESS := 0.1      # a player step along the string that gains less than this share gives up the pin
 const PIN_STUCK_MIN_MOVE := 0.02      # shorter player steps are too small to judge whether a pin is blocked
-const CIRCLE_R_RATE := 12.0           # m/s the circle radius may change while it runs (player nears a wall)
 const CROSS_MIN_GAP := 0.6           # Kreuzfeuer: heads closer together than this just return normally
-const ARC_THROW_SAMPLES := 32        # points used to preview an arced throw (aim line)
 const EXPLOSION_VIEW_TIME := 0.35    # presentation only
 
 const ORDER: Array[String] = [
 	"tripwire", "bighead", "elastic", "extradash", "bounce",
-	"arc", "pierce", "shards", "warhead", "twin",
+	"steer", "pierce", "shards", "warhead", "twin",
 ]
 
 ## "n" holds one array of 3 values (level 1..3) per key. In descriptions {key} is replaced by that value.
@@ -94,17 +92,17 @@ const TABLE := {
 			"bounces": [1, 3, 5], "bonus_dist": [1.5, 3.0, 5.0], "speed_pct": [0, 0, 25],
 		},
 	},
-	"arc": {
-		"name": "Bogenwurf", "tier": Tier.MEDIUM,
+	"steer": {
+		"name": "Lenkwurf", "tier": Tier.MEDIUM,
 		"desc": [
-			"Der Wurf fliegt im Bogen ({bulge} m seitlich), die Schnur liegt auf dem Bogen. Die Seite bestimmst du mit dem Laufstick.",
-			"Stärkerer Bogen ({bulge} m), der Jojo kommt {retract_mult}-mal schneller zurück.",
-			"Auf dem Rückweg kreist der Jojo einmal in einem weiten Kreis um dich (tödlich, auch durch Blöcke), dann kommt er heim.",
+			"Ziehst du während des Flugs am Zielstick, lenkst du den Jojo in diese Richtung.",
+			"Lenkt stärker, Reichweite +{range_pct} %.",
+			"Telekinese: Halten und Ziehen am Zielstick bewegt den liegenden oder fliegenden Jojo frei (tödlich). Halten ohne Ziehen zieht dich hin, Tippen holt ihn ein.",
 		],
 		"n": {
-			"bulge": [2.5, 4.5, 4.5], "retract_mult": [1.0, 1.3, 1.3],
-			"circle": [0, 0, 1], "circle_time": [1.1, 1.1, 1.1],
-			"circle_max_r": [4.0, 4.0, 4.0], "circle_min_r": [1.5, 1.5, 1.5],
+			"turn_rate": [360.0, 600.0, 3600.0],   # degrees per second the flight direction turns towards the stick
+			"range_pct": [0, 25, 25],
+			"tk": [0, 0, 1], "tk_speed": [12.0, 12.0, 12.0],   # Telekinese: m/s of a lying head at full stick
 		},
 	},
 	"pierce": {

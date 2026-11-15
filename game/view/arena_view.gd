@@ -26,7 +26,7 @@ const HAND_SPREAD := 0.6          # sideways spacing of several yo-yos in the ha
 const MARK_BOUNCE := Color(1, 1, 1)
 const MARK_PIERCE := Color(0.5, 0.95, 1.0)
 const MARK_PIERCE_L3 := Color(1.0, 0.85, 0.2)
-const MARK_ARC := Color(0.75, 0.4, 1.0)
+const MARK_STEER := Color(0.75, 0.4, 1.0)
 const MARK_WARHEAD := Color(1.0, 0.3, 0.1)
 const MARK_SHARDS := Color(1.0, 0.95, 0.3)
 
@@ -248,16 +248,16 @@ func _make_head(col: Color) -> Node3D:
 		pivot.add_child(sp)
 		spikes.add_child(pivot)
 	head.add_child(spikes)
-	# Bogenwurf: purple band on top.
+	# Lenkwurf: purple band on top.
 	var band := MeshInstance3D.new()
 	var bm := CylinderMesh.new()
 	bm.top_radius = 1.12
 	bm.bottom_radius = 1.12
 	bm.height = 0.3
 	band.mesh = bm
-	band.material_override = _mat(MARK_ARC, true)
+	band.material_override = _mat(MARK_STEER, true)
 	band.position = Vector3(0.0, 0.2, 0.0)
-	band.name = "MarkArc"
+	band.name = "MarkSteer"
 	band.visible = false
 	head.add_child(band)
 	# Sprengkopf: glowing red core.
@@ -298,7 +298,7 @@ func _set_head_marks(src: Sim, head: Node3D, p: SimPlayer) -> void:
 			pivot.visible = gold or k % 2 == 0
 			((pivot.get_child(0) as MeshInstance3D).material_override as StandardMaterial3D).albedo_color = \
 					MARK_PIERCE_L3 if gold else MARK_PIERCE
-	head.get_node("MarkArc").visible = src.lv(p, "arc") > 0
+	head.get_node("MarkSteer").visible = src.lv(p, "steer") > 0
 	var wh := src.lv(p, "warhead")
 	var core := head.get_node("MarkWarhead") as Node3D
 	core.visible = wh > 0

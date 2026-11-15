@@ -209,29 +209,6 @@ func _rest_after_first(h: SimHead) -> float:
 	return total + h.pins[h.pins.size() - 1].distance_to(h.pos)
 
 
-## +1 = the arc bulges to the left of the travel direction, -1 = right (move input at that moment, default left).
-func arc_side_for(p: SimPlayer, travel: Vector2) -> float:
-	var left := Vector2(travel.y, -travel.x)
-	if p.last_move.length() > Config.MOVE_DEADZONE and p.last_move.dot(left) < 0.0:
-		return -1.0
-	return 1.0
-
-
-static func curve_point(origin: Vector2, target: Vector2, side: float, bulge: float, t: float) -> Vector2:
-	var chord := target - origin
-	var dirv := chord.normalized() if chord.length() > 0.001 else Vector2.RIGHT
-	var left := Vector2(dirv.y, -dirv.x)
-	return origin.lerp(target, t) + left * side * bulge * 4.0 * t * (1.0 - t)
-
-
-## Bulge of an arced throw over `dist` metres (0 = no arc: modifier off or throw too short).
-func throw_bulge_for(p: SimPlayer, dist: float) -> float:
-	var l := lv(p, "arc")
-	if l <= 0 or dist < Mods.ARC_MIN_CHORD:
-		return 0.0
-	return minf(Mods.n("arc", "bulge", l), dist * Mods.ARC_THROW_MAX_RATIO)
-
-
 ## Radius of the lethal body (0 when the body is not a weapon right now).
 func body_lethal_r(p: SimPlayer) -> float:
 	if not p.body_is_moving_weapon() or mv(p, "elastic", "body_lethal", 0.0) <= 0.0:
@@ -250,7 +227,7 @@ func _retract_pass(p: SimPlayer) -> int:
 func charge_range(p: SimPlayer) -> float:
 	var t := clampf(p.charge_t / cfg.charge_time, 0.0, 1.0)
 	var base := lerpf(cfg.effective_min_range(), cfg.effective_max_range(), t)
-	return base * (1.0 + mv(p, "pierce", "range_pct", 0.0) / 100.0)
+	return base * (1.0 + mv(p, "pierce", "range_pct", 0.0) / 100.0) * (1.0 + mv(p, "steer", "range_pct", 0.0) / 100.0)
 
 
 ## Landing distance of the current charge, shortened by walls (for the aim line).
@@ -261,24 +238,11 @@ func aim_range(p: SimPlayer) -> float:
 
 
 ## Preview of the flight of the current charge (for the aim line): points from the player to where it ends.
+## Always a straight line (Lenkwurf bends the flight only after the throw).
 func aim_path(p: SimPlayer) -> PackedVector2Array:
 	var pts := PackedVector2Array()
 	pts.append(p.pos)
-	var full := charge_range(p)
-	var bulge := throw_bulge_for(p, full)
-	if bulge <= 0.0:
-		pts.append(p.pos + p.aim_dir * aim_range(p))
-		return pts
-	var target := p.pos + p.aim_dir * full
-	var side := arc_side_for(p, p.aim_dir)
-	var r := head_r(p)
-	var pass_level := _flight_pass(p)
-	for i in range(1, Mods.ARC_THROW_SAMPLES + 1):
-		var want := curve_point(p.pos, target, side, bulge, float(i) / Mods.ARC_THROW_SAMPLES)
-		var res := _resolve_head(want, r, false, pass_level)
-		pts.append(res)
-		if (res - want).length_squared() > 1e-10:
-			break
+	pts.append(p.pos + p.aim_dir * aim_range(p))
 	return pts
 
 
@@ -314,9 +278,10 @@ func _step_player(p: SimPlayer, inp: SimInput, dt: float) -> void:
 	p.held_prev = held
 
 	_step_dash_charges(p, dt)
+	var steer := _steer_stick(p, inp)
 	for h in p.heads:
 		if h.state == HS.FLIGHT:
-			_step_flight(p, h, dt)
+			_step_flight(p, h, dt, steer)
 		elif h.state == HS.RETRACT:
 			_step_retract(p, h, dt)
 
@@ -338,6 +303,8 @@ func _step_player(p: SimPlayer, inp: SimInput, dt: float) -> void:
 		for i in p.heads.size():
 			var h := p.heads[i]
 			if h.state == HS.OUT and not (p.pulling and i == p.pull_target):
+				if steer != Vector2.ZERO and mv(p, "steer", "tk", 0.0) > 0.0:
+					_step_telekinesis(p, h, steer, dt)
 				_apply_out_variant(p, h, delta)
 		_pickup_touched_heads(p)
 		_step_yoyo_input(p, inp, pressed, held, released, dt)
@@ -508,20 +475,11 @@ func _throw(p: SimPlayer, h: SimHead) -> void:
 	h.queued_retract = false
 	h.pins.clear()
 	h.pin_acc = 0.0
+	h.turning = false
 	h.meet_on = false
 	h.pos = p.pos
 	h.prev_pos = p.pos
 	p.facing = p.aim_dir
-	# Bogenwurf: the throw flies a curve and lands at the aimed point.
-	var bulge := throw_bulge_for(p, h.flight_dist)
-	h.throw_curved = bulge > 0.0
-	if h.throw_curved:
-		h.throw_origin = p.pos
-		h.throw_target = p.pos + p.aim_dir * h.flight_dist
-		h.throw_side = arc_side_for(p, p.aim_dir)
-		h.throw_bulge = bulge
-		h.throw_len = h.flight_dist + 8.0 / 3.0 * bulge * bulge / h.flight_dist
-		h.flight_dist = h.throw_len
 
 
 ## A press while no yo-yo is in hand: a short tap retracts, a hold pulls once all have landed.
@@ -530,15 +488,18 @@ func _step_out_input(p: SimPlayer, inp: SimInput, pressed: bool, held: bool, dt:
 	if pressed:
 		p.press_active = true
 		p.press_t = 0.0
+		p.press_steered = false
+	if _steer_stick(p, inp) != Vector2.ZERO:
+		p.press_steered = true  # Lenkwurf: a press that steers neither taps nor pulls
 	if not p.press_active:
 		return
 	if held:
 		p.press_t += dt
-		if p.press_t >= cfg.tap_threshold and p.count_state(HS.OUT) == p.heads.size():
+		if p.press_t >= cfg.tap_threshold and p.count_state(HS.OUT) == p.heads.size() and not p.press_steered:
 			_begin_pull(p, _pick_pull_target(p, inp.move))
 	else:
 		p.press_active = false
-		if p.press_t < cfg.tap_threshold:
+		if p.press_t < cfg.tap_threshold and not p.press_steered:
 			_retract_all(p)
 
 
@@ -680,7 +641,7 @@ func _to_hand(p: SimPlayer, h: SimHead) -> void:
 	h.pos = p.pos
 	h.pins.clear()
 	h.meet_on = false
-	h.throw_curved = false
+	h.turning = false
 
 
 ## Gummiband: the player is flung onward after catching the head. Stopped by walls.
@@ -699,11 +660,8 @@ func _step_fling(p: SimPlayer, dt: float) -> void:
 func _set_out(h: SimHead) -> void:
 	h.state = HS.OUT
 	h.limit = 1e9
-	h.circ_pending = false
-	h.circ_left = 0.0
-	h.circ_free = false
 	h.meet_on = false
-	h.throw_curved = false
+	h.turning = false
 
 
 ## The head lies still. A queued tap (made during flight) retracts it right away.
@@ -720,7 +678,8 @@ func _land(p: SimPlayer, h: SimHead) -> void:
 		_start_retract(p, h)
 
 
-func _step_flight(p: SimPlayer, h: SimHead, dt: float) -> void:
+## `steer`: the aim stick while Lenkwurf may use it (zero = no steering this tick, see `_steer_stick`).
+func _step_flight(p: SimPlayer, h: SimHead, dt: float, steer := Vector2.ZERO) -> void:
 	var r := head_r(p)
 	var pass_level := _flight_pass(p)
 	var bounce_l := lv(p, "bounce")
@@ -728,16 +687,18 @@ func _step_flight(p: SimPlayer, h: SimHead, dt: float) -> void:
 	var move := minf(cfg.flight_speed * h.speed_mult * dt, h.flight_dist - h.flown)
 	var n := maxi(1, ceili(move / (r * Config.SUBSTEP_FACTOR)))
 	var step := move / float(n)
+	# Lenkwurf: the flight direction turns towards the stick; the turn of this tick is shared by the sub-steps.
+	var turn_max := 0.0
+	if steer != Vector2.ZERO:
+		turn_max = deg_to_rad(mv(p, "steer", "turn_rate", 0.0)) * dt / float(n)
 	var landed := false
 	for _i in n:
-		var start: Vector2
-		if h.throw_curved:
-			var t := minf((h.flown + step) / h.throw_len, 1.0)
-			start = curve_point(h.throw_origin, h.throw_target, h.throw_side, h.throw_bulge, t)
-			if (start - h.pos).length_squared() > 1e-10:
-				h.throw_dir = (start - h.pos).normalized()
-		else:
-			start = h.pos + h.throw_dir * step
+		var before_dir := h.throw_dir
+		if turn_max > 0.0:
+			h.throw_dir = h.throw_dir.rotated(clampf(h.throw_dir.angle_to(steer), -turn_max, turn_max))
+		var bent := absf(before_dir.angle_to(h.throw_dir)) > Mods.STEER_MIN_TURN
+		var from := h.pos
+		var start := from + h.throw_dir * step
 		var res := _resolve_head(start, r, true, pass_level)
 		h.flown += step
 		var moved := res.distance_to(h.pos)
@@ -747,10 +708,10 @@ func _step_flight(p: SimPlayer, h: SimHead, dt: float) -> void:
 				var nrm := (res - start).normalized()
 				if h.throw_dir.dot(nrm) < 0.0:
 					h.throw_dir = (h.throw_dir - 2.0 * h.throw_dir.dot(nrm) * nrm).normalized()
-				h.throw_curved = false  # after a bounce it flies straight on
 				h.bounces += 1
 				h.pins.append(res)  # the string now bends here
 				h.pin_acc = 0.0
+				h.turning = false
 				h.flight_dist += Mods.n("bounce", "bonus_dist", bounce_l)
 				if h.bounces == 1:
 					h.speed_mult = 1.0 + Mods.n("bounce", "speed_pct", bounce_l) / 100.0
@@ -758,18 +719,81 @@ func _step_flight(p: SimPlayer, h: SimHead, dt: float) -> void:
 			else:
 				landed = true
 				break
-		elif h.throw_curved:
-			# The curve is recorded: the string lies on the flown path.
-			h.pin_acc += moved
-			if h.pin_acc >= Mods.PATH_PIN_SPACING:
-				h.pins.append(res)
-				h.pin_acc = 0.0
+		else:
+			_record_bend(h, h.pins[h.pins.size() - 1] if not h.pins.is_empty() else p.pos, from, res, bent, moved)
 	if landed or h.flown >= h.flight_dist - 0.00001:
 		if not h.pins.is_empty() and h.pins[h.pins.size() - 1].distance_to(h.pos) < Mods.PIN_REACH:
 			h.pins.resize(h.pins.size() - 1)  # a pin right at the head adds nothing
 		if pass_level >= 1:
 			_pierce_exit(h, r, pass_level)
 		_land(p, h)
+
+
+## The string lies on the path of a head that changes direction (Lenkwurf): a pin at the corner where a bend begins
+## (`from` = where the step began; not when it is within reach of the previous string point `anchor`), then one
+## every PATH_PIN_SPACING metres flown while it keeps bending. Capped at MAX_PATH_PINS per head.
+func _record_bend(h: SimHead, anchor: Vector2, from: Vector2, to: Vector2, bent: bool, moved: float) -> void:
+	if not bent:
+		h.turning = false
+		return
+	if h.pins.size() >= Mods.MAX_PATH_PINS:
+		return
+	if not h.turning:
+		h.turning = true
+		h.pin_acc = 0.0
+		if from.distance_to(anchor) > Mods.PIN_REACH:
+			h.pins.append(from)
+	h.pin_acc += moved
+	if h.pin_acc >= Mods.PATH_PIN_SPACING:
+		h.pins.append(to)
+		h.pin_acc = 0.0
+
+
+## The aim stick as a steering order for the yo-yo (Lenkwurf), or zero when it cannot be used right now: no
+## modifier, dead or stumbling, a head in hand or a throw being charged (Zwilling with a head in hand: the stick
+## charges the next throw instead), a pull running, or the stick not deflected.
+func _steer_stick(p: SimPlayer, inp: SimInput) -> Vector2:
+	if lv(p, "steer") <= 0 or not p.alive or p.stun_t > 0.0 or p.charging or p.pulling or p.hand_index() >= 0:
+		return Vector2.ZERO
+	if not inp.aim_held or inp.aim.length() < cfg.aim_deadzone:
+		return Vector2.ZERO
+	return inp.aim.limit_length(1.0)
+
+
+## Telekinese (Lenkwurf III): a lying head follows the deflected stick at tk_speed (times the stick length). It is
+## stopped by walls, blocks and the crate like a flying head (pierce lifts what it lifts for the flight), may not
+## stretch the string beyond its limit, and is lethal on the way like any head that is out. The string follows its
+## path (pins, see `_record_bend`); moving back onto the last pin winds that pin up again.
+func _step_telekinesis(p: SimPlayer, h: SimHead, stick: Vector2, dt: float) -> void:
+	var r := head_r(p)
+	var pass_level := _flight_pass(p)
+	var dist := mv(p, "steer", "tk_speed", 0.0) * stick.length() * dt
+	var dir := stick.normalized()
+	var n := maxi(1, ceili(dist / (r * Config.SUBSTEP_FACTOR)))
+	var step := dist / float(n)
+	h.limit = minf(h.limit, maxf(cfg.string_length, path_length(string_path(p, h))))
+	var before_dir := h.throw_dir
+	h.throw_dir = dir
+	var bent := absf(before_dir.angle_to(dir)) > Mods.STEER_MIN_TURN
+	for _i in n:
+		var from := h.pos
+		var res := _resolve_head(from + dir * step, r, true, pass_level)
+		# Never more string than the limit: stay on the circle around the last pin (or the player).
+		var anchor := h.pins[h.pins.size() - 1] if not h.pins.is_empty() else p.pos
+		# Moving straight back along the last segment winds the string up: that is no bend.
+		var winding := anchor.distance_to(from) > 0.0001 and dir.dot((anchor - from).normalized()) > 0.9995
+		var rest := path_length(string_path(p, h)) - anchor.distance_to(h.pos)
+		var room := maxf(h.limit - rest, 0.0)
+		if anchor.distance_to(res) > room:
+			res = _resolve_head(anchor + (res - anchor).normalized() * room, r, true, pass_level)
+		var moved := res.distance_to(h.pos)
+		h.pos = res
+		if not h.pins.is_empty() and h.pins[h.pins.size() - 1].distance_to(res) <= Mods.PIN_REACH \
+				and h.pins[h.pins.size() - 1].distance_to(res) < h.pins[h.pins.size() - 1].distance_to(from):
+			h.pins.resize(h.pins.size() - 1)  # back onto the last pin: the string winds up
+			h.turning = false
+		else:
+			_record_bend(h, anchor, from, res, bent and not winding, moved)
 
 
 func _inside_pierced(pos: Vector2, r: float, pass_level: int) -> bool:
@@ -794,10 +818,8 @@ func _pierce_exit(h: SimHead, r: float, pass_level: int) -> void:
 func _start_retract(p: SimPlayer, h: SimHead, meet := Vector2.INF) -> void:
 	h.state = HS.RETRACT
 	h.limit = 1e9
-	h.circ_pending = false
-	h.circ_left = 0.0
-	h.circ_free = false
 	h.meet_on = false
+	h.turning = false
 	# --- Stolperdraht ---
 	if lv(p, "tripwire") > 0:
 		_lay_wire(p, h)
@@ -814,43 +836,15 @@ func _start_retract(p: SimPlayer, h: SimHead, meet := Vector2.INF) -> void:
 		h.meet_on = true
 		h.meet = meet
 		return
-	# Bogenwurf III: the circle starts once the head is close enough on its way home along the string.
-	var al := lv(p, "arc")
-	h.circ_pending = al > 0 and Mods.n("arc", "circle", al) > 0.0
-
-
-## Radius of the Bogenwurf III circle around the player: at most circle_max_r and at most the distance to the
-## nearest outer wall minus the head radius, but never below circle_min_r (only then the head may slide along a wall).
-func circle_radius(p: SimPlayer, r: float) -> float:
-	var l := lv(p, "arc")
-	var a := Config.ARENA_SIZE
-	var wall := minf(minf(p.pos.x, a.x - p.pos.x), minf(p.pos.y, a.y - p.pos.y))
-	return maxf(minf(Mods.n("arc", "circle_max_r", l), wall - r), Mods.n("arc", "circle_min_r", l))
 
 
 func _step_retract(p: SimPlayer, h: SimHead, dt: float) -> void:
 	var r := head_r(p)
 	var pass_level := _retract_pass(p)
-	var step := cfg.retract_speed * mv(p, "arc", "retract_mult", 1.0) * mv(p, "twin", "retract_mult", 1.0) * dt
+	var step := cfg.retract_speed * mv(p, "twin", "retract_mult", 1.0) * dt
 	if h.meet_on:
 		_step_meet(p, h, r, pass_level, step)
 		return
-	if h.circ_pending and h.pos.distance_to(p.pos) <= circle_radius(p, r):
-		h.circ_pending = false
-		var d := h.pos.distance_to(p.pos)
-		if d >= Mods.ARC_MIN_CHORD:
-			h.circ_left = TAU
-			h.circ_angle = (h.pos - p.pos).angle()
-			h.circ_r = d
-			h.circ_side = arc_side_for(p, (p.pos - h.pos) / d)
-	if h.circ_left > 0.0:
-		_step_circle(p, h, r, dt)
-		return
-	if h.circ_free:
-		if _inside_pierced(h.pos, r, 2):
-			pass_level = 2  # the circle ended inside a block: leave it first
-		else:
-			h.circ_free = false
 	_step_retract_pins(p, h, r, pass_level, step)
 
 
@@ -903,23 +897,6 @@ func _step_meet(p: SimPlayer, h: SimHead, r: float, pass_level: int, step: float
 	h.pos = _sweep_retract(start, dir * step, r, pass_level)
 	if (h.pos - start).dot(dir) < step * Config.RETRACT_MIN_PROGRESS:
 		_set_out(h)
-
-
-## Bogenwurf level 3: one full circle around the player's current position, then home along what is left of
-## the string. The head passes through blocks and the crate. The radius shrinks when the player is near an outer
-## wall; only in the floor case the head is clamped to the arena and slides along the wall.
-func _step_circle(p: SimPlayer, h: SimHead, r: float, dt: float) -> void:
-	var da := minf(TAU / mv(p, "arc", "circle_time", 1.1) * dt, h.circ_left)
-	h.circ_left -= da
-	h.circ_angle += h.circ_side * da
-	h.circ_r = move_toward(h.circ_r, minf(h.circ_r, circle_radius(p, r)), Mods.CIRCLE_R_RATE * dt)
-	var target := p.pos + Vector2.from_angle(h.circ_angle) * h.circ_r
-	var a := Config.ARENA_SIZE
-	target = Vector2(clampf(target.x, r, a.x - r), clampf(target.y, r, a.y - r))
-	h.pos = _sweep_retract(h.pos, target - h.pos, r, 2)
-	if h.circ_left <= 0.0:
-		h.circ_left = 0.0
-		h.circ_free = true
 
 
 ## Moves a retracting head: stopped by walls and obstacles (unless pierced), drags the crate,
@@ -1353,12 +1330,9 @@ func _reset_yoyo(p: SimPlayer) -> void:
 		h.pos = p.pos
 		h.prev_pos = p.pos
 		h.queued_retract = false
-		h.circ_pending = false
-		h.circ_left = 0.0
-		h.circ_free = false
 		h.pins.clear()
 		h.meet_on = false
-		h.throw_curved = false
+		h.turning = false
 	p.charging = false
 	p.pulling = false
 	p.charge_t = 0.0
