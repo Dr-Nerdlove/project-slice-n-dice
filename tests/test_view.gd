@@ -46,6 +46,8 @@ func _initialize() -> void:
 	test_pose_mapping()
 	test_springs()
 	test_motion()
+	test_looks()
+	test_winding()
 	await test_figures()
 	await test_figure_details()
 	test_arena_geometry()
@@ -139,15 +141,6 @@ func test_pose_mapping() -> void:
 	for kind in [K.DINO, K.ROBOT, K.BUNNY, K.DUCK, K.IMP, K.DIE, K.DOLL]:
 		most_lean = maxf(most_lean, amp[kind][2])
 	check("pose: the top leans far into its walk (the largest mean lean)", amp[K.TOP][2] > most_lean + 0.05, str(amp))
-	# The doll rocks in circles: roll and lean a quarter cycle apart.
-	var d0 := facts(A.WALK, K.DOLL)
-	d0.gait = 0.0
-	var d1 := facts(A.WALK, K.DOLL)
-	d1.gait = PI * 0.5
-	var p0 := pose_of(d0)
-	var p1 := pose_of(d1)
-	check("pose: the doll's roll peaks where its lean is average, and the other way round (a quarter cycle apart)",
-			absf(p0[ToyPose.ROLL]) > 0.15 and absf(p1[ToyPose.ROLL]) < 0.05 and p1[ToyPose.LEAN] - p0[ToyPose.LEAN] > 0.15, "%s %s" % [p0, p1])
 	# Standing still: the doll sways and the top wobbles, the dino does not.
 	var sway := {}
 	for kind in [K.DINO, K.DOLL, K.TOP]:
@@ -166,6 +159,92 @@ func test_pose_mapping() -> void:
 	check("pose: a dash while charging shows the dash (the faster tell wins)", ToyPose.act_of(both) == A.DASH)
 	var still := facts(A.IDLE)
 	check("pose: standing still does not walk", pose_of(still)[ToyPose.STEP] == 0.0 and ToyPose.act_of(still) == A.IDLE)
+
+
+## Winding of a mesh's triangles: sign of dot(cross(b-a, c-a), vertex normal) and of dot(cross, centre). Godot's
+## front faces are clockwise from outside; a correct solid has the same sign as the built-in BoxMesh.
+func winding_signs(mesh: Mesh) -> Dictionary:
+	var arr := mesh.surface_get_arrays(0)
+	var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var ns: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+	var idx := PackedInt32Array()
+	if arr[Mesh.ARRAY_INDEX] != null:
+		idx = arr[Mesh.ARRAY_INDEX]
+	if idx.is_empty():
+		idx.resize(vs.size())
+		for i in vs.size():
+			idx[i] = i
+	var r := {"n_pos": 0, "n_neg": 0, "c_pos": 0, "c_neg": 0}
+	for t in range(0, idx.size() - 2, 3):
+		var a := vs[idx[t]]
+		var b := vs[idx[t + 1]]
+		var c := vs[idx[t + 2]]
+		var cr := (b - a).cross(c - a)
+		if cr.length() < 1e-7:
+			continue            # degenerate (the poles)
+		var n := ns[idx[t]] + ns[idx[t + 1]] + ns[idx[t + 2]]
+		r["n_pos" if cr.dot(n) > 0.0 else "n_neg"] += 1
+		r["c_pos" if cr.dot((a + b + c) / 3.0) > 0.0 else "c_neg"] += 1
+	return r
+
+
+func test_winding() -> void:
+	var box := winding_signs(BoxMesh.new())
+	var s: String = "pos" if box["n_pos"] > 0 else "neg"
+	var o: String = "neg" if s == "pos" else "pos"
+	check("mesh winding: the built-in box is consistent (%s)" % str(box), box["n_" + o] == 0 and box["c_" + o] == 0)
+	for r in [0.12, 0.22, 0.3, 0.35, 1.0]:
+		var w := winding_signs(ToyKit.rounded_box(r))
+		check("mesh winding: rounded_box(%.2f) is wound like Godot's box, outward (%s)" % [r, str(w)],
+				w["n_" + s] > 0 and w["n_" + o] == 0 and w["c_" + s] > 0 and w["c_" + o] == 0)
+
+
+## Roly-poly doll tilt, snapper jaw: pure pose and springs.
+func test_looks() -> void:
+	var dt := 1.0 / 60.0
+	# The doll tips into its run, swings back past upright when it stops, and the swing dies away.
+	var f := facts(A.IDLE, ToyPose.Kind.DOLL)
+	var shown := ToyPose.new_pose()
+	var vel: Array[float] = []
+	vel.resize(ToyPose.CHANNELS)
+	vel.fill(0.0)
+	var tgt := ToyPose.new_pose()
+	f.fwd_speed = 1.0
+	var tilt_run := 0.0
+	for _k in 90:
+		f.time += dt
+		ToyPose.targets(f, tgt)
+		ToyPose.spring_step(shown, vel, tgt, dt)
+		tilt_run = maxf(tilt_run, shown[ToyPose.TILT_F])
+	f.fwd_speed = 0.0
+	var first_swing := 0.0     # most it rocks back past upright
+	var late_swing := 0.0      # ... and in the last second
+	var steps := 240
+	for k in steps:
+		f.time += dt
+		ToyPose.targets(f, tgt)
+		ToyPose.spring_step(shown, vel, tgt, dt)
+		if k < steps / 2:
+			first_swing = maxf(first_swing, absf(shown[ToyPose.TILT_F]) if shown[ToyPose.TILT_F] < 0.0 else 0.0)
+		elif k >= steps - 60:
+			late_swing = maxf(late_swing, absf(shown[ToyPose.TILT_F]))
+	check("pose: the roly-poly doll tips into its run (%.2f rad), rocks back past upright when it stops (%.2f) and the swing decays (%.3f)" % [tilt_run, first_swing, late_swing],
+			tilt_run > 0.4 and first_swing > 0.08 and late_swing < 0.25 * first_swing)
+	# The snapper dino opens its jaw wider the longer the throw is charged and shuts it on the throw.
+	var c0 := facts(A.CHARGE, ToyPose.Kind.DINO)
+	c0.charge = 0.0
+	var c1 := facts(A.CHARGE, ToyPose.Kind.DINO)
+	c1.charge = 1.0
+	var th := facts(A.THROW, ToyPose.Kind.DINO)
+	var j0 := pose_of(c0)[ToyPose.JAW]
+	var j1 := pose_of(c1)[ToyPose.JAW]
+	var jt := pose_of(th)[ToyPose.JAW]
+	check("pose: the dino's jaw opens wider with the charge (%.2f -> %.2f) and snaps shut on the throw (%.2f)" % [j0, j1, jt], j1 > j0 + 0.3 and j1 > 0.9 and jt < 0.05)
+	var w0 := facts(A.WALK, ToyPose.Kind.DINO)
+	w0.gait = 0.4
+	var w1 := facts(A.WALK, ToyPose.Kind.DINO)
+	w1.gait = 0.4 + PI * 0.5
+	check("pose: the dino's jaw snaps open and shut in step with its walk", absf(pose_of(w0)[ToyPose.JAW] - pose_of(w1)[ToyPose.JAW]) > 0.5)
 
 
 func test_springs() -> void:
@@ -304,8 +383,15 @@ func test_figures() -> void:
 				missing.append(n)
 		var meshes := fig.find_children("*", "MeshInstance3D", true, false).size()
 		check("figure %s: builds with its parts (%d meshes)" % [ToyFigure.NAMES[kind], meshes], missing.is_empty() and meshes >= 15 and meshes <= 45, str(missing))
+		if kind == ToyPose.Kind.IMP or kind == ToyPose.Kind.TOP or kind == ToyPose.Kind.DOLL:
+			var feet_meshes := 0
+			for fn in ["FootL", "FootR"]:
+				feet_meshes += fig.pose_node.get_node(fn).find_children("*", "MeshInstance3D", true, false).size()
+			check("figure %s: has no visible feet (the pieces exist but carry no meshes)" % ToyFigure.NAMES[kind], feet_meshes == 0, str(feet_meshes))
 		var fp := fig.body_footprint()
-		check("figure %s: the body's footprint matches the hit circle (radius %.2f player radii)" % [ToyFigure.NAMES[kind], fp], fp > 0.85 and fp < 1.15)
+		check("figure %s: the body's footprint matches the hit circle (radius %.2f player radii)" % [ToyFigure.NAMES[kind], fp], fp >= 0.9 and fp < 1.15)
+		var reach := fig.solid_reach()
+		check("figure %s: body and head fill the hit circle and do not stick out of it far (reach %.2f player radii)" % [ToyFigure.NAMES[kind], reach], reach >= 0.9 and reach <= 1.3)
 		# It follows a player and pops when the player dies.
 		var s := one_player()
 		var p := s.players[0]
@@ -450,6 +536,57 @@ func test_figure_details() -> void:
 		top.sync(pt, st, pos2, dt)
 		moved_turn += absf(angle_difference(before, top._spin.rotation.y))
 	check("figure Kreisel: its spinning part turns while it runs (%.2f rad, standing %.2f)" % [moved_turn, idle_turn], top._spin != null and moved_turn > 2.0 and moved_turn > 3.0 * idle_turn)
+	# --- the duck's wheels turn with the distance travelled (and stand still when it stands)
+	var duck := ToyFigure.new(K.DUCK, Color("ff2e88"))
+	holder.add_child(duck)
+	var sdk := one_player()
+	var pdk := sdk.players[0]
+	for _k in 20:
+		duck.sync(pdk, sdk, pdk.pos, dt)
+	var wa := duck._wheels[0].rotation.x
+	for _k in 20:
+		duck.sync(pdk, sdk, pdk.pos, dt)
+	var still_turn := absf(angle_difference(wa, duck._wheels[0].rotation.x))
+	var travelled := 0.0
+	var posd: Vector2 = pdk.pos
+	var angle_sum := 0.0
+	for _k in 60:
+		var before: float = duck._wheels[0].rotation.x
+		posd += Vector2.RIGHT * sdk.cfg.player_speed * dt
+		travelled += sdk.cfg.player_speed * dt
+		duck.sync(pdk, sdk, posd, dt)
+		angle_sum += absf(angle_difference(before, duck._wheels[0].rotation.x))
+	var expect := travelled / (sdk.cfg.player_radius * 0.34)
+	check("figure Ente: four wheels; they turn with the distance (%.1f rad for %.1f m, about %.1f expected), not when standing (%.3f)" % [angle_sum, travelled, expect, still_turn],
+			duck._wheels.size() == 4 and still_turn < 0.01 and angle_sum > 0.6 * expect and angle_sum < 1.4 * expect)
+	duck.queue_free()
+	# The base turns at its own speed: slowly standing, clearly faster running, fastest in a dash.
+	var applied := [true]
+	var base_turn := func(speed_factor: float, dash: bool) -> float:
+		var t2 := ToyFigure.new(K.TOP, Color("2ec4ff"))
+		holder.add_child(t2)
+		var s2 := one_player()
+		var p2 := s2.players[0]
+		var pos3: Vector2 = p2.pos
+		for _k in 30:
+			pos3 += Vector2.RIGHT * s2.cfg.player_speed * speed_factor * dt
+			p2.dash_t = 0.3 if dash else 0.0
+			t2.sync(p2, s2, pos3, dt)
+		var m0: float = t2.motion.spin
+		for _k in 30:
+			pos3 += Vector2.RIGHT * s2.cfg.player_speed * speed_factor * dt
+			p2.dash_t = 0.3 if dash else 0.0
+			t2.sync(p2, s2, pos3, dt)
+		var turn: float = t2.motion.spin - m0
+		applied[0] = applied[0] and is_equal_approx(wrapf(t2._base.rotation.y, -PI, PI), wrapf(t2.motion.spin, -PI, PI))
+		t2.queue_free()
+		return turn
+	var spin_idle: float = base_turn.call(0.0, false)
+	var spin_run: float = base_turn.call(1.0, false)
+	var spin_dash: float = base_turn.call(2.5, true)
+	check("figure Kreisel: the base spins slowly standing (%.2f rad), faster running (%.2f), fastest in a dash (%.2f)" % [spin_idle, spin_run, spin_dash],
+			spin_idle > 0.5 and spin_run > 2.0 * spin_idle and spin_dash > 1.5 * spin_run)
+	check("figure Kreisel: the base node follows the spin angle", applied[0])
 	top.queue_free()
 	holder.queue_free()
 	await process_frame

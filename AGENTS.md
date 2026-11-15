@@ -237,7 +237,7 @@ missing, with a recommendation, and let the people choose.
   itself is in `game/sim/config.gd`. Which toy a slot gets: `ArenaView.FIGURE_KINDS`. To add a figure: a new
   `ToyPose.Kind` with its `CYCLE` entry and gait flavour, a `_build_*` function in `toy_figure.gd` that creates at
   least the six standard pieces (Body first, Head, ArmL, ArmR, FootL, FootR), its accent in `ACCENTS` and name in
-  `NAMES`; `tests/test_view.gd` then checks it builds and fits the hit circle. **Screenshots cannot be made on the
+  `NAMES`; `tests/test_view.gd` then checks it builds and fits the hit circle (body shell and `solid_reach()` of body and head: 0.9 to 1.3 player radii, the hit circle is the same for every figure). The standard pieces may be empty: the imp, the top and the roly-poly doll have no visible feet (a test checks it), the duck's FootL/FootR carry its wheels (turned by the walk phase), the dino's lower jaw (`JAW` pose channel) and the doll's rocking (`TILT_F`/`TILT_S`, underdamped springs) are pose channels in `toy_pose.gd`; the top's base turns with `ToyMotion.spin`. `rounded_box()` is the only hand-built mesh: Godot's front faces are clockwise from outside, a test compares its winding with `BoxMesh`. **Screenshots cannot be made on the
   owner's Linux machine:** no X server, no Xvfb, no GL/EGL or Vulkan libraries (Godot's x11 and wayland drivers fail
   on missing `libXcursor` / `libwayland-client`; headless only has the dummy renderer). The look is checked on the
   phone; rendering in CI (Xvfb with Mesa on a GitHub runner) would be an option.
@@ -257,7 +257,7 @@ missing, with a recommendation, and let the people choose.
   `MAJOR.MINOR.PATCH`; `tools/set-version.sh` writes it to `application/config/version` in `game/project.godot` (what
   the game shows and compares), and `version/name` and `version/code` (= MAJOR*10000 + MINOR*100 + PATCH, so MINOR
   and PATCH stay below 100) in `game/export_presets.cfg`. The committed files hold the version of the NEXT release
-  (now 0.3.1); a test checks that they agree. CI builds of branches use the committed version plus the suffix
+  (now 0.4.1); a test checks that they agree. CI builds of branches use the committed version plus the suffix
   `-dev+<commit>` in `application/config/version` only (set by the `apk` job), so the game shows it is a dev build and
   never offers an update for the same version. How the app finds updates: `game/update/update_check.gd` (pure logic)
   and `main.gd` ask `https://api.github.com/repos/Joni9993/slice-n-dice-releases/releases/latest` once, 3 s after the

@@ -12,6 +12,9 @@ const FAST_TURN_RATE := 45.0     # while dashing or flying
 ## A drawn speed above this many player speeds counts as a dash (online, the dash_t of the others can fall
 ## between two snapshots; the drawn movement cannot).
 const DASH_SPEED_FACTOR := 2.0
+const SPIN_IDLE := 2.0           # rad/s of the top's base standing still
+const SPIN_RUN := 10.0           # extra rad/s at full running speed
+const SPIN_DASH := 30.0          # rad/s in a dash or a pull
 
 var kind := 0
 var facts := ToyPose.Facts.new()
@@ -21,6 +24,7 @@ var vel: Array[float] = []
 var act: int = ToyPose.Act.DEAD
 var yaw := 0.0
 var velocity := Vector2.ZERO     # smoothed drawn velocity, m/s
+var spin := 0.0                  # angle of the spinning top's base: slow idle, faster running, fastest in a dash
 var wind := 0.0                  # angle of the wind-up key (robot)
 var popped := false              # true on the frame the player died: the figure pops
 var spawned := false             # true on the frame the player (re)appeared: the figure drops in
@@ -96,6 +100,7 @@ func update(p: SimPlayer, src: Sim, drawn: Vector2, dt: float) -> void:
 	yaw += angle_difference(yaw, atan2(face.x, face.y)) * (1.0 - exp(-rate * dt))
 	# The key turns while the toy runs and is wound back hard while charging.
 	var walk := clampf(velocity.length() / ps, 0.0, 1.0)
+	spin += dt * (SPIN_DASH if dashing or facts.pulling else SPIN_IDLE + SPIN_RUN * walk)
 	wind += dt * (-12.0 * facts.charge if facts.charging else 1.5 + 9.0 * walk)
 
 

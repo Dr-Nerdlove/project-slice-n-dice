@@ -159,12 +159,13 @@ static func rounded_box(round := 0.35) -> Mesh:
 		for i in seg_u:
 			var a := j * (seg_u + 1) + i
 			var b := a + seg_u + 1
+			# Godot's front faces are clockwise seen from outside: (a, b, a+1) and (a+1, b, b+1) here.
 			st.add_index(a)
-			st.add_index(a + 1)
 			st.add_index(b)
 			st.add_index(a + 1)
+			st.add_index(a + 1)
+			st.add_index(b)
 			st.add_index(b + 1)
-			st.add_index(b)
 	var mesh := st.commit()
 	_meshes[key] = mesh
 	return mesh

@@ -22,13 +22,16 @@ enum {
 	TREMBLE,   # shake amplitude (full charge)
 	DIZZY,     # stun 0..1 (stars, wobble)
 	EARS,      # extra swing of floppy parts (bunny ears, duck tail)
+	JAW,       # snapper dino: how far the lower jaw is open (0 shut, 1 wide)
+	TILT_F,    # roly-poly doll: forward tilt on its round bottom (springs back with a decaying swing)
+	TILT_S,    # roly-poly doll: sideways tilt (same kind of spring)
 	CHANNELS,
 }
 
-const REST: Array[float] = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+const REST: Array[float] = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 ## Spring per channel: angular frequency (1/s) and damping ratio (< 1 overshoots: the jelly of squash and stretch).
-const OMEGA: Array[float] = [15.0, 13.0, 24.0, 22.0, 26.0, 17.0, 13.0, 13.0, 11.0, 20.0, 9.0, 10.0]
-const ZETA: Array[float] = [0.7, 0.6, 0.36, 0.42, 0.55, 0.8, 0.75, 0.5, 1.0, 1.0, 1.0, 0.28]
+const OMEGA: Array[float] = [15.0, 13.0, 24.0, 22.0, 26.0, 17.0, 13.0, 13.0, 11.0, 20.0, 9.0, 10.0, 34.0, 11.0, 11.0]
+const ZETA: Array[float] = [0.7, 0.6, 0.36, 0.42, 0.55, 0.8, 0.75, 0.5, 1.0, 1.0, 1.0, 0.28, 0.5, 0.13, 0.13]
 const SUBSTEP := 1.0 / 240.0       # the springs integrate in fixed small steps: same result at 30, 60 or 120 fps
 
 const THROW_TIME := 0.3            # lunge and follow-through after a throw
@@ -43,7 +46,7 @@ const BREATH_SPEED := 2.4
 ## Actions in which the feet keep walking.
 const GAIT_ACTS: Array[int] = [Act.IDLE, Act.WALK, Act.CHARGE, Act.THROW, Act.OUT, Act.CATCH]
 ## Walk cycle length (two steps, or one hop) per kind, in player radii.
-const CYCLE: Array[float] = [4.0, 3.2, 4.6, 3.4, 4.2, 4.4, 2.6, 2.8]
+const CYCLE: Array[float] = [4.0, 3.2, 4.6, 2.14, 4.2, 4.4, 2.6, 2.8]
 
 
 ## What a figure knows about its player in one frame.
@@ -118,6 +121,12 @@ static func targets(f: Facts, out: Array[float]) -> int:
 	elif f.kind == Kind.TOP:
 		out[ROLL] += 0.05 * sin(f.time * 3.1)
 		out[LEAN] += 0.05 * cos(f.time * 3.1)
+	if f.kind == Kind.DOLL:
+		# Roly-poly: no stepping lean; it tips on its round bottom into the drift and swings back (TILT springs).
+		out[LEAN] = 0.0
+		out[ROLL] = 0.05 * sin(f.time * 1.7) * (1.0 - walk)
+		out[TILT_F] = 0.55 * clampf(f.fwd_speed, -1.0, 1.3)
+		out[TILT_S] = -0.5 * clampf(f.side_speed, -1.0, 1.0)
 	if act in GAIT_ACTS:
 		_gait(f, walk * (0.6 if act == Act.CHARGE else 1.0), out)
 	match act:
@@ -131,6 +140,7 @@ static func targets(f: Facts, out: Array[float]) -> int:
 			out[TWIST] = -0.5 * c
 			out[HEAD] = 0.14 * c
 			out[TREMBLE] = 0.08 * smoothstep(0.85, 1.0, c)
+			out[JAW] = 0.3 + 0.7 * c if f.kind == Kind.DINO else 0.0     # the snapper opens wider and wider
 		Act.THROW:
 			# Lunge after the release, then the follow-through.
 			var k := 1.0 - clampf(f.since_throw / THROW_TIME, 0.0, 1.0)
@@ -140,6 +150,7 @@ static func targets(f: Facts, out: Array[float]) -> int:
 			out[ARM] = 1.0
 			out[TWIST] = 0.4 * k
 			out[HEAD] = 0.1
+			out[JAW] = 0.0                                       # ... and snaps shut on the throw
 		Act.OUT:
 			out[ARM] = 0.85
 			out[LEAN] += 0.08
@@ -168,6 +179,8 @@ static func targets(f: Facts, out: Array[float]) -> int:
 			out[LEAN] = -0.24 * k
 			out[ARM] = 0.3
 			out[EARS] = -0.6 * k
+			if f.kind == Kind.DOLL:
+				out[TILT_F] = -0.7 * k                           # the round bottom rocks back after a dash
 		Act.PULL:
 			# Flying to the yo-yo: stretched out, lifted off the ground, arm forward, feet trailing.
 			out[LEAN] = 0.8
@@ -187,6 +200,9 @@ static func targets(f: Facts, out: Array[float]) -> int:
 			out[SQUASH] = 0.92
 			out[ARM] = 0.0
 			out[STEP] = 0.0
+			if f.kind == Kind.DOLL:
+				out[TILT_F] = 0.45 * sin(t * 0.9)               # hit: rocks wildly, then settles by itself
+				out[TILT_S] = 0.45 * cos(t * 0.9)
 		Act.SPAWN:
 			if f.since_spawn < DROP_TIME:
 				var u := f.since_spawn / DROP_TIME
@@ -210,6 +226,7 @@ static func _gait(f: Facts, w: float, out: Array[float]) -> void:
 	match f.kind:
 		Kind.DINO:
 			out[STEP] = w
+			out[JAW] = w * 0.75 * smoothstep(-0.15, 0.15, sin(f.gait * 2.0))   # the jaw snaps open and shut with the steps
 			out[LIFT] += 0.07 * w * absf(s)
 			out[SQUASH] -= 0.09 * w * pow(1.0 - absf(s), 6.0)    # heavy footfall
 			out[ROLL] += 0.07 * w * s
@@ -229,10 +246,9 @@ static func _gait(f: Facts, w: float, out: Array[float]) -> void:
 			out[LEAN] += 0.08 * w * cos(f.gait)
 			out[EARS] += 0.8 * w * cos(f.gait)
 		Kind.DUCK:
-			out[STEP] = 0.8 * w
-			out[ROLL] += 0.22 * w * s
-			out[LIFT] += 0.04 * w * absf(s)
-			out[TWIST] += 0.12 * w * s
+			out[STEP] = w                                        # wheels: the view turns them with the gait
+			out[ROLL] += 0.16 * w * s                            # rocks on its wheels in step with them
+			out[TWIST] += 0.1 * w * s
 			out[EARS] += 0.6 * w * s
 		Kind.IMP:
 			var hop := maxf(0.0, s)
@@ -250,9 +266,7 @@ static func _gait(f: Facts, w: float, out: Array[float]) -> void:
 			out[SQUASH] -= 0.08 * w * pow(1.0 - absf(s), 6.0)
 			out[LEAN] *= 0.4
 		Kind.DOLL:
-			out[STEP] = 0.45 * w
-			out[ROLL] += 0.24 * w * cos(f.gait)
-			out[LEAN] += 0.2 * w * s
+			out[ROLL] += 0.05 * w * cos(f.gait)
 		Kind.TOP:
 			out[STEP] = 0.5 * w
 			out[LEAN] += 0.14 * w
