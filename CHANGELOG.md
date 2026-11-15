@@ -4,7 +4,7 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
-## Unreleased
+## 0.7.0
 
 - **Shop between rounds in Play**: after the round result, everybody shops at the same time for up to 20 seconds
   (it closes early when everybody has pressed **Done**). You get three random modifiers with their price (3, 5 or
