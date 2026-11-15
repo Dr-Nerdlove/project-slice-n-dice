@@ -187,9 +187,9 @@ missing, with a recommendation, and let the people choose.
   machine the local sessions run on (`gh` is logged in as Joni9993 there: `gh repo create` creates under that
   account even when another owner is named). Agreed between them (2026-11-13): while the concept is being worked
   out, Joni9993 works ahead and decides about merging and test releases; Dr-Nerdlove builds on it afterwards.
-- **What the project is:** "Slice n Dice", a top-down arena brawler for Android with online multiplayer
+- **What the project is:** "Spinback Rumble" (formerly the working title "Slice n Dice"; the repository and file names keep the old name), a top-down arena brawler for Android with local multiplayer
   (2-8 players) and a yo-yo as the weapon. Plan and decisions: `docs/PLAN.md`.
-- **Product languages:** Not finally decided. The prototype UI is German for now.
+- **Product languages:** English only (decided by the owner on 2026-11-15). The existing German texts (menus, modifier texts in `game/sim/mods.gd`, figure names, update banner) are to be translated; all new text is English.
 - **Build and test:** Godot 4.7.2, project in `game/`. Run on PC: `godot --path game`. Android debug APK:
   `godot --headless --path game --export-debug "Android" ../build/slice-n-dice-debug.apk` (needs Godot export
   templates, JDK 17 and the Android SDK configured in Godot's editor settings). Tests: `tests/run.sh` (needs `godot` on the
@@ -254,7 +254,7 @@ missing, with a recommendation, and let the people choose.
   through a native plugin; an app cannot switch the hotspot on (iOS: not at all; Android: only a local-only hotspot with a
   random name and password); broadcast from the hotspot phone itself is unreliable on some Android devices, hence the code;
   a backgrounded or closed host app ends the match. Not verified on real devices yet (broadcast on real Wi-Fi, the hotspot case).
-- **Look (toy figures, playroom):** all in `game/view`, view only. `toy_kit.gd`: the shared materials (glossy
+- **Look (toy figures, playroom):** all in `game/view`, view only. No UI during a round (UI only between rounds; information lives in the world) and the UI style (flat, one tomato-red accent, yellow price tags, fonts Unbounded and Rubik): see `docs/PLAN.md` (sections 5 and 6) and `docs/ui-mockup.html`. `toy_kit.gd`: the shared materials (glossy
   plastic with clearcoat and rim, plush, wood) and unit meshes; share them, do not create materials per figure.
   `toy_figure.gd`: builds the four figures (sizes in player radii, +z is the front) and applies the pose;
   `toy_pose.gd`: pure "sim state -> pose targets" plus the springs (fixed sub-steps); `toy_motion.gd`: follows one

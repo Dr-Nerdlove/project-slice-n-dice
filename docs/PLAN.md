@@ -1,4 +1,4 @@
-# Project Plan: Yo-Yo Arena Brawler (working title)
+# Project Plan: Spinback Rumble
 
 This document is the binding basis for implementation. It collects all decisions made by the project owner. Anyone continuing the work needs no prior knowledge from earlier conversations.
 
@@ -10,7 +10,9 @@ This document is the binding basis for implementation. It collects all decisions
 - **Language:** Communication in German.
 - **Priorities in this order:** smooth multiplayer, clear skill expression, then content and looks.
 - **Goal:** First an MVP for friends (APK distributed directly), then polish, possibly a Play Store release later.
-- **Repository:** Dr-Nerdlove/project-slice-n-dice (working title of the repo: "Slice n Dice"). The Godot project lives in `game/`. Development happens on Linux, with Godot 4.7.2.
+- **Name (decided by the owner on 2026-11-15):** The game is called "Spinback Rumble" (replaces the working titles "Slice n Dice" and "Yo-Yo Arena Brawler"). A quick web search found no game of that name (only an unrelated small itch.io game "Spinback"); no trademark check was done. When the app is renamed, only the shown name changes: the Android package id, the releases repository and the update URL stay, so the new APK still installs over the old one and testers keep their settings.
+- **Product language (decided by the owner on 2026-11-15):** The whole game is English only. Existing German texts (menus, modifier texts in `game/sim/mods.gd`, figure names, the update banner) get translated.
+- **Repository:** Dr-Nerdlove/project-slice-n-dice (working title of the repo: "Slice n Dice"; repository and file names keep it). The Godot project lives in `game/`. Development happens on Linux, with Godot 4.7.2.
 
 ## 2. Core gameplay
 
@@ -20,7 +22,7 @@ This document is the binding basis for implementation. It collects all decisions
 - **Player count:** 2-8.
 - **Modes:** Free-for-all up to 8 players, and teams (2v2, 3v3, 4v4). Arena size scales with the player count.
 - **Controls** (decided by the owner on 2026-11-13): Two virtual sticks (left moves, right aims and throws) plus controller support. Holding the right stick charges the throw: the longer the hold, the further the throw, and a visible aim line shows direction and landing distance. Releasing throws. While the yo-yo is out, a short tap on the right stick retracts it, and holding the right stick pulls the character to the yo-yo.
-- **Theme and name:** Name still open. **Look direction** (decided by the owners on 2026-11-13): toys from around the year 2000 come alive. Glossy moulded plastic and loud colours are the base, hits get comic effects, menus get a hologram shine. The figures are invented, generic toy types (no brand, no known character); the first arena is a children's playroom. See "Look" in section 6.
+- **Theme:** The name is decided (see section 1). **Look direction** (decided by the owners on 2026-11-13): toys from around the year 2000 come alive. Glossy moulded plastic and loud colours are the base, hits get comic effects, menus follow the "UI style" in section 6 (decided 2026-11-15; it replaces the earlier idea of a hologram shine). The figures are invented, generic toy types (no brand, no known character); the first arena is a children's playroom. See "Look" in section 6.
 
 ### The toy train
 
@@ -139,6 +141,15 @@ model for rhythm and feel only; nothing of an existing game is copied (see secti
   sliders, no free modifier levels. Modifiers come only from the shop. Saved Training values must never leak into
   a real match (also online: the server's config counts).
 
+### No UI during a round (decided by the owner on 2026-11-15)
+
+- The round shows only the game. UI appears only between rounds: round result, shop, match result.
+- Information during play lives in the world: the zone is a bright line on the floor with the room darker outside; a
+  player outside the zone gets a ring on the floor under the figure that fills in 3 s. The dash charge moves to the
+  figure or its yo-yo.
+- **Touch controls become a setting:** by default the sticks appear only under the thumb while it touches the screen;
+  the player can instead choose fixed sticks and place the buttons and sticks where they want.
+
 ### Mode "Last Standing" (the first mode; more modes come later)
 
 - A round: everybody spawns, no respawn; the last player alive wins the round and gets **1 point**. Nothing else
@@ -192,8 +203,8 @@ Numbers, to be tuned in play (all in one central table, like `game/sim/mods.gd`)
 - Underdog and leader are decided by points at the start of the round.
 - Zone: full arena for the first 20 s, then a rectangle with the arena's proportions shrinks over 30 s down to about
   a quarter of the arena's width and height, and stays there. It shrinks towards its final area (see below). Outside the zone a
-  per-player timer fills (dead at 3 s) and drains again inside; it shows on the HUD, and the zone edge is visible on
-  the floor. The zone is simulation state (it must be identical on server and client).
+  per-player timer fills (dead at 3 s) and drains again inside; it is not a HUD element: the zone edge is a bright line on
+  the floor with the room darker outside, and a player outside the zone gets a ring on the floor under the figure that fills in 3 s (see "No UI during a round" in section 5). The zone is simulation state (it must be identical on server and client).
 
 ## 6. Technology
 
@@ -212,6 +223,16 @@ Numbers, to be tuned in play (all in one central table, like `game/sim/mods.gd`)
     was **not tried in practice**; if the custom code turns out to be too much work, it can still be evaluated.
 - **Biggest technical risk:** Pulling to the yo-yo must feel instant even at 60 ms ping. Test early with artificial lag and packet loss.
 - **Graphics:** Placeholders and free asset packs until the MVP, own high-quality models in the polish phase. Mobile renderer; target devices are ordinary Android phones.
+
+### UI style (decided 2026-11-15)
+
+- Restrained, clearly readable game UI for players aged 15-30: a mix of nostalgia (2000s toy films, the playroom) and a
+  clear design language. Less is more.
+- Flat surfaces, solid panels over the dimmed and blurred arena, one accent colour (tomato red), coins yellow.
+  Yellow toy-shop price tags are the nostalgic accent. Big titles with a slightly offset print shadow.
+- Fonts: Unbounded (titles, numbers) and Rubik (everything else), both under the SIL Open Font License.
+- Rejected after two mockups: glossy, busy, effect-heavy looks (they read as a cheap free mobile game).
+- Reference mockup: `docs/ui-mockup.html` (open it in a browser).
 
 ### Look (first step, version 0.3.1)
 
@@ -233,7 +254,7 @@ Numbers, to be tuned in play (all in one central table, like `game/sim/mods.gd`)
   layout scaled by 8/7): muted play carpet on wooden floorboards, low toy fence as the walls, wooden building blocks
   as obstacles, a cardboard box as the movable crate, a tower of blocks as the breakable box. No colour of the room
   is a player colour. Blob shadows instead of shadow maps (cheaper on phones).
-- **Placeholder / not done:** the comic hit effects and the hologram menus; aim line, string and HUD are still the earlier
+- **Placeholder / not done:** the comic hit effects (the hologram menus are dropped, see "UI style"); aim line, string and HUD are still the earlier
   simple shapes (the yo-yo heads are already toy yo-yos in the same plastic, with their modifier marks); figure choice per player (slots 5-8 reuse the four toys); sound. **The
   look has not been seen rendered yet**: the development machine cannot render, so the first real look is on the
   phone.
@@ -241,7 +262,7 @@ Numbers, to be tuned in play (all in one central table, like `game/sim/mods.gd`)
 
 ## 7. Hosting
 
-- **Decision (owner, 2026-11-15): hosting on a server is shelved for now.** The earlier plan (a container on the
+- **Decision (owner, 2026-11-15): hosting on a server is shelved for now, and online play over the internet is not planned for now.** Local play on one Wi-Fi or hotspot stays (menu entry "Multiplayer"). The earlier plan (a container on the
   home Proxmox server with UDP port forwarding on the router) does not work:
   - The home internet connection is DS-Lite / CGNAT: it has no public IPv4 address, so nothing can be reached from
     outside by forwarding a port.
@@ -255,7 +276,7 @@ Numbers, to be tuned in play (all in one central table, like `game/sim/mods.gd`)
 
 ## 8. Lobby and matchmaking
 
-- **LAN mode (built, version 0.5.0):** a phone opens a match (menu tab "Lokal"), the others on the same Wi-Fi or in
+- **LAN mode (built, version 0.5.0):** a phone opens a match (menu tab "Lokal", to be renamed "Multiplayer"), the others on the same Wi-Fi or in
   its hotspot pick the game from a list of found games or type a short code. The host runs the authoritative server
   inside its own app (`LocalHost`); its own game connects to it through 127.0.0.1 like every other player. The match
   uses the host's tuned values and ends when the host leaves or closes the app. The code (`LanCode`, 4 to 7
@@ -400,6 +421,18 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
 
 
 ### M3: Match loop
+Step order (decided by the owner on 2026-11-15):
+1. UI building blocks in the new style, new main menu "Play" / "Training"; the real game uses fixed `Config` defaults, Training keeps today's tuning; all new text English; the app's shown name becomes Spinback Rumble.
+2. Translate all remaining German texts to English.
+3. Rounds and points for Last Standing (no respawn, 1 point, target 10/15/20, round and match result screens; the mode as its own unit).
+4. Shrinking zone.
+5. Coins.
+6. Shop (works in Multiplayer too, bots buy).
+7. Touch control settings.
+
+Map rotation waits until a second map exists.
+
+Contents:
 - Rounds, points, target score, winner screen.
 - Shop phase with coins, reroll and upgrading (section 5).
 - Bounty and skill bonuses.
@@ -413,7 +446,7 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
 - **Done when:** Friends install the APK and start a match without help.
 
 ### M5: Polish
-- Decide theme and name.
+- Theme and name are decided (section 1).
 - Own models, animations, more arenas, sound, effects.
 
 ### M6: Optional
@@ -421,14 +454,13 @@ Every milestone ends with a build that the owner tests on the phone. Work contin
 
 ## 10. Open points
 
-- Name of the game; more characters and arenas (the look direction is decided, see section 2).
+- More characters and arenas (the look direction is decided, see section 2).
 - What the out yo-yo does when the player walks away. The prototype offers three switchable variants: A: it stays and is dragged along once the string is taut; B: leash, the player cannot move beyond the string length; C: it moves rigidly with the player. The owner decides by playing.
 - Confirmation of defence, harmless string and dash (see section 3).
 - Number of modifier slots (proposal: five).
 - Target score and exact point scoring.
-- Where to host a server for play over the internet (the home connection has no public IPv4, see section 7).
-- Product language(s) of the game UI (the prototype menu is German for now).
+- Hosting a server for play over the internet: shelved, not planned for now (see section 7).
 
 ## 11. Next step
 
-Finish and tune the M1 prototype on the phone, and play the first netcode experiment (M2) on the LAN with 2-4 phones.
+M3 step 1 (section 9): UI building blocks in the new style, the new main menu "Play" / "Training", and the shown name Spinback Rumble.

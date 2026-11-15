@@ -1,0 +1,325 @@
+<title>Spinback Rumble UI mockup</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Rubik:wght@400;500;700&display=swap">
+<style>
+/* Layout: stack of 20:9 game screens (1280x576), sizes inside in cqw. Direction: flat, typographic, generous space.
+   Menus sit as solid panels over the dimmed, blurred arena. Nostalgia only in accents: toy-shop price tags,
+   a slightly offset print shadow on big titles, the playroom itself. Deliberately one visual world. */
+:root {
+  color-scheme: dark;
+  --page: #10131c; --page-fg: #eceef3; --page-mute: #9aa1b2;
+  --ink: #141a2e;        /* deep ink: text on light, panel colour on dark */
+  --paper: #f7f5f0;      /* light surface */
+  --line: #dcd8cf;
+  --mute: #6b7185;
+  --tomato: #ff5233;     /* the one accent */
+  --sun: #ffc23d;        /* coins, highlights */
+  --p1: #ff5233; --p2: #3d7bff; --p3: #2fbf71; --p4: #ffc23d;
+  --t-cheap: #2fbf71; --t-med: #3d7bff; --t-exp: #a35cff;
+  --disp: "Unbounded", "Rubik", system-ui, sans-serif; --ui: "Rubik", system-ui, sans-serif;
+}
+body { background: var(--page); color: var(--page-fg); font: 15px/1.55 var(--ui); }
+.wrap { max-width: 1100px; margin: 0 auto; padding-block: 28px 60px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1 { font: 800 clamp(24px, 4vw, 36px)/1.1 var(--disp); margin: 0 0 8px; text-wrap: balance; }
+.lead { color: var(--page-mute); margin: 0; max-width: 70ch; }
+.cap { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin: 36px 0 10px; }
+.cap h2 { font: 700 18px/1.2 var(--ui); margin: 0; }
+.cap p { margin: 0; color: var(--page-mute); font-size: 14px; max-width: 80ch; }
+.note { margin-top: 40px; color: var(--page-mute); font-size: 14px; max-width: 72ch; }
+
+.screen { container-type: inline-size; position: relative; aspect-ratio: 20 / 9; max-width: 100%; overflow: hidden; border-radius: 14px; isolation: isolate; box-shadow: 0 10px 30px #0008; }
+.screen * { box-sizing: border-box; }
+.s { position: absolute; inset: 0; font-family: var(--ui); color: var(--ink); }
+
+/* the arena (stand-in for the 3D playroom) */
+.arena { position: absolute; inset: 0; z-index: -2;
+  background:
+    linear-gradient(#0000 0 0) ,
+    repeating-linear-gradient(90deg, #c08a5a 0 7cqw, #b5804f 7cqw 7.15cqw, #c69262 7.15cqw 14cqw, #b5804f 14cqw 14.15cqw); }
+.arena .fence { position: absolute; inset: 3cqw 6cqw; border-radius: 1.2cqw; box-shadow: 0 0 0 .7cqw #f1ece2, 0 1cqw 1.6cqw #0005; }
+.arena .blk { position: absolute; border-radius: .6cqw; box-shadow: 0 .7cqw 0 #0003; }
+.arena .ball { position: absolute; }
+.dim .arena { filter: blur(.5cqw) saturate(.7) brightness(.55); transform: scale(1.04); }
+
+/* figures as plain balls (the real toys go here) */
+.ball { display: inline-block; flex: none; width: 3cqw; height: 3cqw; border-radius: 50%; background: var(--c);
+  box-shadow: inset -.4cqw -.5cqw 0 #0002; }
+
+/* panels and text */
+.panel { background: var(--paper); border-radius: 1.4cqw; box-shadow: 0 1cqw 2.4cqw #0006; }
+.panel.ink { background: var(--ink); color: var(--paper); }
+.eyebrow { font: 700 1.05cqw/1 var(--ui); letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+.ink .eyebrow { color: #8e96ad; }
+.h { font: 800 3.4cqw/1 var(--disp); letter-spacing: -.01em; margin: 0; }
+.print { color: var(--paper); text-shadow: .35cqw .35cqw 0 var(--tomato); } /* offset print, used only on big titles */
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: .7cqw; font: 700 1.7cqw/1 var(--ui);
+  padding: 1.25cqw 2.4cqw; border-radius: 1cqw; background: var(--paper); color: var(--ink); white-space: nowrap;
+  box-shadow: 0 .35cqw 0 #00000030; }
+.btn.main { background: var(--tomato); color: #fff; box-shadow: 0 .35cqw 0 #b8341c; }
+.btn.dark { background: var(--ink); color: var(--paper); box-shadow: 0 .35cqw 0 #000; }
+.btn.quiet { background: #ffffff18; color: var(--paper); box-shadow: none; }
+.btn.lg { font-size: 2.2cqw; padding: 1.6cqw 3cqw; }
+
+.coin { display: inline-block; width: 1.5cqw; height: 1.5cqw; border-radius: 50%; background: var(--sun); box-shadow: inset 0 0 0 .25cqw #e0a020; vertical-align: -.2cqw; flex: none; }
+
+/* toy-shop price tag: the nostalgic accent */
+.tag { position: relative; display: inline-flex; align-items: center; gap: .5cqw; font: 800 1.7cqw/1 var(--disp);
+  background: var(--sun); color: var(--ink); padding: .7cqw 1.2cqw .7cqw 2.2cqw;
+  clip-path: polygon(1.1cqw 0, 100% 0, 100% 100%, 1.1cqw 100%, 0 50%); }
+.tag::before { content: ""; position: absolute; left: 1cqw; top: 50%; width: .6cqw; height: .6cqw; translate: 0 -50%; border-radius: 50%; background: var(--paper); }
+
+/* ---------- 1 menu ---------- */
+.menu .left { position: absolute; left: 6cqw; top: 0; bottom: 0; width: 46cqw; display: grid; align-content: center; gap: 1.6cqw; }
+.menu .name { font: 800 6.6cqw/.95 var(--disp); letter-spacing: -.02em; }
+.menu .sub { font: 500 1.6cqw/1.4 var(--ui); color: #d9dbe3; max-width: 34cqw; }
+.menu .wip { justify-self: start; font: 700 1.1cqw/1 var(--ui); letter-spacing: .14em; text-transform: uppercase; color: var(--ink); background: var(--sun); padding: .5cqw .9cqw; border-radius: .5cqw; }
+.menu .right { position: absolute; right: 6cqw; top: 0; bottom: 0; width: 28cqw; display: grid; align-content: center; gap: 1.2cqw; }
+.menu .right .btn { width: 100%; justify-content: space-between; }
+.menu .right .btn small { font: 500 1.2cqw/1 var(--ui); opacity: .7; }
+.menu .foot { position: absolute; left: 6cqw; bottom: 3cqw; font: 500 1.15cqw/1 var(--ui); color: #b9bdc9; }
+
+/* ---------- 2 match setup ---------- */
+.bar { position: absolute; left: 4cqw; right: 4cqw; top: 3cqw; display: flex; align-items: center; gap: 1.6cqw; color: var(--paper); }
+.bar .h { font-size: 2.8cqw; }
+.bar .sp { flex: 1; }
+.bar .back { width: 4.4cqw; height: 4.4cqw; padding: 0; font-size: 2.2cqw; }
+.chipline { font: 500 1.35cqw/1 var(--ui); color: #c9cdd8; display: flex; align-items: center; gap: .8cqw; }
+.modes { position: absolute; left: 4cqw; top: 11cqw; width: 58cqw; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.4cqw; }
+.mode { padding: 1.6cqw; height: 26cqw; display: grid; grid-template-rows: 10cqw auto 1fr; gap: 1cqw; position: relative; }
+.mode .art { border-radius: .9cqw; background: #ece8df; display: grid; place-items: center; position: relative; overflow: hidden; }
+.mode h3 { margin: 0; font: 800 1.6cqw/1.15 var(--disp); }
+.mode p { margin: 0; font: 400 1.25cqw/1.4 var(--ui); color: var(--mute); }
+.mode.on { outline: .4cqw solid var(--tomato); outline-offset: -.4cqw; }
+.mode.soon { background: #ffffff14; color: var(--paper); box-shadow: none; }
+.mode.soon .art { background: #ffffff10; }
+.mode.soon p { color: #a9afbf; }
+.mode .flag { position: absolute; top: 1.2cqw; right: 1.2cqw; font: 700 .95cqw/1 var(--ui); letter-spacing: .12em; text-transform: uppercase; color: #c9cdd8; }
+.mode.on .flag { color: var(--tomato); }
+.art .zone-ic { width: 6cqw; height: 6cqw; border: .3cqw dashed var(--tomato); border-radius: .8cqw; display: grid; place-items: center; }
+.art .duo { display: flex; gap: .6cqw; }
+.setup { position: absolute; right: 4cqw; top: 11cqw; width: 30cqw; padding: 2cqw; display: grid; gap: 1.2cqw; }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); background: #ece8df; border-radius: 1cqw; padding: .4cqw; gap: .4cqw; }
+.seg span { text-align: center; font: 800 1.9cqw/1 var(--disp); padding: 1cqw 0; border-radius: .7cqw; color: var(--mute); }
+.seg span.on { background: var(--ink); color: var(--paper); }
+.plist { display: grid; grid-template-columns: 1fr 1fr; gap: .7cqw 1.2cqw; font: 500 1.4cqw/1 var(--ui); }
+.plist div { display: flex; align-items: center; gap: .7cqw; }
+.plist .ball { width: 1.8cqw; height: 1.8cqw; }
+.plist em { font-style: normal; color: var(--mute); font-size: 1.15cqw; }
+.setup .btn { margin-top: .6cqw; }
+
+/* ---------- 3 in round ---------- */
+.zone { position: absolute; left: 34%; top: 22%; width: 34%; height: 56%; border-radius: 1cqw;
+  box-shadow: 0 0 0 200cqw #1a0a1477, inset 0 0 0 .35cqw #ffffffd0; }
+.floor-ring { position: absolute; width: 6cqw; height: 6cqw; border-radius: 50%; translate: -1.5cqw -1.5cqw;
+  background: conic-gradient(var(--tomato) 0 70%, #ffffff30 70%);
+  -webkit-mask: radial-gradient(circle, transparent 2.3cqw, #000 2.4cqw); mask: radial-gradient(circle, transparent 2.3cqw, #000 2.4cqw); }
+.callout { position: absolute; font: 500 1.15cqw/1.3 var(--ui); color: var(--paper); background: #000000a0; padding: .6cqw .9cqw; border-radius: .6cqw; max-width: 20cqw; border: .15cqw dashed #ffffff80; }
+.callout b { color: var(--sun); font-weight: 700; }
+
+/* ---------- 4 round end ---------- */
+.result { position: absolute; left: 4cqw; top: 4cqw; bottom: 4cqw; width: 56cqw; padding: 2.4cqw 2.8cqw; display: grid; grid-template-rows: auto auto 1fr; gap: 1.4cqw; }
+.result .h { font-size: 3cqw; }
+.rows { display: grid; gap: 1cqw; align-content: start; margin-top: .6cqw; }
+.row { display: grid; grid-template-columns: 1.8cqw 2.4cqw 9cqw 1fr 2.6cqw; gap: 1cqw; align-items: center; font: 500 1.5cqw/1 var(--ui); }
+.row .pos { font: 800 1.4cqw/1 var(--disp); color: var(--mute); }
+.row .ball { width: 2.2cqw; height: 2.2cqw; }
+.row .pts { font: 800 2cqw/1 var(--disp); text-align: right; font-variant-numeric: tabular-nums; }
+.pips { display: grid; grid-template-columns: repeat(10, 1fr); gap: .35cqw; }
+.pips i { height: 1.3cqw; border-radius: .3cqw; background: #e6e2d8; }
+.pips i.f { background: var(--c); }
+.pips i.new { box-shadow: 0 0 0 .25cqw var(--paper), 0 0 0 .45cqw var(--c); animation: pop .6s cubic-bezier(.3,1.7,.5,1) both; }
+@keyframes pop { from { transform: scale(0); } }
+.row.you { font-weight: 700; }
+.coins { position: absolute; right: 4cqw; top: 4cqw; bottom: 4cqw; width: 30cqw; padding: 2.4cqw 2.4cqw; display: grid; grid-template-rows: auto 1fr auto; gap: 1.4cqw; }
+.ledger { display: grid; gap: .9cqw; align-content: start; }
+.ledger div { display: flex; justify-content: space-between; font: 400 1.45cqw/1 var(--ui); padding-bottom: .9cqw; border-bottom: .12cqw solid #ffffff1c; }
+.ledger div b { font: 700 1.45cqw/1 var(--ui); font-variant-numeric: tabular-nums; }
+.ledger .total { border: 0; padding-top: .4cqw; font-weight: 700; }
+.ledger .total b { display: flex; align-items: center; gap: .6cqw; font: 800 2.6cqw/1 var(--disp); color: var(--sun); }
+
+/* ---------- 5 shop ---------- */
+.offers { position: absolute; left: 4cqw; top: 10.5cqw; width: 63cqw; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.6cqw; }
+.card { position: relative; padding: 0 0 1.8cqw; display: grid; grid-template-rows: 11cqw auto auto 1fr auto; gap: 1cqw; height: 35cqw; overflow: hidden; }
+.card .art { background: color-mix(in srgb, var(--tc) 16%, var(--paper)); display: grid; place-items: center; position: relative; }
+.card .art::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: .5cqw; background: var(--tc); }
+.card .glyph { font: 800 4.6cqw/1 var(--disp); color: var(--tc); }
+.card .tag { position: absolute; top: 1.4cqw; right: 0; }
+.card .kind { padding: 0 1.8cqw; }
+.card .kind .eyebrow { color: var(--tc); }
+.card h3 { margin: 0; padding: 0 1.8cqw; font: 800 1.9cqw/1.1 var(--disp); }
+.card p { margin: 0; padding: 0 1.8cqw; font: 400 1.3cqw/1.45 var(--ui); color: #4b5163; }
+.lv { padding: 0 1.8cqw; display: flex; align-items: center; gap: .5cqw; font: 500 1.15cqw/1 var(--ui); color: var(--mute); }
+.lv i { width: 1.2cqw; height: 1.2cqw; border-radius: 50%; border: .2cqw solid var(--tc); }
+.lv i.f { background: var(--tc); }
+.lv b { color: var(--ink); font-weight: 700; margin-left: .4cqw; }
+.card .btn { margin: 0 1.8cqw; }
+.card.taken { opacity: .45; }
+.sidecol { position: absolute; right: 4cqw; top: 10.5cqw; width: 25cqw; display: grid; gap: 1.4cqw; }
+.sidecol .panel { padding: 1.8cqw; display: grid; gap: 1cqw; }
+.owned { display: grid; gap: .7cqw; font: 500 1.3cqw/1 var(--ui); }
+.owned div { display: flex; align-items: center; gap: .7cqw; }
+.owned i { width: 1cqw; height: 1cqw; border-radius: .25cqw; background: var(--tc); }
+.owned b { margin-left: auto; font: 700 1.1cqw/1 var(--ui); color: #8e96ad; }
+.timebar { height: .6cqw; border-radius: 99cqw; background: #ffffff20; overflow: hidden; }
+.timebar i { display: block; height: 100%; width: 70%; background: var(--paper); border-radius: inherit; }
+.wallet { display: inline-flex; align-items: center; gap: .7cqw; font: 800 2.2cqw/1 var(--disp); color: var(--paper); }
+.wallet .coin { width: 2cqw; height: 2cqw; }
+.readyline { display: flex; gap: .6cqw; align-items: center; font: 500 1.2cqw/1 var(--ui); color: #c9cdd8; }
+.readyline .ball { width: 1.6cqw; height: 1.6cqw; }
+.readyline .ball.wait { opacity: .3; }
+
+/* ---------- 6 winner ---------- */
+.winner { position: absolute; left: 6cqw; top: 0; bottom: 0; width: 44cqw; display: grid; align-content: center; gap: 1.4cqw; color: var(--paper); }
+.winner .big { font: 800 6.4cqw/.95 var(--disp); letter-spacing: -.02em; }
+.winner .meta { font: 500 1.6cqw/1.4 var(--ui); color: #c9cdd8; }
+.winner .btns { display: flex; gap: 1.2cqw; margin-top: 1.2cqw; }
+.hero-ball { position: absolute; left: 56cqw; top: 50%; translate: 0 -50%; width: 15cqw; height: 15cqw; }
+.final { position: absolute; right: 5cqw; top: 50%; translate: 0 -50%; width: 22cqw; padding: 2cqw; display: grid; gap: .9cqw; }
+.final .row { grid-template-columns: 1.8cqw 2cqw 1fr 2.6cqw; font-size: 1.4cqw; }
+.final .row .ball { width: 1.8cqw; height: 1.8cqw; }
+.final hr { border: 0; border-top: .12cqw solid var(--line); margin: .4cqw 0; width: 100%; }
+.final .stat { display: flex; justify-content: space-between; font: 400 1.25cqw/1 var(--ui); color: var(--mute); }
+.final .stat b { color: var(--ink); font-weight: 700; }
+
+@media (prefers-reduced-motion: reduce) { .pips i.new { animation: none; } }
+</style>
+
+<div class="wrap">
+  <h1>UI style</h1>
+  <p class="lead">Calm and easy to read: flat surfaces, one clear typeface, a single tomato-red accent, yellow coins. Nostalgia only as a seasoning: prices as toy-shop tags, big titles in slightly offset print like on old packaging, and the playroom always behind it. During a round: no UI.</p>
+
+  <div class="cap"><h2>1 · Main menu</h2><p>Over the blurred arena.</p></div>
+  <div class="screen"><div class="s menu dim">
+    <div class="arena"><div class="fence"></div>
+      <div class="blk" style="left:30%;top:30%;width:8%;height:16%;background:#3d7bff"></div><div class="blk" style="left:62%;top:55%;width:10%;height:12%;background:#ffc23d"></div>
+      <span class="ball" style="--c:var(--p1);left:20%;top:60%"></span><span class="ball" style="--c:var(--p2);left:75%;top:30%"></span></div>
+    <div class="left">
+      <div class="name print">Spinback Rumble</div>
+      <div class="sub">Yo-yo brawls in the playroom. 2 to 8 players.</div>
+    </div>
+    <div class="right">
+      <span class="btn main lg">Play <small>Last Standing</small></span>
+      <span class="btn">Training <small>Try out values</small></span>
+      <span class="btn">Character <small>Snap Dino</small></span>
+      <span class="btn quiet">Settings</span>
+    </div>
+    <div class="foot">v0.5.0</div>
+  </div></div>
+
+  <div class="cap"><h2>2 · Match setup</h2><p>Modes as cards; a new mode is a new card. The three dark ones are placeholder ideas.</p></div>
+  <div class="screen"><div class="s dim">
+    <div class="arena"><div class="fence"></div></div>
+    <div class="bar"><span class="btn quiet back">‹</span><span class="h">Match</span><span class="sp"></span><span class="chipline">Multiplayer · Code <b style="color:var(--paper);font-weight:700">K7QF</b></span></div>
+    <div class="modes">
+      <div class="panel mode on"><span class="flag">selected</span><div class="art"><div class="zone-ic"><span class="ball" style="--c:var(--p4)"></span></div></div><h3>Last Standing</h3><p>No respawns. The last one standing scores the point.</p></div>
+      <div class="panel mode soon"><span class="flag">soon</span><div class="art"><div class="duo"><span class="ball" style="--c:var(--p1)"></span><span class="ball" style="--c:var(--p1)"></span><span style="width:1cqw"></span><span class="ball" style="--c:var(--p2)"></span><span class="ball" style="--c:var(--p2)"></span></div></div><h3>Teams</h3><p>2 vs 2 or 4 vs 4.</p></div>
+      <div class="panel mode soon"><span class="flag">idea</span><div class="art"><span class="ball" style="--c:var(--sun);border-radius:.4cqw"></span></div><h3>Steal the Crown</h3><p>Whoever wears the crown collects points.</p></div>
+      <div class="panel mode soon"><span class="flag">idea</span><div class="art"><span class="ball" style="--c:#2b2f3c"></span></div><h3>Hot Bomb</h3><p>Pass it on before it blows.</p></div>
+    </div>
+    <div class="panel setup">
+      <span class="eyebrow">Points to win</span>
+      <div class="seg"><span class="on">10</span><span>15</span><span>20</span></div>
+      <span class="eyebrow">Players · 4 of 8</span>
+      <div class="plist">
+        <div><span class="ball" style="--c:var(--p1)"></span>You</div>
+        <div><span class="ball" style="--c:var(--p2)"></span>Mia</div>
+        <div><span class="ball" style="--c:var(--p3)"></span>Bot <em>easy</em></div>
+        <div><span class="ball" style="--c:var(--p4)"></span>Bot <em>easy</em></div>
+      </div>
+      <span class="btn main lg">Go</span>
+    </div>
+  </div></div>
+
+  <div class="cap"><h2>3 · During the round</h2><p>No UI. Everything you need to know is in the game world. The dashed boxes are only explanations for you and are not visible in the game.</p></div>
+  <div class="screen"><div class="s">
+    <div class="arena"><div class="fence"></div>
+      <div class="blk" style="left:46%;top:44%;width:7%;height:12%;background:#3d7bff"></div>
+      <div class="zone"></div>
+      <span class="ball" style="--c:var(--p2);left:40%;top:34%"></span>
+      <span class="ball" style="--c:var(--p4);left:58%;top:64%"></span>
+      <div class="floor-ring" style="left:18%;top:30%"></div>
+      <span class="ball" style="--c:var(--p1);left:18%;top:30%"></span>
+    </div>
+    <div class="callout" style="left:4%;top:56%"><b>Ring on the floor</b> under the figure fills in 3 s when it stands outside the zone.</div>
+    <div class="callout" style="left:70%;top:14%"><b>Zone</b> as a bright line on the floor; outside it the room gets darker.</div>
+    <div class="callout" style="left:70%;top:66%"><b>Sticks</b> appear only under the thumb, while it touches the screen.</div>
+  </div></div>
+
+  <div class="cap"><h2>4 · Round end</h2><p>Only here: the score toward the goal and the round's coins.</p></div>
+  <div class="screen"><div class="s dim">
+    <div class="arena"><div class="fence"></div></div>
+    <div class="panel result">
+      <span class="eyebrow">Round 7 · Goal 10 points</span>
+      <div class="h">Bot 2 takes the round</div>
+      <div class="rows">
+        <div class="row"><span class="pos">1</span><span class="ball" style="--c:var(--p2)"></span><span>Mia</span><span class="pips" style="--c:var(--p2)"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i><i></i><i></i></span><span class="pts">6</span></div>
+        <div class="row"><span class="pos">2</span><span class="ball" style="--c:var(--p4)"></span><span>Bot 2</span><span class="pips" style="--c:var(--p4)"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f new"></i><i></i><i></i><i></i><i></i></span><span class="pts">6</span></div>
+        <div class="row you"><span class="pos">3</span><span class="ball" style="--c:var(--p1)"></span><span>You</span><span class="pips" style="--c:var(--p1)"><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="pts">3</span></div>
+        <div class="row"><span class="pos">4</span><span class="ball" style="--c:var(--p3)"></span><span>Bot 1</span><span class="pips" style="--c:var(--p3)"><i class="f"></i><i class="f"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="pts">2</span></div>
+      </div>
+    </div>
+    <div class="panel ink coins">
+      <span class="eyebrow">Your coins</span>
+      <div class="ledger">
+        <div><span>Round played</span><b>+3</b></div>
+        <div><span>1 kill</span><b>+1</b></div>
+        <div><span>Kill on the leader</span><b>+1</b></div>
+        <div class="total"><span>Now</span><b><i class="coin"></i>16</b></div>
+      </div>
+      <span class="btn main">To the shop</span>
+    </div>
+  </div></div>
+
+  <div class="cap"><h2>5 · Shop</h2><p>Three offers, colour by price class. The yellow price tag is the toy-shop detail. The time runs as a thin bar.</p></div>
+  <div class="screen"><div class="s dim">
+    <div class="arena"><div class="fence"></div></div>
+    <div class="bar"><span class="h">Shop</span><span class="sp"></span><span class="btn quiet">Reroll <i class="coin"></i>1</span><span class="wallet"><i class="coin"></i>16</span></div>
+    <div class="offers">
+      <div class="panel card" style="--tc:var(--t-med)"><div class="art"><span class="glyph">L</span><span class="tag"><i class="coin"></i>5</span></div><div class="kind"><span class="eyebrow">Throw · Medium</span></div><h3>Steer Throw</h3><p>The yo-yo still follows your stick a bit in flight.</p><div class="lv"><i class="f"></i><i class="f"></i><i></i><b>Level II</b> on next purchase</div><span class="btn dark">Buy</span></div>
+      <div class="panel card" style="--tc:var(--t-cheap)"><div class="art"><span class="glyph">S</span><span class="tag"><i class="coin"></i>3</span></div><div class="kind"><span class="eyebrow">Trap · Cheap</span></div><h3>Tripwire</h3><p>The string stays on the floor as a wire for 4 s. Whoever runs over it trips.</p><div class="lv"><i></i>new</div><span class="btn dark">Buy</span></div>
+      <div class="panel card" style="--tc:var(--t-exp)"><div class="art"><span class="glyph">B</span><span class="tag"><i class="coin"></i>8</span></div><div class="kind"><span class="eyebrow">Hit · Expensive</span></div><h3>Warhead</h3><p>The yo-yo explodes on impact. Also for yourself.</p><div class="lv"><i></i>new</div><span class="btn dark">Buy</span></div>
+    </div>
+    <div class="sidecol">
+      <div class="panel ink">
+        <span class="eyebrow">14 s left</span>
+        <div class="timebar"><i></i></div>
+        <div class="readyline"><span class="ball" style="--c:var(--p2)"></span><span class="ball" style="--c:var(--p3)"></span><span class="ball wait" style="--c:var(--p4)"></span>2 of 3 ready</div>
+      </div>
+      <div class="panel ink">
+        <span class="eyebrow">Your modifiers</span>
+        <div class="owned">
+          <div style="--tc:var(--t-med)"><i></i>Steer Throw<b>I</b></div>
+          <div style="--tc:var(--t-cheap)"><i></i>Big Chunk<b>I</b></div>
+          <div style="--tc:var(--t-med)"><i></i>Bouncer<b>I</b></div>
+        </div>
+      </div>
+      <span class="btn main lg">Done</span>
+    </div>
+  </div></div>
+
+  <div class="cap"><h2>6 · Match winner</h2><p>The name big, the figure (here as a ball) in the light, the final score on the right.</p></div>
+  <div class="screen"><div class="s dim">
+    <div class="arena"><div class="fence"></div></div>
+    <div class="winner">
+      <span class="eyebrow" style="color:#c9cdd8">Match over · 17 rounds</span>
+      <div class="big print">Mia wins</div>
+      <div class="meta">10 points, 14 kills. Rematch?</div>
+      <div class="btns"><span class="btn main lg">Rematch</span><span class="btn quiet lg">Menu</span></div>
+    </div>
+    <span class="ball hero-ball" style="--c:var(--p2)"></span>
+    <div class="panel final">
+      <span class="eyebrow">Final score</span>
+      <div class="row"><span class="pos">1</span><span class="ball" style="--c:var(--p2)"></span><span>Mia</span><span class="pts">10</span></div>
+      <div class="row"><span class="pos">2</span><span class="ball" style="--c:var(--p4)"></span><span>Bot 2</span><span class="pts">8</span></div>
+      <div class="row you"><span class="pos">3</span><span class="ball" style="--c:var(--p1)"></span><span>You</span><span class="pts">6</span></div>
+      <div class="row"><span class="pos">4</span><span class="ball" style="--c:var(--p3)"></span><span>Bot 1</span><span class="pts">4</span></div>
+      <hr>
+      <div class="stat"><span>Your kills</span><b>9</b></div>
+      <div class="stat"><span>Coins total</span><b>58</b></div>
+    </div>
+  </div></div>
+
+  <p class="note">Fonts: Unbounded for titles and numbers, Rubik for everything else (both free, allowed in the game). The balls stand for the real toy figures; the arena is only hinted at here, in the game the real 3D playroom lies behind it.</p>
+</div>
