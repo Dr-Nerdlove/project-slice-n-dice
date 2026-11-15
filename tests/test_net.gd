@@ -1829,7 +1829,7 @@ func test_enet() -> void:
 		return
 	var server := ServerCore.new(Config.new(), server_ep, 7, true)
 	for i in 4:
-		server.sim.apply_mods(i, Mods.sanitize({"splitter": 3, "twin": 3, "arc": 3, "shards": 3, "warhead": 3, "tripwire": 3, "bighead": 3, "bounce": 3, "pierce": 3, "elastic": 3, "extradash": 3}))
+		server.sim.apply_mods(i, Mods.sanitize({"splitter": 3, "twin": 3, "steer": 3, "shards": 3, "warhead": 3, "tripwire": 3, "bighead": 3, "bounce": 3, "pierce": 3, "elastic": 3, "extradash": 3}))
 	var client_ep := ENetEndpoint.new()
 	check("enet: client socket opens", client_ep.connect_to("127.0.0.1", port) == OK)
 	var cl := ClientCore.new(client_ep)

@@ -289,6 +289,7 @@ func _initialize() -> void:
 	_mod_tests()
 	_new_tests()
 	_path_tests()
+	_steer_tests()
 	_train_tests()
 	_pickup_tests()
 	_self_damage_tests()
@@ -434,7 +435,7 @@ func _mod_tests() -> void:
 	for L in [1, 2, 3]:
 		s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"tripwire": L})
 		for k in 4:
-			throw_i(s, 0, Vector2.RIGHT, 30); tap_i(s, 0); many(s, 40, idle4())
+			throw_i(s, 0, Vector2.RIGHT, 15); tap_i(s, 0); many(s, 40, idle4())
 		check("tripwire L%d: at most %d wires" % [L, int(Mods.n("tripwire", "max_wires", L))], s.wires.size() == int(Mods.n("tripwire", "max_wires", L)), "n=%d" % s.wires.size())
 	# own wire harmless
 	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"tripwire": 3})
@@ -557,34 +558,6 @@ func _mod_tests() -> void:
 	s.statics.append(Rect2(RW - 5.0, 9, 1, 3))
 	throw_i(s, 0, Vector2.RIGHT, 60)
 	check("bounce+pierce: passes block, bounces off outer wall", s.players[0].heads[0].bounces == 1 and s.players[0].heads[0].pos.x > RW - 5.0 and s.players[0].heads[0].pos.x < RW - 1.0, "x=%.2f b=%d" % [s.players[0].heads[0].pos.x, s.players[0].heads[0].bounces])
-
-	# --- 6 Bogenwurf
-	# L3 circle
-	s = mk([0]); place(s, 0, Vector2(6, 6.3)); setm(s, 0, {"arc": 3})
-	throw_i(s, 0, Vector2.RIGHT, 21); p = s.players[0]
-	tap_i(s, 0)
-	var ang_prev := (p.heads[0].pos - p.pos).angle()
-	var total := 0.0
-	var ticks_c := 0
-	for t in 200:
-		s.step(idle4())
-		var a_now := (p.heads[0].pos - p.pos).angle()
-		total += absf(angle_difference(ang_prev, a_now)); ang_prev = a_now
-		if p.heads[0].state == HS.HAND: break
-		ticks_c += 1
-	check("arc L3: head sweeps a full circle around the player then comes home", total >= TAU - 0.5 and p.heads[0].state == HS.HAND, "swept=%.2f rad" % total)
-	# circle lethal: victim on circle
-	s = mk([0, 1]); place(s, 0, Vector2(6, 6.3)); place(s, 1, Vector2(6, 6.3 + 4.0)); setm(s, 0, {"arc": 3})
-	throw_i(s, 0, Vector2.RIGHT, 21)
-	s.players[1].pos = Vector2(6, 10.3)
-	tap_i(s, 0); many(s, 60, idle4())
-	check("arc L3: circling head kills someone standing on the circle", s.players[1].deaths == 1)
-	# arc blocked by wall -> OUT
-	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"arc": 2})
-	throw_i(s, 0, Vector2.RIGHT, 60); p = s.players[0]
-	s.statics.append(Rect2(6.0, 7.0, 2.0, 3.0))
-	tap_i(s, 0); many(s, 90, idle4())
-	check("arc: obstacle stops the retract -> OUT", p.heads[0].state == HS.OUT or p.heads[0].state == HS.HAND, "state=%d" % p.heads[0].state)
 
 	# --- 7 Durchschlag
 	for L in [0, 1, 2]:
@@ -850,78 +823,6 @@ func _new_tests() -> void:
 		var back := RW - 0.35 - h.pos.x
 		check("bounce L%d: flies %.1f m back after the wall (2.35 + bonus)" % [L, 2.35 + Mods.n("bounce", "bonus_dist", L)], absf(back - (2.35 + [1.5, 3.0, 5.0][L - 1])) < 0.15, "back=%.2f" % back)
 
-	# ---------------- 2 Bogenwurf: curved throw
-	for L in [1, 2, 3]:
-		for side in [1, -1]:
-			s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"arc": L}); p = s.players[0]
-			throw_mv(s, 0, Vector2.RIGHT, 60, Vector2(0, 1) if side == -1 else Vector2.ZERO)
-			var maxdev := 0.0
-			for t in 80:
-				s.step(idle4())
-				var dv := p.heads[0].pos.y - 6.3
-				if absf(dv) > absf(maxdev): maxdev = dv
-				if p.heads[0].state == HS.OUT: break
-			var want := minf(Mods.n("arc", "bulge", L), 8.0 * 0.6)
-			check("arc throw L%d side %s: bulge %.1f m, lands at the aimed point" % [L, "left" if side == 1 else "right", want], absf(absf(maxdev) - want) < 0.4 and (maxdev < 0.0) == (side == 1) and p.heads[0].pos.distance_to(Vector2(11, 6.3)) < 0.2 and p.heads[0].state == HS.OUT, "dev=%.2f end=%s" % [maxdev, p.heads[0].pos])
-	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"arc": 2}); p = s.players[0]
-	throw_mv(s, 0, Vector2.RIGHT, 1, Vector2.ZERO)
-	var maxd2 := 0.0
-	for t in 80:
-		s.step(idle4())
-		maxd2 = maxf(maxd2, absf(p.heads[0].pos.y - 6.3))
-		if p.heads[0].state == HS.OUT: break
-	var short_range := p.heads[0].pos.x - 3.0
-	check("arc throw: short throw is capped at 60 % of its distance", absf(maxd2 - short_range * 0.6) < 0.25 and short_range < 3.0, "dev=%.2f range=%.2f" % [maxd2, short_range])
-	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"arc": 1}); p = s.players[0]
-	for t in 60: s.step(only0(inp(Vector2.ZERO, Vector2.RIGHT, true)))
-	var ap := s.aim_path(p)
-	var apmax := 0.0
-	for q in ap: apmax = maxf(apmax, absf(q.y - 6.3))
-	check("arc throw: aim line is a curve ending at the aimed point", ap.size() > 10 and apmax > 2.0 and ap[ap.size() - 1].distance_to(Vector2(11, 6.3)) < 0.1, "n=%d dev=%.2f end=%s" % [ap.size(), apmax, ap[ap.size() - 1]])
-	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {}); p = s.players[0]
-	for t in 60: s.step(only0(inp(Vector2.ZERO, Vector2.RIGHT, true)))
-	check("no arc modifier: aim line stays straight (2 points)", s.aim_path(p).size() == 2)
-	# curved throw that hits a wall lands there (no bounce) / pins stay empty
-	s = mk([0]); place(s, 0, Vector2(20, 6.3)); setm(s, 0, {"arc": 2}); p = s.players[0]
-	s.statics.append(Rect2(23, 0, 1, BW))
-	throw_i(s, 0, Vector2.RIGHT, 60)
-	check("arc throw stopped by a wall lies there, no bounce, curve pins before the wall", p.heads[0].state == HS.OUT and p.heads[0].pos.x < 23.0 and p.heads[0].bounces == 0 and p.heads[0].pins.size() >= 1, "x=%.2f pins=%d" % [p.heads[0].pos.x, p.heads[0].pins.size()])
-
-	# L3 circle: next to the outer wall and through a block and the crate
-	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"arc": 3}); p = s.players[0]
-	throw_i(s, 0, Vector2.RIGHT, 60); tap_i(s, 0)
-	var ang_prev := (p.heads[0].pos - p.pos).angle()
-	var total := 0.0
-	var went_out := false
-	var left_arena := false
-	var saw_circle := false
-	for t in 200:
-		s.step(idle4())
-		var hp := p.heads[0].pos
-		if hp.x < -0.01 or hp.y < -0.01 or hp.x > RW + 0.01 or hp.y > BW + 0.01: left_arena = true
-		if p.heads[0].circ_left > 0.0: saw_circle = true
-		var a_now := (hp - p.pos).angle()
-		total += absf(angle_difference(ang_prev, a_now)); ang_prev = a_now
-		if p.heads[0].state == HS.OUT: went_out = true
-		if p.heads[0].state == HS.HAND: break
-	check("arc L3 circle next to the outer wall: full turn, never stuck, stays inside", saw_circle and not went_out and not left_arena and total >= TAU - 0.6 and p.heads[0].state == HS.HAND, "swept=%.2f out=%s left=%s" % [total, went_out, left_arena])
-	s = mk([0]); place(s, 0, Vector2(6, 6.3)); setm(s, 0, {"arc": 3}); p = s.players[0]
-	s.statics.append(Rect2(5.0, 9.8, 2.0, 1.6))       # block on the circle (radius 4 around the player)
-	s.crate_pos = Vector2(6.0, 2.3)                   # crate on the circle too
-	var crate0 := s.crate_pos
-	throw_i(s, 0, Vector2.RIGHT, 21); tap_i(s, 0)
-	ang_prev = (p.heads[0].pos - p.pos).angle(); total = 0.0; went_out = false
-	var through_block := false
-	for t in 200:
-		s.step(idle4())
-		var hp2 := p.heads[0].pos
-		if hp2.y > 10.0 and hp2.x > 5.0 and hp2.x < 7.0: through_block = true
-		var a_now2 := (hp2 - p.pos).angle()
-		total += absf(angle_difference(ang_prev, a_now2)); ang_prev = a_now2
-		if p.heads[0].state == HS.OUT: went_out = true
-		if p.heads[0].state == HS.HAND: break
-	check("arc L3 circle passes through a block and the crate, full turn", through_block and not went_out and total >= TAU - 0.6 and p.heads[0].state == HS.HAND and s.crate_pos == crate0, "swept=%.2f through=%s out=%s crate=%s" % [total, through_block, went_out, s.crate_pos])
-
 	# ---------------- 3 Zwilling
 	s = mk([0]); s.step(idle4())
 	check("twin L0: one yo-yo", s.players[0].heads.size() == 1)
@@ -1050,14 +951,14 @@ func _new_tests() -> void:
 			if sh0.dir.x < -0.9: reversed = true
 		check("shards+bounce L%d: shard has %d bounce(s) and %s" % [bl, bl, "stops at the wall" if bl == 0 else "turns around at the wall"], bl_left == [0, 1, 3, 5][bl] and reversed == (bl > 0), "left=%d reversed=%s" % [bl_left, reversed])
 	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"shards": 3, "bounce": 3})
-	throw_i(s, 0, Vector2.RIGHT, 30); tap_i(s, 0)
+	throw_i(s, 0, Vector2.RIGHT, 15); tap_i(s, 0)
 	check("shards L3 + bounce L3: 1 + 5 shard bounces (more than the single bounce of Splitter III)", s.shards[0].bounces_left == 6, "left=%d" % s.shards[0].bounces_left)
 	# shards + bighead, bighead + warhead
 	for bl in [1, 2, 3]:
 		s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"shards": 1, "bighead": bl})
-		throw_i(s, 0, Vector2.RIGHT, 30); tap_i(s, 0)
+		throw_i(s, 0, Vector2.RIGHT, 15); tap_i(s, 0)
 		check("shards+bighead L%d: shard radius x%.1f" % [bl, Mods.n("bighead", "radius_mult", bl)], absf(s.shards[0].radius - 0.12 * Mods.n("bighead", "radius_mult", bl)) < 0.001, "r=%.3f" % s.shards[0].radius)
-	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"shards": 1}); throw_i(s, 0, Vector2.RIGHT, 30); tap_i(s, 0)
+	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"shards": 1}); throw_i(s, 0, Vector2.RIGHT, 15); tap_i(s, 0)
 	check("shards alone: radius unchanged", absf(s.shards[0].radius - 0.12) < 0.001)
 	for bl in [0, 1, 2, 3]:
 		s = mk([0]); place(s, 0, Vector2(3, 6.3)); var lv_set := {"warhead": 2}
@@ -1071,7 +972,7 @@ func _new_tests() -> void:
 			for e in s.events: if e["type"] == "explosion": rr = e["radius"]
 		var wantr: float = 2.4 * ([1.0, 1.15, 1.3, 1.5][bl])
 		check("bighead L%d + warhead: explosion radius %.2f" % [bl, wantr], absf(rr - wantr) < 0.001, "r=%.3f" % rr)
-	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"warhead": 1, "bighead": 3, "shards": 2}); throw_i(s, 0, Vector2.RIGHT, 30); tap_i(s, 0)
+	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"warhead": 1, "bighead": 3, "shards": 2}); throw_i(s, 0, Vector2.RIGHT, 15); tap_i(s, 0)
 	var shard_r := 0.0
 	for t in 120:
 		s.step(idle4())
@@ -1163,8 +1064,8 @@ func _new_tests() -> void:
 	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"pierce": 2}); s.statics.append(Rect2(6, 5, 1, 3))
 	throw_i(s, 0, Vector2.RIGHT, 60)
 	check("pierce creates no pins", s.players[0].heads[0].pins.is_empty())
-	# arc + bounce: the retract still goes through every pin
-	s = two_pin_sim(2, {"arc": 1}); p = s.players[0]; h = p.heads[0]
+	# steer (idle) + bounce: the retract still goes through every pin
+	s = two_pin_sim(2, {"steer": 1}); p = s.players[0]; h = p.heads[0]
 	var pins_before: PackedVector2Array = h.pins.duplicate()
 	var poly_ab := s.string_path(p, h).duplicate()
 	var off_ab := 0.0; var prefix_ok := true
@@ -1174,7 +1075,7 @@ func _new_tests() -> void:
 		off_ab = maxf(off_ab, dist_to_path(h.pos, poly_ab))
 		if h.pins.size() > 0 and h.pins != pins_before.slice(0, h.pins.size()): prefix_ok = false
 		if h.state == HS.HAND: break
-	check("arc+bounce retract consumes every recorded pin in reverse, stays on the string and comes home", pins_before.size() >= 2 and h.state == HS.HAND and prefix_ok and off_ab < 0.1, "pins=%d off=%.3f" % [pins_before.size(), off_ab])
+	check("steer+bounce retract consumes every recorded pin in reverse, stays on the string and comes home", pins_before.size() >= 2 and h.state == HS.HAND and prefix_ok and off_ab < 0.1, "pins=%d off=%.3f" % [pins_before.size(), off_ab])
 
 	# ---------------- 6 Stolperdraht on pull and along the path
 	s = two_pin_sim(2, {"tripwire": 1}); p = s.players[0]; h = p.heads[0]
@@ -1247,14 +1148,174 @@ func _menu_tests() -> void:
 
 
 # ---------------------------------------------------------------- string = flight path
-func curved_sim(L: int, pos := Vector2(3, 6.3), extra := {}) -> Sim:
+# charge + release of player `i`, then the aim stick `stick` is held for `hold` ticks while the head flies, then
+# released. Returns where the head was when it landed.
+func steer_i(s: Sim, i: int, dir: Vector2, charge_ticks: int, stick: Vector2, hold := 999) -> Vector2:
+	var arr := idle4()
+	for t in charge_ticks:
+		arr[i] = inp(Vector2.ZERO, dir, true)
+		s.step(arr)
+	arr[i] = inp()
+	s.step(arr)
+	var n := 0
+	var h: SimHead = s.players[i].heads[0]
+	while n < 200 and h.state == HS.FLIGHT:
+		arr[i] = inp(Vector2.ZERO, stick, n < hold)
+		s.step(arr)
+		n += 1
+	var end := h.pos
+	s.step(idle4())
+	return end
+
+# hold the aim stick (deflected) for n ticks
+func aim_hold(s: Sim, i: int, stick: Vector2, n: int) -> void:
+	var arr := idle4()
+	for t in n:
+		arr[i] = inp(Vector2.ZERO, stick, true)
+		s.step(arr)
+
+func steer_sim(L: int, extra := {}) -> Sim:
+	var s := mk([0, 1])
+	place(s, 0, Vector2(3, 3.0)); place(s, 1, Vector2(30, 13))
+	setm(s, 0, {"steer": L} if L > 0 else {})
+	s.players[0].mods.merge(extra)
+	return s
+
+func _steer_tests() -> void:
+	var s: Sim
+	var p: SimPlayer
+	var h: SimHead
+	var DOWN := Vector2(0, 1)
+	var end0 := Vector2.ZERO
+	# --- without the modifier the stick changes nothing in flight
+	s = steer_sim(0); h = s.players[0].heads[0]
+	var e := steer_i(s, 0, Vector2.RIGHT, 60, DOWN)
+	check("steer L0: the stick during flight does not bend it (straight, lands at 8 m)", absf(e.y - 3.0) < 0.001 and absf(e.x - 11.0) < 0.05, "end=%s" % e)
+	# --- L1
+	s = steer_sim(1); h = s.players[0].heads[0]; p = s.players[0]
+	end0 = steer_i(steer_sim(1), 0, Vector2.RIGHT, 60, Vector2.ZERO)
+	e = steer_i(s, 0, Vector2.RIGHT, 60, DOWN)
+	check("steer L1: no stick = straight throw to 8 m", absf(end0.y - 3.0) < 0.001 and absf(end0.x - 11.0) < 0.05, "end=%s" % end0)
+	check("steer L1: the head ends off the straight line, towards the stick side", e.y > end0.y + 2.0 and e.x < end0.x - 1.0, "end=%s straight=%s" % [e, end0])
+	check("steer L1: the head still flies the charged distance (8 m of path), string lies on the bend", absf(h.flown - 8.0) < 0.05 and absf(Sim.path_length(s.string_path(p, h)) - 8.0) < 0.4 and h.pins.size() >= 5, "flown=%.2f path=%.2f pins=%d" % [h.flown, Sim.path_length(s.string_path(p, h)), h.pins.size()])
+	e = steer_i(steer_sim(1), 0, Vector2.RIGHT, 60, Vector2(0, -1))
+	check("steer L1: the other stick side steers the other way", e.y < 3.0 - 2.0, "end=%s" % e)
+	e = steer_i(steer_sim(1), 0, Vector2.RIGHT, 60, DOWN * 0.2)
+	check("steer L1: a stick inside the dead zone does not steer", absf(e.y - 3.0) < 0.001, "end=%s" % e)
+	s = steer_sim(1); p = s.players[0]; h = p.heads[0]
+	steer_i(s, 0, Vector2.RIGHT, 60, DOWN)
+	many(s, 60, idle4())
+	check("steer L1: a deflected touch during flight does not retract or pull", h.state == HS.OUT and not h.queued_retract and not p.pulling)
+	s = steer_sim(1); p = s.players[0]; h = p.heads[0]
+	steer_i(s, 0, Vector2.RIGHT, 60, DOWN, 3)
+	many(s, 60, idle4())
+	check("steer L1: a short deflected touch (shorter than a tap) does not retract either", h.state == HS.OUT and not p.pulling)
+	s = steer_sim(1); p = s.players[0]; h = p.heads[0]
+	var arr := idle4()
+	for t in 60: arr[0] = inp(Vector2.ZERO, Vector2.RIGHT, true); s.step(arr)
+	s.step(idle4())
+	for t in 3: arr[0] = inp(Vector2.ZERO, Vector2.ZERO, true); s.step(arr)
+	s.step(idle4())
+	many(s, 90, idle4())
+	check("steer L1: a plain tap during flight still retracts the head", h.state == HS.HAND, "state=%d" % h.state)
+	s = steer_sim(1); p = s.players[0]; h = p.heads[0]
+	throw_i(s, 0, Vector2.RIGHT, 60); tap_i(s, 0)
+	check("steer L1: a tap on a lying head still retracts it", h.state == HS.RETRACT or h.state == HS.HAND)
+	s = steer_sim(1); p = s.players[0]
+	throw_i(s, 0, Vector2.RIGHT, 60); hold_i(s, 0, 20)
+	check("steer L1: holding without deflection still pulls to the lying head", p.pulling and p.pos.x > 3.5, "x=%.2f" % p.pos.x)
+	# --- L2
+	e = steer_i(steer_sim(1), 0, Vector2.RIGHT, 60, Vector2.ZERO)
+	var e2 := steer_i(steer_sim(2), 0, Vector2.RIGHT, 60, Vector2.ZERO)
+	check("steer L2: flies 25 % farther (10 m instead of 8 m)", absf(e.x - 11.0) < 0.05 and absf(e2.x - 13.0) < 0.05, "L1 x=%.2f L2 x=%.2f" % [e.x, e2.x])
+	s = steer_sim(2, {"pierce": 2})
+	e = steer_i(s, 0, Vector2.RIGHT, 60, Vector2.ZERO)
+	check("steer L2 and pierce L2: the ranges multiply (8 * 1.25 * 1.2 = 12 m)", absf(e.x - 15.0) < 0.1, "x=%.2f" % e.x)
+	var d1 := steer_sim(1); var d2 := steer_sim(2)
+	steer_i(d1, 0, Vector2.RIGHT, 60, DOWN, 5); steer_i(d2, 0, Vector2.RIGHT, 60, DOWN, 5)
+	var a1 := absf(d1.players[0].heads[0].throw_dir.angle()); var a2 := absf(d2.players[0].heads[0].throw_dir.angle())
+	check("steer L2 turns harder than L1", a2 > a1 + 0.2 and a1 > 0.3, "L1 %.2f rad, L2 %.2f rad" % [a1, a2])
+	# --- Zwilling with a head in hand: the stick charges the next throw, the flying head is not steered
+	s = steer_sim(1, {"twin": 1}); p = s.players[0]
+	arr = idle4()
+	for t in 60: arr[0] = inp(Vector2.ZERO, Vector2.RIGHT, true); s.step(arr)
+	s.step(idle4())
+	for t in 4: arr[0] = inp(Vector2.ZERO, DOWN, true); s.step(arr)
+	check("steer + twin with a head in hand: the stick charges the next throw, the flying head stays straight", p.charging and p.heads[0].state == HS.FLIGHT and absf(p.heads[0].pos.y - 3.0) < 0.001, "y=%.3f charging=%s" % [p.heads[0].pos.y, p.charging])
+	# --- L3 telekinesis (a half charge leaves slack in the string: 9 m string, about 5.5 m thrown)
+	var home := Vector2(11, 3.0)
+	s = steer_sim(3); p = s.players[0]; h = p.heads[0]
+	throw_i(s, 0, Vector2.RIGHT, 15)
+	home = h.pos
+	check("steer L3: a half charge lies OUT with slack in the string", h.state == HS.OUT and home.x - 3.0 > 4.0 and home.x - 3.0 < 6.5, "home=%s" % home)
+	aim_hold(s, 0, DOWN, 6)
+	check("steer L3: the stick moves a lying head at tk_speed (12 m/s, 6 ticks = 1.2 m)", h.state == HS.OUT and absf(h.pos.y - (home.y + 1.2)) < 0.05 and absf(h.pos.x - home.x) < 0.01, "pos=%s home=%s" % [h.pos, home])
+	check("steer L3: the string gets a pin at the corner", h.pins.size() == 1 and h.pins[0].distance_to(home) < 0.01, "pins=%s" % [h.pins])
+	aim_hold(s, 0, Vector2(0, -1), 6)
+	check("steer L3: moving back onto the corner winds the pin up again", h.pins.is_empty() and h.pos.distance_to(home) < 0.2, "pins=%d pos=%s" % [h.pins.size(), h.pos])
+	var y_before := h.pos.y
+	aim_hold(s, 0, DOWN * 0.5, 6)
+	check("steer L3: half stick = half speed", absf(h.pos.y - y_before - 0.6) < 0.05, "dy=%.2f" % (h.pos.y - y_before))
+	for variant in 3:
+		s = steer_sim(3); p = s.players[0]; h = p.heads[0]; s.cfg.out_variant = variant
+		throw_i(s, 0, Vector2.RIGHT, 15); home = h.pos
+		aim_hold(s, 0, Vector2(1, 1), 150)
+		var plen := Sim.path_length(s.string_path(p, h))
+		check("steer L3 (out variant %d): never more string than the limit (the player is not dragged), and the head did move" % variant, plen <= h.limit + 0.02 and plen > s.cfg.string_length - 0.3 and p.pos.distance_to(Vector2(3, 3.0)) < 0.001 and h.limit <= s.cfg.string_length + 0.001 and h.pos.distance_to(home) > 0.5 and h.pins.size() <= Mods.MAX_PATH_PINS and not p.pulling, "len=%.2f limit=%.2f pins=%d" % [plen, h.limit, h.pins.size()])
+	check("steer L3: a deflected hold never starts a pull", not p.pulling and h.state == HS.OUT)
+	s = steer_sim(3); p = s.players[0]; h = p.heads[0]
+	throw_i(s, 0, Vector2.RIGHT, 15); home = h.pos
+	s.statics.append(Rect2(home.x - 1.0, 4.5, 2.0, 2.0))
+	aim_hold(s, 0, DOWN, 60)
+	check("steer L3: a block stops the moved head", absf(h.pos.y - (4.5 - 0.35)) < 0.05 and h.state == HS.OUT, "pos=%s" % h.pos)
+	s = steer_sim(3, {"pierce": 1}); p = s.players[0]; h = p.heads[0]
+	throw_i(s, 0, Vector2.RIGHT, 15); home = h.pos
+	s.statics.append(Rect2(home.x - 1.0, 3.8, 2.0, 0.6))
+	aim_hold(s, 0, DOWN, 30)
+	check("steer L3 with pierce: the moved head passes blocks", h.pos.y > 5.0, "pos=%s" % h.pos)
+	s = steer_sim(3); p = s.players[0]; h = p.heads[0]
+	throw_i(s, 0, Vector2.RIGHT, 15); home = h.pos
+	place(s, 1, Vector2(home.x, 5.0))
+	many(s, 30, idle4())
+	var calm := s.players[1].deaths == 0
+	aim_hold(s, 0, DOWN, 30)
+	check("steer L3: a head moved into an enemy kills; the lying head did not", calm and s.players[1].deaths == 1 and p.kills == 1, "calm=%s deaths=%d" % [calm, s.players[1].deaths])
+	s = steer_sim(3); p = s.players[0]; h = p.heads[0]
+	throw_i(s, 0, Vector2.RIGHT, 15)
+	aim_hold(s, 0, DOWN, 10)
+	s.step(idle4())
+	var rest := h.pos
+	many(s, 40, idle4())
+	check("steer L3: letting go leaves the head where it is (OUT, no retract, no throw)", h.state == HS.OUT and h.pos == rest and not p.pulling and not p.charging)
+	s = steer_sim(3); p = s.players[0]; h = p.heads[0]
+	throw_i(s, 0, Vector2.RIGHT, 60); hold_i(s, 0, 20)
+	check("steer L3: holding without deflection still pulls to the head", p.pulling and p.pos.x > 3.5, "x=%.2f" % p.pos.x)
+	s = steer_sim(3); p = s.players[0]; h = p.heads[0]
+	throw_i(s, 0, Vector2.RIGHT, 60); tap_i(s, 0)
+	check("steer L3: a tap still retracts", h.state == HS.RETRACT or h.state == HS.HAND)
+	s = steer_sim(2); p = s.players[0]; h = p.heads[0]
+	throw_i(s, 0, Vector2.RIGHT, 60); home = h.pos
+	aim_hold(s, 0, DOWN, 20)
+	check("steer L2: no telekinesis, the lying head stays", h.pos == home)
+	e = steer_i(steer_sim(3), 0, Vector2.RIGHT, 60, DOWN)
+	check("steer L3: in flight the head turns almost at once towards the stick", e.y > 9.0 and e.x < 5.5, "end=%s" % e)
+	# the stick is the same press: TK after a steered flight
+	s = steer_sim(3); p = s.players[0]; h = p.heads[0]
+	arr = idle4()
+	for t in 60: arr[0] = inp(Vector2.ZERO, Vector2.RIGHT, true); s.step(arr)
+	s.step(idle4())
+	for t in 80: arr[0] = inp(Vector2.ZERO, DOWN, true); s.step(arr)
+	check("steer L3: one long touch steers the flight, then moves the landed head", h.state == HS.OUT and h.pos.y > 8.0 and not p.pulling, "pos=%s state=%d" % [h.pos, h.state])
+
+
+func curved_sim(L: int, pos := Vector2(3, 3.0), extra := {}, stick := Vector2(0, 1)) -> Sim:
 	var s := mk([0, 1])
 	place(s, 0, pos); place(s, 1, Vector2(1, 1))
 	s.players[1].alive = false; s.players[1].respawn_t = 9999.0
-	var m := {"arc": L}
+	var m := {"steer": L}
 	m.merge(extra)
 	setm(s, 0, m)
-	throw_i(s, 0, Vector2.RIGHT, 60)
+	steer_i(s, 0, Vector2.RIGHT, 60, stick)
 	return s
 
 func _path_tests() -> void:
@@ -1262,22 +1323,22 @@ func _path_tests() -> void:
 		var s := curved_sim(L); var p := s.players[0]; var h := p.heads[0]
 		var line_dev := 0.0
 		var gaps: Array = []
-		var prev := Vector2(3, 6.3)
+		var prev := Vector2(3, 3.0)
 		for q in h.pins:
-			line_dev = maxf(line_dev, absf(q.y - 6.3))
+			line_dev = maxf(line_dev, absf(q.y - 3.0))
 			gaps.append(prev.distance_to(q)); prev = q
 		var gmin: float = gaps.min() if gaps.size() > 0 else 0.0
 		var gmax: float = gaps.max() if gaps.size() > 0 else 0.0
-		check("curved throw L%d leaves pins on the curve, ~0.7 m apart" % L, h.state == HS.OUT and h.pins.size() >= 9 and line_dev > 1.5 and gmin > 0.5 and gmax < 0.9, "pins=%d dev=%.2f gaps=%.2f..%.2f" % [h.pins.size(), line_dev, gmin, gmax])
+		check("steered throw L%d leaves pins on the bend, ~0.7 m apart" % L, h.state == HS.OUT and h.pins.size() >= 4 and line_dev > 1.5 and gmin > 0.5 and gmax < 0.95, "pins=%d dev=%.2f gaps=%.2f..%.2f" % [h.pins.size(), line_dev, gmin, gmax])
 		var sp := s.string_path(p, h)
-		check("curved throw L%d: string/wire path is curved (longer than the chord, off the straight line)" % L, Sim.path_length(sp) > 8.0 + 0.5 and sp.size() == h.pins.size() + 2, "len=%.2f" % Sim.path_length(sp))
+		check("steered throw L%d: string/wire path is curved (longer than the chord, off the straight line)" % L, Sim.path_length(sp) > 8.0 * (1.25 if L == 2 else 1.0) - 0.5 and Sim.path_length(sp) < 8.0 * (1.25 if L == 2 else 1.0) + 0.05 and sp.size() == h.pins.size() + 2, "len=%.2f" % Sim.path_length(sp))
 		# tripwire follows the curve
-		var s2 := curved_sim(L, Vector2(3, 6.3), {"tripwire": 1}); tap_i(s2, 0)
-		check("curved throw L%d: tripwire is laid along the curve" % L, s2.wires.size() == 1 and s2.wires[0].pts.size() >= 10, "pts=%d" % (s2.wires[0].pts.size() if s2.wires.size() > 0 else -1))
+		var s2 := curved_sim(L, Vector2(3, 3.0), {"tripwire": 1}); tap_i(s2, 0)
+		check("steered throw L%d: tripwire is laid along the curve" % L, s2.wires.size() == 1 and s2.wires[0].pts.size() >= 6, "pts=%d" % (s2.wires[0].pts.size() if s2.wires.size() > 0 else -1))
 		# retract along the polyline at constant speed
 		var poly: PackedVector2Array = sp.duplicate()
 		var pins0: PackedVector2Array = h.pins.duplicate()
-		var step_want: float = 22.0 / 60.0 * (1.3 if L == 2 else 1.0)
+		var step_want: float = 22.0 / 60.0
 		var worst_off := 0.0; var worst_speed := 1.0; var best_speed := 0.0
 		var order_ok := true; var ticks := 0
 		tap_i(s, 0)
@@ -1291,7 +1352,7 @@ func _path_tests() -> void:
 			if h.pins.size() > 0:
 				worst_speed = minf(worst_speed, mvd / step_want); best_speed = maxf(best_speed, mvd / step_want)
 			if h.pins.size() > 0 and h.pins != pins0.slice(0, h.pins.size()): order_ok = false
-		check("retract L%d after a curved throw: stays on the polyline, passes pins in reverse, constant speed" % L, h.state == HS.HAND and worst_off < 0.1 and order_ok and ticks > 20 and worst_speed > 0.97 and best_speed < 1.0001, "off=%.3f speed=%.3f..%.3f order=%s" % [worst_off, worst_speed, best_speed, order_ok])
+		check("retract L%d after a steered throw: stays on the polyline, passes pins in reverse, constant speed" % L, h.state == HS.HAND and worst_off < 0.1 and order_ok and ticks > 20 and worst_speed > 0.97 and best_speed < 1.0001, "off=%.3f speed=%.3f..%.3f order=%s" % [worst_off, worst_speed, best_speed, order_ok])
 		# pull along the curve
 		s = curved_sim(L); p = s.players[0]; h = p.heads[0]
 		poly = s.string_path(p, h).duplicate()
@@ -1310,30 +1371,26 @@ func _path_tests() -> void:
 			pb = p.pos
 			was_pull = p.pulling
 			if h.state == HS.HAND: break
-		check("pull L%d after a curved throw: player follows the curve at constant speed and catches the head" % L, pulled and h.state == HS.HAND and off < 0.2 and wspeed > 0.95 and bspeed < 1.0001, "off=%.3f speed=%.3f..%.3f" % [off, wspeed, bspeed])
+		check("pull L%d after a steered throw: player follows the curve at constant speed and catches the head" % L, pulled and h.state == HS.HAND and off < 0.2 and wspeed > 0.95 and bspeed < 1.0001, "off=%.3f speed=%.3f..%.3f" % [off, wspeed, bspeed])
 
-	# arc + bounce records both parts
-	var s3 := curved_sim(2, Vector2(RW - 7.0, 6.3), {"bounce": 1}); var p3 := s3.players[0]; var h3 := p3.heads[0]
-	var bpin := -1
+	# steer + bounce records both parts
+	var s3 := curved_sim(2, Vector2(RW - 7.0, 3.0), {"bounce": 1}, Vector2(1, 1)); var p3 := s3.players[0]; var h3 := p3.heads[0]
+	var bend_pins := 0
 	for k in h3.pins.size():
-		if h3.pins[k].x > RW - 0.7: bpin = k
-	var curve_dev := 0.0
-	for k in h3.pins.size(): curve_dev = maxf(curve_dev, absf(h3.pins[k].y - 6.3))
-	check("arc + bounce: pins on the curve before the bounce and the bounce point itself", h3.bounces == 1 and bpin >= 3 and curve_dev > 1.0, "pins=%d bpin=%d dev=%.2f head=%s" % [h3.pins.size(), bpin, curve_dev, h3.pos])
+		if h3.pins[k].distance_to(Vector2(RW - 0.35, h3.pins[k].y)) > 0.3 and h3.pins[k].y < BW - 0.7: bend_pins += 1
+	check("steer + bounce: pins on the bend before the bounce, and the bounce point itself", h3.bounces == 1 and bend_pins >= 2 and h3.pins.size() >= 3, "pins=%d bend=%d b=%d head=%s" % [h3.pins.size(), bend_pins, h3.bounces, h3.pos])
 	var poly3 := s3.string_path(p3, h3).duplicate()
-	var near3 := 99.0
 	tap_i(s3, 0)
 	var off3 := 0.0
 	for t in 300:
 		s3.step(idle4())
 		off3 = maxf(off3, dist_to_path(h3.pos, poly3))
-		if bpin >= 0: near3 = minf(near3, h3.pos.distance_to(h3.pins[bpin] if bpin < h3.pins.size() else poly3[bpin + 1]))
 		if h3.state == HS.HAND: break
-	check("arc + bounce: retract follows curve and straight part back home", h3.state == HS.HAND and off3 < 0.1, "off=%.3f" % off3)
+	check("steer + bounce: retract follows the bend and the straight part back home", h3.state == HS.HAND and off3 < 0.1, "off=%.3f" % off3)
 
-	# DRAG / LEASH / RIGID with a curved string
+	# DRAG / LEASH / RIGID with a steered string
 	for v in 3:
-		var s4 := curved_sim(2, Vector2(14, 6.3)); var p4 := s4.players[0]; var h4 := p4.heads[0]
+		var s4 := curved_sim(2, Vector2(14, 3.0)); var p4 := s4.players[0]; var h4 := p4.heads[0]
 		s4.cfg.out_variant = v
 		s4.step(idle4())
 		var head0 := h4.pos; var npins := h4.pins.size()
@@ -1342,49 +1399,9 @@ func _path_tests() -> void:
 			s4.step(only0(inp(Vector2(-1, 0))))
 			worst = maxf(worst, Sim.path_length(s4.string_path(p4, h4)) - h4.limit)
 		match v:
-			0: check("curved string DRAG: path never longer than allowed, head dragged back along the curve", worst < 0.02 and h4.pos.distance_to(head0) > 2.0 and h4.pins.size() < npins and not is_nan(h4.pos.x), "worst=%.3f moved=%.2f pins %d->%d" % [worst, h4.pos.distance_to(head0), npins, h4.pins.size()])
-			1: check("curved string LEASH: path never longer than allowed, head and pins stay", worst < 0.02 and h4.pos.distance_to(head0) < 0.001 and h4.pins.size() == npins, "worst=%.3f" % worst)
-			2: check("curved string RIGID: pins dropped when the player moves, head follows", worst < 0.02 and h4.pins.is_empty() and h4.pos.distance_to(head0) > 2.0, "worst=%.3f pins=%d" % [worst, h4.pins.size()])
-
-	# L3 circle
-	_circle_run("open field", Vector2(14, 6.3), 60, false)
-	_circle_run("near wall (R limited by the wall)", Vector2(2.6, 6.3), 60, false)
-	_circle_run("very near wall (floor 1.5 m, may slide)", Vector2(1.2, 6.3), 60, false)
-	_circle_run("player walking away", Vector2(10, 4.0), 60, true)
-	# head already inside the radius: circle starts at once
-	var s5 := curved_sim(3, Vector2(14, 6.3)); var p5 := s5.players[0]
-	s5 = mk([0]); place(s5, 0, Vector2(14, 6.3)); setm(s5, 0, {"arc": 3}); p5 = s5.players[0]
-	throw_i(s5, 0, Vector2.RIGHT, 1); tap_i(s5, 0); s5.step(idle4())
-	var d0 := p5.heads[0].pos.distance_to(p5.pos)
-	check("arc L3: head already inside the radius starts the circle at once", p5.heads[0].circ_left > 0.0 and d0 < 4.0, "d=%.2f left=%.2f" % [d0, p5.heads[0].circ_left])
-
-func _circle_run(label: String, pos: Vector2, charge: int, walk: bool) -> void:
-	var s := mk([0]); place(s, 0, pos); setm(s, 0, {"arc": 3}); var p := s.players[0]; var h := p.heads[0]
-	throw_i(s, 0, Vector2.RIGHT, charge)
-	var npins := h.pins.size()
-	var rmax := minf(4.0, minf(minf(pos.x, RW - pos.x), minf(pos.y, BW - pos.y)) - 0.35)
-	rmax = maxf(rmax, 1.5)
-	tap_i(s, 0)
-	var started := false; var cticks := 0; var swept := 0.0; var rworst := 0.0; var start_d := 0.0
-	var pins_at_start := -1; var out_of_arena := false; var a_prev := 0.0; var home := false; var stuck := false
-	var mvi := Vector2(0, 1) if walk else Vector2.ZERO
-	for t in 400:
-		s.step(only0(inp(mvi)))
-		var hp := h.pos
-		if hp.x < -0.01 or hp.y < -0.01 or hp.x > RW + 0.01 or hp.y > BW + 0.01: out_of_arena = true
-		if h.circ_left > 0.0 or (started and cticks > 0 and h.circ_left <= 0.0 and false):
-			if not started:
-				started = true; start_d = hp.distance_to(p.pos); pins_at_start = h.pins.size(); a_prev = (hp - p.pos).angle()
-			cticks += 1
-			var an := (hp - p.pos).angle()
-			swept += absf(angle_difference(a_prev, an)); a_prev = an
-			rworst = maxf(rworst, hp.distance_to(p.pos))
-		if h.state == HS.OUT: stuck = true
-		if h.state == HS.HAND: home = true; break
-	var tsec := cticks / 60.0
-	var rlim := rmax + 0.1 + (0.35 if walk else 0.0)
-	var wall_case := pos.x < 5.0
-	check("arc L3 circle (%s): ~1.1 s, radius <= %.2f, full 360 deg, then home" % [label, rmax], started and absf(tsec - 1.1) < 0.12 and rworst <= rlim and swept >= TAU - 0.35 and home and not stuck and not out_of_arena and start_d <= rmax + 0.001 and start_d > rmax - 0.6 and pins_at_start < npins, "t=%.2fs r=%.2f/%.2f swept=%.2f start_d=%.2f pins %d->%d home=%s stuck=%s out=%s" % [tsec, rworst, rmax, swept, start_d, npins, pins_at_start, home, stuck, out_of_arena])
+			0: check("steered string DRAG: path never longer than allowed, head dragged back along the curve", worst < 0.02 and h4.pos.distance_to(head0) > 2.0 and h4.pins.size() < npins and not is_nan(h4.pos.x), "worst=%.3f moved=%.2f pins %d->%d" % [worst, h4.pos.distance_to(head0), npins, h4.pins.size()])
+			1: check("steered string LEASH: path never longer than allowed, head and pins stay", worst < 0.02 and h4.pos.distance_to(head0) < 0.001 and h4.pins.size() == npins, "worst=%.3f" % worst)
+			2: check("steered string RIGID: pins dropped when the player moves, head follows", worst < 0.02 and h4.pins.is_empty() and h4.pos.distance_to(head0) > 2.0, "worst=%.3f pins=%d" % [worst, h4.pins.size()])
 
 
 # ---------------------------------------------------------------- toy train

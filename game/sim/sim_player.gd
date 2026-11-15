@@ -42,6 +42,7 @@ var aimed := false
 var held_prev := false
 var press_active := false
 var press_t := 0.0
+var press_steered := false  # Lenkwurf: the stick was deflected during this press (steering / telekinesis): no tap, no pull
 
 
 func _init() -> void:

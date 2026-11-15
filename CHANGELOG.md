@@ -23,6 +23,11 @@ Play with friends without a server: one phone hosts, the others join.
   the box (never through the outer walls).
 - The default maximum throw range is now 10 m (was 8 m), and the string is 10 m long (was 9 m). Phones that kept
   their own tuned values keep them; "Zurücksetzen" in the tuning menu picks up the new defaults.
+- **Lenkwurf replaces Bogenwurf.** While the yo-yo flies, pull the aim stick to steer it towards that direction (the
+  string follows the bend). Level 2 steers harder and adds 25 % range. Level 3 is telekinesis: hold and pull the aim
+  stick to move a lying or flying yo-yo freely (deadly, limited by the string length and by walls). Hold without
+  pulling still drags you to the yo-yo and a tap still calls it back. Your saved Bogenwurf level is gone (the
+  modifier has a new name); set Lenkwurf again in the menu.
 
 ## 0.4.2
 
