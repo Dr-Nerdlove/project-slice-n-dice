@@ -3068,6 +3068,84 @@ func test_main_menu() -> void:   # async
 	await process_frame
 
 
+## Settings page: the touch controls panel and the layout editor, in the real main scene.
+func test_touch_menu() -> void:   # async
+	NetStore.path = "user://test_online%d.json" % PORT_OFFSET
+	TouchSettings.path = "user://test_touch%d.json" % PORT_OFFSET
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TouchSettings.path))
+	var main: Node = load("res://main.tscn").instantiate()
+	root.add_child(main)
+	for _i in 5:
+		await process_frame
+	var mm: MainMenu = main.main_menu
+	main.main_menu.settings_btn.pressed.emit()
+	check("touch menu: defaults on the page - Floating, Normal size, Normal opacity, no swap", mm.mode_buttons[0].button_pressed and not mm.mode_buttons[1].button_pressed and mm.size_buttons[1].button_pressed and mm.opacity_buttons[1].button_pressed and not mm.swap_btn.button_pressed)
+	check("touch menu: the router reads the same settings the page edits", main.router.touch == mm.touch and main.touch_settings == mm.touch)
+	mm.mode_buttons[1].pressed.emit()
+	mm.size_buttons[2].pressed.emit()
+	mm.opacity_buttons[0].pressed.emit()
+	mm.swap_btn.pressed.emit()
+	var saved := TouchSettings.load_saved()
+	check("touch menu: choices apply at once and are saved in their own file", main.router.touch.mode == TouchSettings.Mode.FIXED and is_equal_approx(main.router.touch.scale, 1.25) and is_equal_approx(main.router.touch.opacity, 0.5) and main.router.touch.swap
+			and saved.mode == TouchSettings.Mode.FIXED and is_equal_approx(saved.scale, 1.25) and is_equal_approx(saved.opacity, 0.5) and saved.swap)
+	check("touch menu: the buttons show the choice", mm.mode_buttons[1].button_pressed and not mm.mode_buttons[0].button_pressed and mm.size_buttons[2].button_pressed and mm.opacity_buttons[0].button_pressed and mm.swap_btn.button_pressed)
+
+	# layout editor (Fixed): cancel keeps, save stores, reset + save forgets
+	var ed: TouchLayoutEditor = mm.layout_editor
+	mm.layout_btn.pressed.emit()
+	check("touch editor: Place controls opens the editor, Fixed mode lets all three controls move", ed.visible and ed.editable() == ["move", "aim", "dash"])
+	var dash_at: Vector2 = ed.center_of("dash")
+	ed.begin_drag(dash_at + Vector2(5, 5))
+	ed.drag_to(Vector2(300, 200))
+	ed.end_drag()
+	check("touch editor: dragging moves the control (the grab offset is kept)", ed.center_of("dash").distance_to(Vector2(300, 200) + Vector2(-5, -5)) < 1.0)
+	ed.cancel()
+	check("touch editor: Cancel closes and changes nothing", not ed.visible and main.router.touch.custom.is_empty() and TouchSettings.load_saved().custom.is_empty())
+	mm.layout_btn.pressed.emit()
+	ed.begin_drag(ed.center_of("move"))
+	ed.drag_to(Vector2(600, 150))
+	ed.end_drag()
+	ed.begin_drag(ed.center_of("dash"))
+	ed.drag_to(Vector2(10000, 10000))
+	ed.end_drag()
+	var screen_size: Vector2 = ed.get_viewport_rect().size
+	check("touch editor: a control dragged off the screen is clamped onto it", ed.center_of("dash").is_equal_approx(screen_size - Vector2.ONE * main.router.touch.dash_radius()) and ed.place_of("dash").x < 1.0 and ed.place_of("dash").y < 1.0)
+	ed.save_btn.pressed.emit()
+	var after := TouchSettings.load_saved()
+	check("touch editor: Save closes, keeps the places in the settings and in the file", not ed.visible and main.router.touch.custom.has("move") and main.router.touch.custom.has("dash") and after.custom.has("move") and after.custom.has("dash") and not after.custom.has("aim")
+			and main.router._move_rest().distance_to(Vector2(600, 150)) < 1.0)
+	mm.layout_btn.pressed.emit()
+	ed.reset_btn.pressed.emit()
+	check("touch editor: Reset to default puts the controls back in the editor, nothing is saved before Save", ed.place_of("move").is_equal_approx(main.router.touch.default_rel("move")) and TouchSettings.load_saved().custom.has("move"))
+	ed.save_btn.pressed.emit()
+	check("touch editor: Reset then Save forgets all placed controls", main.router.touch.custom.is_empty() and TouchSettings.load_saved().custom.is_empty())
+	mm.mode_buttons[0].pressed.emit()
+	mm.layout_btn.pressed.emit()
+	check("touch editor: in Floating mode only the Dash button can be placed", ed.editable() == ["dash"])
+	ed.begin_drag(ed.center_of("move"))
+	ed.drag_to(Vector2(700, 300))
+	ed.end_drag()
+	check("touch editor: ... a stick cannot be dragged there", ed.place_of("move").is_equal_approx(main.router.touch.rel("move")))
+	main._notification(Node.NOTIFICATION_WM_GO_BACK_REQUEST)
+	check("touch editor: Android back closes the editor first, the page stays", not ed.visible and mm.settings_page.visible)
+
+	# applies to Play and Training, survives a restart
+	main.start_solo()
+	check("touch menu: a Play game uses the saved settings", main.router.touch == main.touch_settings and main.router.touch.swap)
+	main.start_training()
+	check("touch menu: Training uses the same settings", main.router.touch == main.touch_settings and is_equal_approx(main.router.touch.scale, 1.25))
+	main.queue_free()
+	await process_frame
+	var again: Node = load("res://main.tscn").instantiate()
+	root.add_child(again)
+	for _i in 3:
+		await process_frame
+	check("touch menu: after a restart the page shows the saved choices", again.main_menu.size_buttons[2].button_pressed and again.main_menu.swap_btn.button_pressed and again.main_menu.mode_buttons[0].button_pressed)
+	again.queue_free()
+	await process_frame
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TouchSettings.path))
+
+
 func _initialize() -> void:
 	# TEST_STOP_ON_FAIL=1 (set by tests/sabotage.py): stop after the first test group that fails.
 	var stop_early := OS.get_environment("TEST_STOP_ON_FAIL") == "1"
@@ -3076,7 +3154,7 @@ func _initialize() -> void:
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
 		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
-		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_match_flow, test_main_rejoin,
+		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_touch_menu, test_match_flow, test_main_rejoin,
 	]
 	for g in groups:
 		if stop_early and fails > 0:

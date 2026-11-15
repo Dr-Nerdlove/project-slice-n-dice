@@ -14,6 +14,7 @@ var mouse_to_world: Callable               # (Vector2 screen) -> Vector2 sim pos
 var dash_ready_ratio := 1.0                # progress of the next dash charge, 0..1 (for drawing)
 var dash_charges := 1                      # dashes available now (for drawing)
 var dash_charges_max := 1
+var touch := TouchSettings.new()           # layout, size, opacity, stick mode (main.gd hands in the saved one)
 
 var _move_idx := -1
 var _move_c := Vector2.ZERO
@@ -41,15 +42,27 @@ func _screen_size() -> Vector2:
 
 
 func _dash_center() -> Vector2:
-	return _screen_size() - Config.DASH_BUTTON_OFFSET
+	return touch.center("dash", _screen_size())
+
+
+## Where a stick rests (drawn there; in Fixed mode it also stays there). Floating mode ignores placed positions.
+func _rest(key: String) -> Vector2:
+	var size := _screen_size()
+	if touch.mode == TouchSettings.Mode.FIXED:
+		return touch.center(key, size)
+	return TouchSettings.to_screen(touch.default_rel(key), size, touch.stick_radius())
 
 
 func _move_rest() -> Vector2:
-	return Vector2(Config.STICK_REST_OFFSET_LEFT.x, _screen_size().y - Config.STICK_REST_OFFSET_LEFT.y)
+	return _rest("move")
 
 
 func _aim_rest() -> Vector2:
-	return _screen_size() - Config.STICK_REST_OFFSET_RIGHT
+	return _rest("aim")
+
+
+func _fixed() -> bool:
+	return touch.mode == TouchSettings.Mode.FIXED
 
 
 func _notification(what: int) -> void:
@@ -109,26 +122,40 @@ func _touch_down(idx: int, pos: Vector2) -> void:
 	for r in exclude_rects:
 		if r.has_point(pos):
 			return
-	if pos.distance_to(_dash_center()) <= Config.DASH_BUTTON_RADIUS + 4.0:
+	if pos.distance_to(_dash_center()) <= touch.dash_radius() + 4.0:
 		if _dash_idx == -1:
 			_dash_idx = idx
 			_dash_latch = true
 		return
-	var w := _screen_size().x
-	var to_move := pos.x < w * 0.5
-	# Near the middle a thumb may land on the "wrong" side: use the other stick if this one is busy.
-	if to_move and _move_idx != -1 and _aim_idx == -1 and pos.x > w * 0.35:
-		to_move = false
-	elif not to_move and _aim_idx != -1 and _move_idx == -1 and pos.x < w * 0.65:
-		to_move = true
+	var to_move: bool
+	if _fixed():
+		# Fixed sticks take only a touch on (or near) them; the one nearer wins when they overlap.
+		var dm := pos.distance_to(_move_rest())
+		var da := pos.distance_to(_aim_rest())
+		var reach := touch.stick_radius() * TouchSettings.GRAB
+		if minf(dm, da) > reach:
+			return
+		to_move = dm <= da
+	else:
+		var w := _screen_size().x
+		# `left` is the half the thumb landed in; which stick lives there depends on "Swap sides".
+		var left := pos.x < w * 0.5
+		var left_idx := _aim_idx if touch.swap else _move_idx
+		var right_idx := _move_idx if touch.swap else _aim_idx
+		# Near the middle a thumb may land on the "wrong" side: use the other stick if this one is busy.
+		if left and left_idx != -1 and right_idx == -1 and pos.x > w * 0.35:
+			left = false
+		elif not left and right_idx != -1 and left_idx == -1 and pos.x < w * 0.65:
+			left = true
+		to_move = left != touch.swap
 	if to_move:
 		if _move_idx == -1:
 			_move_idx = idx
-			_move_c = pos
+			_move_c = _move_rest() if _fixed() else pos
 			_move_p = pos
 	elif _aim_idx == -1:
 		_aim_idx = idx
-		_aim_c = pos
+		_aim_c = _aim_rest() if _fixed() else pos
 		_aim_p = pos
 		_held_latch = true
 
@@ -153,14 +180,16 @@ func _touch_move(idx: int, pos: Vector2) -> void:
 
 ## Floating stick: the base follows the finger when it is dragged beyond the radius.
 func _follow(c: Vector2, p: Vector2) -> Vector2:
+	if _fixed():
+		return c
 	var off := p - c
-	if off.length() > Config.STICK_RADIUS:
-		return p - off.normalized() * Config.STICK_RADIUS
+	if off.length() > touch.stick_radius():
+		return p - off.normalized() * touch.stick_radius()
 	return c
 
 
 func _stick(c: Vector2, p: Vector2) -> Vector2:
-	return ((p - c) / Config.STICK_RADIUS).limit_length(1.0)
+	return ((p - c) / touch.stick_radius()).limit_length(1.0)
 
 
 ## Builds the input for one sim tick. Edge events (press, dash) are latched until consumed here.
@@ -248,44 +277,55 @@ func _process(_delta: float) -> void:
 func _draw() -> void:
 	if blocked:
 		return
-	var white := Color(1, 1, 1, 0.22)
-	var knob := Color(1, 1, 1, 0.45)
-	# Sticks are always visible: at rest in the lower corners, floating to the finger while touched.
+	var o := touch.opacity
+	var sc := touch.scale
+	var white := _fade(Color(1, 1, 1, 0.22), o)
+	var knob := _fade(Color(1, 1, 1, 0.45), o)
+	# Sticks are always visible: at rest in the lower corners (or where the player put them), floating to the finger
+	# while touched (Fixed sticks stay at their place).
 	if _move_idx != -1:
 		_draw_stick(_move_c, _move_p, white, knob)
 	else:
 		var rest := _move_rest()
-		_draw_stick(rest, rest, Color(1, 1, 1, 0.12), Color(1, 1, 1, 0.28))
+		_draw_stick(rest, rest, _fade(Color(1, 1, 1, 0.12), o), _fade(Color(1, 1, 1, 0.28), o))
 	if _aim_idx != -1:
-		_draw_stick(_aim_c, _aim_p, Color(1, 0.8, 0.4, 0.25), Color(1, 0.8, 0.4, 0.5))
+		_draw_stick(_aim_c, _aim_p, _fade(Color(1, 0.8, 0.4, 0.25), o), _fade(Color(1, 0.8, 0.4, 0.5), o))
 	else:
 		var rest := _aim_rest()
-		_draw_stick(rest, rest, Color(1, 0.8, 0.4, 0.14), Color(1, 0.8, 0.4, 0.3))
+		_draw_stick(rest, rest, _fade(Color(1, 0.8, 0.4, 0.14), o), _fade(Color(1, 0.8, 0.4, 0.3), o))
 	var c := _dash_center()
 	var pressed := _dash_idx != -1
 	var usable := dash_charges > 0
 	var a := 0.18 + (0.25 if usable else 0.0) + (0.2 if pressed else 0.0)
-	draw_circle(c, Config.DASH_BUTTON_RADIUS, Color(0.3, 0.7, 1.0, a))
-	draw_arc(c, Config.DASH_BUTTON_RADIUS, 0.0, TAU, 40, Color(1, 1, 1, 0.5), 3.0)
+	var dr := touch.dash_radius()
+	draw_circle(c, dr, _fade(Color(0.3, 0.7, 1.0, a), o))
+	draw_arc(c, dr, 0.0, TAU, 40, _fade(Color(1, 1, 1, 0.5), o), 3.0)
 	if dash_charges < dash_charges_max:  # progress of the next charge
-		draw_arc(c, Config.DASH_BUTTON_RADIUS - 5.0, -PI * 0.5, -PI * 0.5 + TAU * dash_ready_ratio, 40,
-				Color(1, 1, 1, 0.9), 4.0)
+		draw_arc(c, dr - 5.0 * sc, -PI * 0.5, -PI * 0.5 + TAU * dash_ready_ratio, 40,
+				_fade(Color(1, 1, 1, 0.9), o), 4.0)
 	var font := ThemeDB.fallback_font
-	draw_string(font, c + Vector2(-40.0, 2.0), "Dash", HORIZONTAL_ALIGNMENT_CENTER, 80.0, 22, Color(1, 1, 1, 0.9))
+	draw_string(font, c + Vector2(-40.0, 2.0) * sc, "Dash", HORIZONTAL_ALIGNMENT_CENTER, 80.0 * sc, int(22.0 * sc),
+			_fade(Color(1, 1, 1, 0.9), o))
 	# One pip per stored charge, filled while available.
-	var pr := Config.DASH_PIP_RADIUS
-	var step := pr * 2.0 + 5.0
+	var pr := Config.DASH_PIP_RADIUS * sc
+	var step := pr * 2.0 + 5.0 * sc
 	var x0 := c.x - step * (dash_charges_max - 1) * 0.5
 	for i in dash_charges_max:
-		var pc := Vector2(x0 + step * i, c.y + 20.0)
+		var pc := Vector2(x0 + step * i, c.y + 20.0 * sc)
 		if i < dash_charges:
-			draw_circle(pc, pr, Color(1, 1, 1, 0.95))
+			draw_circle(pc, pr, _fade(Color(1, 1, 1, 0.95), o))
 		else:
-			draw_arc(pc, pr - 1.0, 0.0, TAU, 16, Color(1, 1, 1, 0.7), 2.0)
+			draw_arc(pc, pr - 1.0, 0.0, TAU, 16, _fade(Color(1, 1, 1, 0.7), o), 2.0)
+
+
+## `c` with its alpha multiplied by the opacity setting (never above 1).
+static func _fade(c: Color, opacity: float) -> Color:
+	return Color(c.r, c.g, c.b, clampf(c.a * opacity, 0.0, 1.0))
 
 
 func _draw_stick(c: Vector2, p: Vector2, base_col: Color, knob_col: Color) -> void:
-	draw_circle(c, Config.STICK_RADIUS, base_col)
-	draw_arc(c, Config.STICK_RADIUS, 0.0, TAU, 48, Color(1, 1, 1, 0.4), 2.0)
-	var off := (p - c).limit_length(Config.STICK_RADIUS)
-	draw_circle(c + off, Config.STICK_KNOB_RADIUS, knob_col)
+	var r := touch.stick_radius()
+	draw_circle(c, r, base_col)
+	draw_arc(c, r, 0.0, TAU, 48, _fade(Color(1, 1, 1, 0.4), touch.opacity), 2.0)
+	var off := (p - c).limit_length(r)
+	draw_circle(c + off, touch.knob_radius(), knob_col)

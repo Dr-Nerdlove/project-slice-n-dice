@@ -4,6 +4,14 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## Unreleased
+
+- **Touch control settings** (Settings > Touch controls): choose **Floating** sticks (they appear where your thumb
+  lands, as before) or **Fixed** sticks, pick the **size** and **opacity** of the controls, and turn on **Swap
+  sides** for left-handed play (move stick on the right, aim stick on the left, Dash button on the left).
+  **Place controls** lets you drag the sticks (Fixed) and the Dash button to where you want them, then Save,
+  Reset to default or Cancel. The settings are kept on your device and apply to Play and Training.
+
 ## 0.6.0
 
 The game has a new name and a new start screen: **Spinback Rumble**.

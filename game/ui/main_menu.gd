@@ -17,11 +17,25 @@ var update_banner: PanelContainer
 var settings_page: Control
 var settings_update_btn: Button
 var settings_version_label: Label
+var touch: TouchSettings = TouchSettings.new()   # shared with the input router; edited here, saved at once
+var mode_buttons: Array[Button] = []      # Floating / Fixed
+var size_buttons: Array[Button] = []
+var opacity_buttons: Array[Button] = []
+var swap_btn: Button
+var layout_btn: Button
+var layout_editor: TouchLayoutEditor
 var _main_page: Control
 var _banner_label: Label
 
 
-func setup() -> void:
+const SIZES := [["Small", 0.8], ["Normal", 1.0], ["Large", 1.25], ["Huge", 1.5]]
+const OPACITIES := [["Faint", 0.5], ["Normal", 1.0], ["Strong", 1.6]]
+
+
+## `touch_settings` is the instance the input router also reads, so a change shows in the game at once.
+func setup(touch_settings: TouchSettings = null) -> void:
+	if touch_settings != null:
+		touch = touch_settings
 	layer = 10
 	var root := Control.new()
 	root.theme = UiKit.theme()
@@ -40,6 +54,10 @@ func setup() -> void:
 	settings_page.visible = false
 	root.add_child(settings_page)
 	_build_settings(settings_page)
+	layout_editor = TouchLayoutEditor.new()
+	root.add_child(layout_editor)
+	layout_editor.setup()
+	layout_editor.closed.connect(func(_saved: bool) -> void: _mark_touch())
 	show_main()
 
 
@@ -145,10 +163,19 @@ func _build_settings(page: Control) -> void:
 	back.pressed.connect(show_main)
 	bar.add_child(back)
 	bar.add_child(UiKit.title("Settings", 44))
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	col.add_child(scroll)
+	var panels := HBoxContainer.new()
+	panels.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panels.add_theme_constant_override("separation", 20)
+	scroll.add_child(panels)
 	var panel := UiKit.panel("paper")
-	panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	panel.custom_minimum_size.x = 520.0
-	col.add_child(panel)
+	panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	panel.custom_minimum_size.x = 340.0
+	panels.add_child(panel)
+	panels.add_child(_build_touch())
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 14)
 	panel.add_child(box)
@@ -159,7 +186,79 @@ func _build_settings(page: Control) -> void:
 	settings_update_btn.visible = false
 	settings_update_btn.pressed.connect(func() -> void: update_requested.emit())
 	box.add_child(settings_update_btn)
-	box.add_child(UiKit.body("More settings (touch controls) follow with the match update."))
+
+
+## The "Touch controls" panel: stick mode, size, opacity, swap sides and the layout editor.
+func _build_touch() -> Control:
+	var panel := UiKit.panel("paper")
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	panel.add_child(box)
+	box.add_child(UiKit.eyebrow("Touch controls"))
+	mode_buttons = _option_row(box, "Sticks", [["Floating", TouchSettings.Mode.FLOATING], ["Fixed", TouchSettings.Mode.FIXED]],
+			func(v: Variant) -> void: touch.mode = v)
+	size_buttons = _option_row(box, "Size", SIZES, func(v: Variant) -> void: touch.scale = v)
+	opacity_buttons = _option_row(box, "Opacity", OPACITIES, func(v: Variant) -> void: touch.opacity = v)
+	var row := _row(box, "Left-handed")
+	swap_btn = UiKit.button("Swap sides", "paper")
+	swap_btn.toggle_mode = true
+	swap_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	swap_btn.custom_minimum_size.y = 48.0
+	swap_btn.pressed.connect(func() -> void:
+		touch.set_swap(not touch.swap)
+		touch.save()
+		_mark_touch())
+	row.add_child(swap_btn)
+	layout_btn = UiKit.button("Place controls", "paper")
+	layout_btn.custom_minimum_size.y = 48.0
+	layout_btn.pressed.connect(func() -> void: layout_editor.open(touch))
+	box.add_child(layout_btn)
+	box.add_child(UiKit.body("Floating: a stick appears where your thumb lands. Fixed: sticks stay where you put them. "
+			+ "The Dash button can be placed in both."))
+	_mark_touch()
+	return panel
+
+
+func _row(box: VBoxContainer, title: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	box.add_child(row)
+	var l := UiKit.label(title, 20, UiKit.INK, true)
+	l.custom_minimum_size.x = 130.0
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(l)
+	return row
+
+
+## A labelled row of toggle buttons; picking one calls `apply(value)`, saves the touch settings and marks the row.
+func _option_row(box: VBoxContainer, title: String, options: Array, apply: Callable) -> Array[Button]:
+	var row := _row(box, title)
+	var out: Array[Button] = []
+	for o in options:
+		var value: Variant = o[1]
+		var b := UiKit.button(o[0], "paper")
+		b.toggle_mode = true
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.custom_minimum_size.y = 48.0
+		b.pressed.connect(func() -> void:
+			apply.call(value)
+			touch.save()
+			_mark_touch())
+		row.add_child(b)
+		out.append(b)
+	return out
+
+
+func _mark_touch() -> void:
+	mode_buttons[0].set_pressed_no_signal(touch.mode == TouchSettings.Mode.FLOATING)
+	mode_buttons[1].set_pressed_no_signal(touch.mode == TouchSettings.Mode.FIXED)
+	for i in SIZES.size():
+		size_buttons[i].set_pressed_no_signal(is_equal_approx(touch.scale, SIZES[i][1]))
+	for i in OPACITIES.size():
+		opacity_buttons[i].set_pressed_no_signal(is_equal_approx(touch.opacity, OPACITIES[i][1]))
+	swap_btn.set_pressed_no_signal(touch.swap)
 
 
 func show_main() -> void:
@@ -174,6 +273,9 @@ func show_settings() -> void:
 
 ## Android back / Escape: leaves the settings page. False when there was nothing to leave (the caller quits).
 func back() -> bool:
+	if layout_editor.visible:
+		layout_editor.cancel()
+		return true
 	if settings_page.visible:
 		show_main()
 		return true
