@@ -205,7 +205,7 @@ missing, with a recommendation, and let the people choose.
   working tree is never modified; the script checks that `game/` is identical afterwards), runs only the suite that
   covers an entry (prefix 1-7 sim, 8 net, 9 update, 0 view; an entry that needs another suite goes into
   `SUITES_OVERRIDE`), stops the net suite after its first failing group, and runs `-j N` entries in parallel
-  (default: half the CPU cores). All 146 entries take about 8 min with 6 workers (no gain beyond that on a 12-thread machine) (the old one-by-one run with the
+  (default: half the CPU cores). All 190 entries take about 10 min with 6 workers (no gain beyond that on a 12-thread machine) (the old one-by-one run with the
   whole suite per entry: about 2.5 h); `--full` runs the whole suite for every entry. When game code is refactored,
   its patterns may go stale (the script reports "pattern count 0" and fails): update them. New testable behaviour
   gets a check in `tests/test_sim.gd` (netcode: `tests/test_net.gd`) and, if sensible, an entry in
@@ -241,6 +241,8 @@ missing, with a recommendation, and let the people choose.
   owner's Linux machine:** no X server, no Xvfb, no GL/EGL or Vulkan libraries (Godot's x11 and wayland drivers fail
   on missing `libXcursor` / `libwayland-client`; headless only has the dummy renderer). The look is checked on the
   phone; rendering in CI (Xvfb with Mesa on a GitHub runner) would be an option.
+- **Toy train:** a moving hazard in the simulation (`Sim._step_train`, geometry in `game/sim/train_track.gd`: a rounded rectangle around the arena centre, scaled with the arena; speed `Config.train_speed`, default 5.7, 0 = off). It kills players with `_kill(victim, null)` (event `killer: -1`, `cause: "train"`, no kill credit), shoves the crate, ignores yo-yos; its position is ordinary state. Tests switch it off in `mk()` (test_sim) and `make_rig()` (test_net, `with_train` turns it on) because the client's world clock follows the server's, so a client with a moving train is never equal to a purely local sim. When the arena or the obstacles change, the geometry checks at the end of `_train_tests` (clearance to obstacles, walls, spawns, the gap around the centre block) must still hold.
+- **Figure choice:** `SimPlayer.skin` says which toy figure a player is drawn as (presentation only: the simulation never reads it, but it is in the snapshot). `Config.SKIN_COUNT` must equal `ToyFigure.NAMES.size()` (a test checks it): when a figure is added, raise it. The human's choice is `Config.character` (saved with the settings, not reset by "Zurücksetzen"; tab "Figur" in the tuning menu). Offline `main.gd` gives player 0 the choice and bot i `character + i`; online the client sends `NetProto.T_SKIN` and the server validates the range. `ClientCore` keeps its own choice on top of snapshots.
 - **Modifiers:** Modifier definitions, German texts and all their numbers live in `game/sim/mods.gd`.
 - **Release:** Testers get APKs from the PUBLIC repository `Joni9993/slice-n-dice-releases` (this one is private).
   How a release is made: (1) add a section `## MAJOR.MINOR.PATCH` to `CHANGELOG.md` (the workflow fails without it;

@@ -46,7 +46,8 @@ func think(sim: Sim, dt: float) -> SimInput:
 	match phase:
 		Phase.IDLE:
 			attack_wait -= dt
-			if rng.randf() < Config.BOT_DASH_CHANCE:
+			var dash_roll := rng.randf()   # always drawn, so the random sequence does not depend on the train
+			if dash_roll < Config.BOT_DASH_CHANCE and not _train_near(sim, me, cfg.dash_distance):
 				inp.dash = true
 			if attack_wait <= 0.0 and me.hand_index() >= 0 and not me.pulling and target != null \
 					and dist < cfg.effective_max_range() * Config.BOT_ATTACK_RANGE_FACTOR:
@@ -110,6 +111,16 @@ func think(sim: Sim, dt: float) -> SimInput:
 	return inp
 
 
+## True when a train car is closer than the avoidance distance plus `extra` (a dash must not carry the bot into it).
+func _train_near(sim: Sim, me: SimPlayer, extra: float) -> bool:
+	if sim.cfg.train_speed <= 0.0:
+		return false
+	for k in TrainTrack.CARS:
+		if me.pos.distance_to(TrainTrack.point(TrainTrack.car_s(sim.train_s, k))) < Config.BOT_TRAIN_AVOID_DIST + extra:
+			return true
+	return false
+
+
 func _to_idle() -> void:
 	phase = Phase.IDLE
 	phase_t = 0.0
@@ -143,4 +154,17 @@ func _wander(sim: Sim, me: SimPlayer, dt: float) -> Vector2:
 		var d := away.length()
 		if d < Config.BOT_AVOID_DIST and d > 0.001:
 			dir += away / d * (1.0 - d / Config.BOT_AVOID_DIST) * Config.BOT_AVOID_WEIGHT
+	if sim.cfg.train_speed > 0.0:
+		for k in TrainTrack.CARS:
+			var cs := TrainTrack.car_s(sim.train_s, k)
+			var rel := me.pos - TrainTrack.point(cs)
+			var d := rel.length()
+			if d >= Config.BOT_TRAIN_AVOID_DIST:
+				continue
+			# Step off the rails sideways (running ahead of the train would not outrun it), and away from the car.
+			var td := TrainTrack.dir(cs)
+			var side := rel - td * rel.dot(td)
+			side = side.normalized() if side.length() > 0.05 else Vector2(-td.y, td.x)
+			var w := (1.0 - d / Config.BOT_TRAIN_AVOID_DIST) * Config.BOT_TRAIN_AVOID_WEIGHT
+			dir += (side + rel.normalized() * 0.5) * w
 	return dir.limit_length(1.0)

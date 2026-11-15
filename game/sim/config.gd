@@ -27,6 +27,7 @@ const SPAWNS: Array[Vector2] = [
 # --- Sim constants (fixed) ---
 const TICK_RATE := 60.0
 const NUM_PLAYERS := 4
+const SKIN_COUNT := 8              # player figures to choose from (presentation only); must equal ToyFigure.NAMES.size()
 const MOVE_DEADZONE := 0.1
 const SUBSTEP_FACTOR := 0.5        # max movement per substep as a fraction of the radius
 const CRATE_HALF := 0.7
@@ -35,6 +36,7 @@ const CRATE_PUSH_RATIO := 0.3      # share of a player's push that moves the cra
 const BOX_RESPAWN_TIME := 6.0
 const PLAYER_SEPARATION_SHARE := 0.5
 const SPAWN_NOISE := 0.5
+const TRAIN_HIT_SHARE := 0.6       # share of the player radius that counts when a train car hits (a little forgiving)
 const HEAD_BOUNCE_EXTRA := 0.6     # extra knock distance when two heads collide
 const CATCH_MARGIN := 0.1
 const MAX_ACCUMULATED_TIME := 0.25
@@ -55,6 +57,8 @@ const BOT_PULL_HOLD_EXTRA := 0.6
 const BOT_DASH_CHANCE := 0.004      # per tick while idle
 const BOT_ATTACK_RANGE_FACTOR := 1.2
 const BOT_MARGIN := 1.8
+const BOT_TRAIN_AVOID_DIST := 3.0   # bots steer away from a train car (or the rails ahead of it) closer than this
+const BOT_TRAIN_AVOID_WEIGHT := 3.0
 
 # --- Feel / presentation (fixed) ---
 const HITSTOP_TIME := 0.07
@@ -99,9 +103,12 @@ var aim_deadzone: float
 var accidental_hold_time: float
 var out_variant: int
 var bot_mode: int
+var train_speed: float
 ## Sandbox modifier levels (modifier id -> 0..3): one set for the human player, one shared by all bots.
 var mods_you: Dictionary = Mods.empty_levels()
 var mods_bots: Dictionary = Mods.empty_levels()
+## The figure the human player chose (0..SKIN_COUNT-1). Saved with the settings, but not a tuning value: reset leaves it.
+var character := 0
 
 const DEFAULTS := {
 	"player_radius": 0.5,
@@ -125,6 +132,7 @@ const DEFAULTS := {
 	"accidental_hold_time": 0.07,
 	"out_variant": OutVariant.DRAG,
 	"bot_mode": BotMode.ACTIVE,
+	"train_speed": 5.7,
 }
 
 
@@ -143,12 +151,15 @@ func to_dict() -> Dictionary:
 		d[k] = get(k)
 	d["mods_you"] = mods_you.duplicate()
 	d["mods_bots"] = mods_bots.duplicate()
+	d["character"] = character
 	return d
 
 
 func from_dict(d: Dictionary) -> void:
 	mods_you = Mods.sanitize(d.get("mods_you"))
 	mods_bots = Mods.sanitize(d.get("mods_bots"))
+	var ch: Variant = d.get("character")
+	character = posmod(int(ch), SKIN_COUNT) if (ch is int or (ch is float and is_finite(ch))) else 0
 	for k: String in DEFAULTS:
 		if not d.has(k):
 			continue

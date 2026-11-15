@@ -11,6 +11,8 @@ const HEAD_Y := 0.35
 const HAND_Y := 0.5               # the yo-yo in the hand hangs in front of the belly
 const STRING_WIDTH := 0.05
 const STRING_Y := 0.6
+const FLIGHT_ARC := 0.3           # extra height in the middle of a throw
+const CATCH_RISE_DIST := 2.5      # a returning yo-yo climbs to the hand over this distance
 const ELASTIC_STRING_WIDTH := 0.13
 const ELASTIC_STRING_COLOR := Color(1.0, 0.65, 0.15)
 const WIRE_WIDTH := 0.1
@@ -156,7 +158,7 @@ func _build_arena() -> void:
 func _build_players() -> void:
 	for i in sim.players.size():
 		var col := PLAYER_COLORS[i]
-		var fig := ToyFigure.new(FIGURE_KINDS[i % FIGURE_KINDS.size()], col)
+		var fig := ToyFigure.new(posmod(sim.players[i].skin, ToyFigure.NAMES.size()), col)
 		add_child(fig)
 		_bodies.append(fig)
 		_figures.append(fig)
@@ -460,6 +462,34 @@ func _make_shard_node() -> MeshInstance3D:
 	return mi
 
 
+## Replaces the figure of player `i` by another kind (the player chose a different one).
+func _swap_figure(i: int, skin: int) -> ToyFigure:
+	var old := _figures[i]
+	var fig := ToyFigure.new(posmod(skin, ToyFigure.NAMES.size()), PLAYER_COLORS[i])
+	add_child(fig)
+	if _ring.get_parent() == old:
+		old.remove_child(_ring)
+		fig.add_child(_ring)
+	remove_child(old)
+	old.queue_free()
+	_figures[i] = fig
+	_bodies[i] = fig
+	return fig
+
+
+## Height of a yo-yo that is out: it leaves the hand in a flat arc, lies low while it is out and climbs back
+## to the hand on its way home. Presentation only (hits are decided on the ground plane).
+func _head_height(h: SimHead, dist: float, hand_y: float) -> float:
+	match h.state:
+		SimHead.S.FLIGHT:
+			var t := clampf(h.flown / maxf(h.flight_dist, 0.01), 0.0, 1.0)
+			return lerpf(hand_y, HEAD_Y, minf(t * 2.5, 1.0)) + sin(t * PI) * FLIGHT_ARC
+		SimHead.S.RETRACT:
+			var t := clampf(1.0 - dist / CATCH_RISE_DIST, 0.0, 1.0)
+			return lerpf(HEAD_Y, hand_y, t * t)
+	return HEAD_Y
+
+
 ## Draws the other players from `s` (the interpolated display state) instead of the predicted sim; null = off.
 func set_others(s: Sim, a: float) -> void:
 	others_sim = s
@@ -483,6 +513,16 @@ func render(alpha: float, delta: float) -> void:
 		var fig := _figures[i]
 		var vis := p.enabled and p.alive
 		var pos := p.prev_pos.lerp(p.pos, a)
+		if fig.kind != posmod(p.skin, ToyFigure.NAMES.size()):
+			fig = _swap_figure(i, p.skin)
+		# The yo-yo arm points along the string while a yo-yo is out.
+		fig.string_dir = Vector2.ZERO
+		for h in p.heads:
+			if h.lethal():
+				var to: Vector2 = (h.pins[0] if h.pins.size() > 0 else h.prev_pos.lerp(h.pos, a)) - pos
+				if to.length() > 0.05:
+					fig.string_dir = to.normalized()
+					break
 		# The figure follows the same source as everything else of this player (and pops when it dies).
 		fig.sync(p, src, pos, delta)
 		_aim_marks[i].visible = false
@@ -507,6 +547,7 @@ func render(alpha: float, delta: float) -> void:
 		var elastic := src.lv(p, "elastic") > 0
 		var hand_n := p.count_state(SimHead.S.HAND)
 		var hand_k := 0
+		var hand3 := fig.hand_point(pos, face, hr, HAND_Y)
 		for k in p.heads.size():
 			var h := p.heads[k]
 			var node := heads[k] as Node3D
@@ -519,11 +560,13 @@ func render(alpha: float, delta: float) -> void:
 			if not out_like:
 				# In the hand: in front of the belly, or behind the shoulder while winding up (ToyFigure.hand_point).
 				var side := Vector2(face.y, -face.x)
-				var h3 := fig.hand_point(pos, face, hr, HAND_Y)
+				var h3 := hand3
 				hp = Vector2(h3.x, h3.z) + side * (hand_k - (hand_n - 1) * 0.5) * hr * HAND_SPREAD * 2.0
 				hand_k += 1
 				hy = h3.y
 				hs = hr * 0.7
+			else:
+				hy = _head_height(h, hp.distance_to(pos), hand3.y)
 			node.position = Vector3(hp.x, hy, hp.y)
 			node.scale = Vector3(hs, hs * 0.5, hs)
 			node.rotation.y = _spin if out_like else _spin * 0.3
@@ -534,15 +577,12 @@ func render(alpha: float, delta: float) -> void:
 					width = ELASTIC_STRING_WIDTH * (1.0 + 0.3 * src.lv(p, "elastic") / Mods.MAX_LEVEL)
 					scol = ELASTIC_STRING_COLOR
 				# The string is a polyline: player's hand -> bounce points (pins) -> head.
-				var first := h.pins[0] if h.pins.size() > 0 else hp
-				var to_first := (first - pos).normalized() if first.distance_to(pos) > 0.01 else face
-				var hand := pos + to_first * pr * 0.9
-				var prev3 := Vector3(hand.x, STRING_Y, hand.y)
+				var prev3 := hand3
 				for pin in h.pins:
 					var pin3 := Vector3(pin.x, STRING_Y, pin.y)
 					_string_segment(prev3, pin3, width, scol)
 					prev3 = pin3
-				_string_segment(prev3, Vector3(hp.x, HEAD_Y + 0.1, hp.y), width, scol)
+				_string_segment(prev3, Vector3(hp.x, hy + 0.05, hp.y), width, scol)
 		if p.charging:
 			var path := src.aim_path(p)
 			var acol := PLAYER_COLORS[i].lightened(0.4)

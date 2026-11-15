@@ -9,9 +9,21 @@ extends Node3D
 ## To add a figure: a new ToyPose.Kind (and its CYCLE and gait flavour), a _build_* function below that creates at
 ## least the six standard pieces, its accent colour in ACCENTS and its name in NAMES.
 
-const NAMES: Array[String] = ["Gummi-Dino", "Aufzieh-Roboter", "Plüschhase", "Quietsche-Ente"]
-## The second colour of each toy (spikes, metal and dials, muzzle, beak). None of them is a player colour.
-const ACCENTS: Array[Color] = [Color("ffe14d"), Color("c9d2dc"), Color("fff4ea"), Color("ffd21f")]
+const NAMES: Array[String] = [
+	"Gummi-Dino", "Aufzieh-Roboter", "Plüschhase", "Quietsche-Ente", "Springteufel", "Würfel", "Stehauf-Püppchen",
+	"Kreisel"]
+## The second colour of each toy (spikes, metal and dials, muzzle, beak, horns and ruff, pips, face, band). None
+## of them is a player colour.
+const ACCENTS: Array[Color] = [
+	Color("ffe14d"), Color("c9d2dc"), Color("fff4ea"), Color("ffd21f"), Color("fff1c9"), Color("fbfbf7"),
+	Color("ffe9d2"), Color("ffe14d")]
+const BLUSH := Color("ff8fa8")
+## Where the yo-yo hand goes, in the figure's units: holding the yo-yo in front of the belly, wound up behind the
+## shoulder, and how far it reaches along the string. The arm only points there; the yo-yo sits in the real hand.
+const HAND_HOLD := Vector3(0.3, 0.85, 1.25)
+const HAND_WOUND := Vector3(1.15, 2.4, -0.95)
+const HAND_REACH := 1.3
+const BLINK_TIME := 0.11
 const WHITE := Color("fbfbf7")
 const INK := Color("1d1638")
 const DEBRIS_TIME := 1.15          # how long the pieces of a popped toy fly and bounce
@@ -34,6 +46,14 @@ var _foot_l: Node3D
 var _foot_r: Node3D
 var _floppy: Array[Node3D] = []     # ears / tail: swing with the EARS channel
 var _key: Node3D
+var _spin: Node3D                   # spinning top: the part that turns
+var _coils: Array[Node3D] = []      # imp: the rings of its spring
+var _paw: Node3D                    # the end of the yo-yo arm: where the yo-yo and its string are held
+var _eyes: Array[Node3D] = []
+var _blink := 2.0
+## World direction from the player to where its string leads (the first bounce point or the yo-yo); ZERO while
+## no yo-yo is out. Set by the view before `sync`: the yo-yo arm points along it.
+var string_dir := Vector2.ZERO
 var _stars: Node3D
 var _shadow: MeshInstance3D
 var _ghosts: Array[MeshInstance3D] = []
@@ -69,8 +89,17 @@ func _init(figure_kind: int, body_color: Color) -> void:
 			_build_robot()
 		ToyPose.Kind.BUNNY:
 			_build_bunny()
-		_:
+		ToyPose.Kind.DUCK:
 			_build_duck()
+		ToyPose.Kind.IMP:
+			_build_imp()
+		ToyPose.Kind.DIE:
+			_build_die()
+		ToyPose.Kind.DOLL:
+			_build_doll()
+		_:
+			_build_top()
+	_blink = _rng.randf_range(0.6, 3.5)
 	for pc in pieces:
 		_home.append(pc.transform)
 		_debris_v.append(Vector3.ZERO)
@@ -99,27 +128,36 @@ func _p(parent: Node3D, mesh: Mesh, mat: Material, pos: Vector3, size: Vector3, 
 	return ToyKit.part(parent, mesh, mat, pos, size, rot)
 
 
-## A painted eye on a surface whose outward direction is `dir`: white, pupil, highlight.
-func _eye(parent: Node3D, pos: Vector3, dir: Vector3, size: float, tall := 1.15) -> void:
+## A painted eye on a surface whose outward direction is `dir`: white, pupil, highlight. It blinks.
+func _eye(parent: Node3D, pos: Vector3, dir: Vector3, size: float, tall := 1.15, pupil := 0.58) -> void:
 	dir = dir.normalized()
-	var b := Basis.looking_at(-dir, Vector3.UP)
-	var white := MeshInstance3D.new()
-	white.mesh = ToyKit.sphere()
-	white.material_override = ToyKit.plastic(WHITE)
-	white.transform = Transform3D(b.scaled_local(Vector3(size, size * tall, size * 0.45)), pos)
-	parent.add_child(white)
-	var pupil := MeshInstance3D.new()
-	pupil.mesh = ToyKit.sphere()
-	pupil.material_override = ToyKit.plastic(INK)
-	pupil.transform = Transform3D(b.scaled_local(Vector3(size * 0.58, size * 0.68, size * 0.3)), pos + dir * size * 0.13)
-	parent.add_child(pupil)
-	var shine := MeshInstance3D.new()
-	shine.mesh = ToyKit.sphere()
-	shine.material_override = ToyKit.unshaded(Color.WHITE)
-	var up := b.y
-	var right := b.x
-	shine.transform = Transform3D(Basis().scaled(Vector3.ONE * size * 0.2), pos + dir * size * 0.24 + up * size * 0.18 - right * size * 0.12)
-	parent.add_child(shine)
+	var eye := Node3D.new()
+	eye.transform = Transform3D(Basis.looking_at(-dir, Vector3.UP), pos)
+	eye.set_meta("open", eye.basis)
+	parent.add_child(eye)
+	_eyes.append(eye)
+	_p(eye, ToyKit.sphere(), ToyKit.plastic(WHITE), Vector3.ZERO, Vector3(size, size * tall, size * 0.45))
+	_p(eye, ToyKit.sphere(), ToyKit.plastic(INK), Vector3(0, 0, size * 0.13), Vector3(size * pupil, size * (pupil + 0.1), size * 0.3))
+	_p(eye, ToyKit.sphere(), ToyKit.unshaded(Color.WHITE), Vector3(-size * 0.12, size * 0.18, size * 0.24), Vector3.ONE * size * 0.2)
+
+
+## A soft pink cheek.
+func _blush(parent: Node3D, pos: Vector3, size: float) -> void:
+	_p(parent, ToyKit.sphere(), ToyKit.plush(BLUSH), pos, Vector3(size, size * 0.6, size * 0.35))
+
+
+## Marks the end of the yo-yo arm (`length` below its shoulder).
+func _set_paw(length: float) -> void:
+	_paw = Node3D.new()
+	_paw.name = "Paw"
+	_paw.position = Vector3(0, -length, 0.05)
+	_arm_r.add_child(_paw)
+
+
+## A floating glove as a hand (figures without arms).
+func _glove(piece: Node3D, mat: Material, size: float) -> void:
+	_p(piece, ToyKit.sphere(), mat, Vector3(0, -0.5, 0), Vector3.ONE * size)
+	_p(piece, ToyKit.sphere(), mat, Vector3(0.0, -0.42, 0.14), Vector3.ONE * size * 0.5)
 
 
 func _arm(piece: Node3D, mat: Material, length: float, thick: float, paw_mat: Material = null) -> void:
@@ -144,6 +182,10 @@ func _build_dino() -> void:
 	_p(head, ToyKit.sphere(), ToyKit.plastic(Color("e8506a")), Vector3(0, -0.45, 1.1), Vector3(0.5, 0.12, 0.25))  # mouth
 	_eye(head, Vector3(0.42, 0.3, 0.62), Vector3(0.45, 0.25, 1.0), 0.48)
 	_eye(head, Vector3(-0.42, 0.3, 0.62), Vector3(-0.45, 0.25, 1.0), 0.48)
+	for sx in [-1.0, 1.0]:
+		_blush(head, Vector3(sx * 0.62, -0.12, 0.62), 0.3)
+		_p(head, ToyKit.cone(), ToyKit.plastic(WHITE), Vector3(sx * 0.22, -0.52, 1.12), Vector3(0.14, 0.2, 0.12), Vector3(PI, 0, 0))   # teeth
+		_p(head, ToyKit.sphere(), body_mat, Vector3(sx * 0.44, 0.66, 0.36), Vector3(0.44, 0.16, 0.3), Vector3(-0.3, 0, sx * -0.2))  # brow ridge
 	# Spikes along the middle, from the forehead down the back to the tail: a line that points where it looks.
 	for s in [[Vector3(0, 0.72, 0.15), 0.42, -0.35], [Vector3(0, 0.62, -0.42), 0.48, -0.75]]:
 		_p(head, ToyKit.cone(), acc, s[0], Vector3(0.36, s[1], 0.36), Vector3(s[2], 0, 0))
@@ -157,6 +199,7 @@ func _build_dino() -> void:
 	_arm(_arm_l, body_mat, 0.75, 0.38, body_mat)
 	_arm_r = _piece("ArmR", Vector3(0.85, 1.25, 0.4), true)
 	_arm(_arm_r, body_mat, 0.75, 0.38, body_mat)
+	_set_paw(0.7)
 	_foot_l = _piece("FootL", Vector3(-0.5, 0.2, 0.1))
 	_p(_foot_l, ToyKit.sphere(), body_mat, Vector3(0, 0, 0.12), Vector3(0.7, 0.45, 0.95))
 	_p(_foot_l, ToyKit.sphere(), acc, Vector3(0, -0.05, 0.55), Vector3(0.5, 0.2, 0.22))
@@ -177,6 +220,10 @@ func _build_robot() -> void:
 	_p(body, ToyKit.cylinder(), red, Vector3(-0.22, 0.08, 0.82), Vector3(0.2, 0.08, 0.2), Vector3(PI * 0.5, 0, 0))
 	_p(body, ToyKit.cylinder(), yellow, Vector3(0.22, 0.08, 0.82), Vector3(0.2, 0.08, 0.2), Vector3(PI * 0.5, 0, 0))
 	_p(body, rbox, dark, Vector3(0, -0.15, 0.81), Vector3(0.6, 0.08, 0.05))
+	_p(body, ToyKit.cylinder(), ToyKit.plastic(Color("58e07a")), Vector3(0, 0.08, 0.82), Vector3(0.2, 0.08, 0.2), Vector3(PI * 0.5, 0, 0))
+	for sx in [-1.0, 1.0]:
+		_p(body, ToyKit.sphere(), metal, Vector3(sx * 0.98, 0.35, 0.05), Vector3.ONE * 0.42)       # shoulder joints
+		_p(body, ToyKit.sphere(), metal, Vector3(sx * 0.72, 0.38, 0.74), Vector3.ONE * 0.13)       # rivets
 	_p(body, ToyKit.cylinder(), metal, Vector3(0, -0.6, 0), Vector3(1.4, 0.14, 1.2))             # waist ring
 	var head := _piece("Head", Vector3(0, 2.05, 0.02))
 	_head = head
@@ -203,6 +250,7 @@ func _build_robot() -> void:
 	_arm_r = _piece("ArmR", Vector3(1.12, 1.3, 0.05), true)
 	_p(_arm_r, ToyKit.cylinder(), metal, Vector3(0, -0.38, 0), Vector3(0.24, 0.75, 0.24))
 	_p(_arm_r, ToyKit.torus(), dark, Vector3(0, -0.85, 0.02), Vector3(0.46, 0.7, 0.46), Vector3(0, PI * 0.5, PI * 0.5))
+	_set_paw(0.85)
 	_foot_l = _piece("FootL", Vector3(-0.42, 0.2, 0.08))
 	_p(_foot_l, rbox, dark, Vector3(0, 0, 0.1), Vector3(0.6, 0.4, 1.0))
 	_foot_r = _piece("FootR", Vector3(0.42, 0.2, 0.08))
@@ -226,8 +274,21 @@ func _build_bunny() -> void:
 	for sx in [-1.0, 1.0]:
 		var dir := Vector3(sx * 0.5, 0.25, 1.0).normalized()
 		var p := Vector3(sx * 0.4, 0.22, 0.72)
-		_p(head, ToyKit.sphere(), ToyKit.plastic(INK), p, Vector3(0.3, 0.32, 0.18))
-		_p(head, ToyKit.sphere(), ToyKit.unshaded(Color.WHITE), p + dir * 0.09 + Vector3(-sx * 0.04, 0.07, 0), Vector3.ONE * 0.08)
+		var eye := Node3D.new()      # the button eye blinks like the painted ones
+		eye.position = p
+		eye.set_meta("open", eye.basis)
+		head.add_child(eye)
+		_eyes.append(eye)
+		_p(eye, ToyKit.sphere(), ToyKit.plastic(INK), Vector3.ZERO, Vector3(0.3, 0.32, 0.18))
+		_p(eye, ToyKit.sphere(), ToyKit.unshaded(Color.WHITE), dir * 0.09 + Vector3(-sx * 0.04, 0.07, 0), Vector3.ONE * 0.08)
+	for sx in [-1.0, 1.0]:
+		_blush(head, Vector3(sx * 0.66, -0.12, 0.6), 0.3)
+		_p(head, rbox_teeth(), ToyKit.plastic(WHITE), Vector3(sx * 0.08, -0.5, 0.9), Vector3(0.14, 0.2, 0.08))   # front teeth
+	# A bow at the neck.
+	var bow := ToyKit.plastic(Color("7b5cff"))
+	_p(body, ToyKit.sphere(), bow, Vector3(0.24, 0.62, 0.72), Vector3(0.42, 0.3, 0.2), Vector3(0, 0, 0.4))
+	_p(body, ToyKit.sphere(), bow, Vector3(-0.24, 0.62, 0.72), Vector3(0.42, 0.3, 0.2), Vector3(0, 0, -0.4))
+	_p(body, ToyKit.sphere(), bow, Vector3(0, 0.62, 0.78), Vector3.ONE * 0.18)
 	# Long floppy ears lying back over the head: a V that points backwards, seen from above.
 	for sx in [-1.0, 1.0]:
 		var ear := Node3D.new()
@@ -242,6 +303,7 @@ func _build_bunny() -> void:
 	_arm(_arm_l, body_mat, 0.7, 0.42, body_mat)
 	_arm_r = _piece("ArmR", Vector3(0.78, 1.25, 0.3), true)
 	_arm(_arm_r, body_mat, 0.7, 0.42, body_mat)
+	_set_paw(0.65)
 	_foot_l = _piece("FootL", Vector3(-0.45, 0.18, 0.15))
 	_p(_foot_l, ToyKit.sphere(), body_mat, Vector3(0, 0, 0.15), Vector3(0.62, 0.4, 1.1))
 	_p(_foot_l, ToyKit.sphere(), pink, Vector3(0, -0.12, 0.15), Vector3(0.45, 0.2, 0.8))
@@ -266,15 +328,172 @@ func _build_duck() -> void:
 	_p(head, ToyKit.cone(), body_mat, Vector3(0.05, 0.78, -0.05), Vector3(0.22, 0.4, 0.22), Vector3(-0.5, 0, 0.3))  # tuft
 	_eye(head, Vector3(0.36, 0.22, 0.58), Vector3(0.5, 0.2, 1.0), 0.36)
 	_eye(head, Vector3(-0.36, 0.22, 0.58), Vector3(-0.5, 0.2, 1.0), 0.36)
+	for sx in [-1.0, 1.0]:
+		_blush(head, Vector3(sx * 0.55, -0.1, 0.5), 0.26)
+	# A little sailor cap, askew.
+	var cap := Node3D.new()
+	cap.position = Vector3(-0.12, 0.7, -0.12)
+	cap.rotation = Vector3(-0.2, 0, 0.22)
+	head.add_child(cap)
+	_p(cap, ToyKit.cylinder(), ToyKit.matte(WHITE), Vector3(0, 0.1, 0), Vector3(0.8, 0.26, 0.8))
+	_p(cap, ToyKit.cylinder(), ToyKit.matte(Color("2f4fa8")), Vector3(0, 0.0, 0), Vector3(0.86, 0.1, 0.86))
+	_p(cap, ToyKit.sphere(), ToyKit.matte(Color("ff4b3e")), Vector3(0, 0.26, 0), Vector3.ONE * 0.18)
 	# Wings are the arms.
 	_arm_l = _piece("ArmL", Vector3(-0.95, 1.15, 0.0), true)
 	_p(_arm_l, ToyKit.sphere(), body_mat, Vector3(0, -0.25, -0.1), Vector3(0.32, 0.8, 1.1), Vector3(0.3, 0, 0))
 	_arm_r = _piece("ArmR", Vector3(0.95, 1.15, 0.0), true)
 	_p(_arm_r, ToyKit.sphere(), body_mat, Vector3(0, -0.25, -0.1), Vector3(0.32, 0.8, 1.1), Vector3(0.3, 0, 0))
+	_set_paw(0.6)
 	_foot_l = _piece("FootL", Vector3(-0.42, 0.08, 0.35))
 	_p(_foot_l, ToyKit.sphere(), beak, Vector3(0, 0, 0.15), Vector3(0.65, 0.16, 0.8))
 	_foot_r = _piece("FootR", Vector3(0.42, 0.08, 0.35))
 	_p(_foot_r, ToyKit.sphere(), beak, Vector3(0, 0, 0.15), Vector3(0.65, 0.16, 0.8))
+
+
+func rbox_teeth() -> Mesh:
+	return ToyKit.rounded_box(0.3)
+
+
+## Jack-in-the-box imp: a cheeky ball of a head with horns on a coil spring, jester shoes, floating gloves.
+func _build_imp() -> void:
+	var acc := ToyKit.plastic(ACCENTS[kind])
+	var metal := ToyKit.plastic(Color("c9d2dc"))
+	var gold := ToyKit.plastic(Color("ffd21f"))
+	var ink := ToyKit.plastic(INK)
+	var body := _piece("Body", Vector3(0, 0.55, 0), true)
+	_p(body, ToyKit.cylinder(), acc, Vector3(0, 0.52, 0), Vector3(1.8, 0.16, 1.8))            # ruff under the head
+	for k in 4:
+		_coils.append(_p(body, ToyKit.torus(), metal, Vector3(0, -0.36 + 0.24 * k, 0), Vector3(1.25, 1.5, 1.25)))
+	for k in 6:
+		var a := TAU * k / 6.0
+		_p(body, ToyKit.sphere(), gold, Vector3(sin(a) * 0.88, 0.52, cos(a) * 0.88), Vector3.ONE * 0.24)
+	var head := _piece("Head", Vector3(0, 1.85, 0.0))
+	_head = head
+	_p(head, ToyKit.sphere(), body_mat, Vector3.ZERO, Vector3(1.8, 1.7, 1.8))
+	_p(head, ToyKit.sphere(), ink, Vector3(0, -0.3, 0.76), Vector3(0.8, 0.34, 0.3))               # grin
+	_p(head, ToyKit.rounded_box(0.3), ToyKit.plastic(WHITE), Vector3(0, -0.23, 0.86), Vector3(0.56, 0.15, 0.14))
+	for sx in [-1.0, 1.0]:
+		_eye(head, Vector3(sx * 0.34, 0.2, 0.72), Vector3(sx * 0.4, 0.3, 1.0), 0.48, 1.15, 0.5)
+		_p(head, ToyKit.rounded_box(0.3), ink, Vector3(sx * 0.34, 0.56, 0.72), Vector3(0.46, 0.11, 0.14), Vector3(-0.35, 0, sx * 0.45))
+		_p(head, ToyKit.cone(), acc, Vector3(sx * 0.52, 0.82, 0.02), Vector3(0.42, 0.85, 0.42), Vector3(0, 0, sx * -0.5))
+		_blush(head, Vector3(sx * 0.68, -0.1, 0.52), 0.26)
+	_arm_l = _piece("ArmL", Vector3(-1.02, 2.0, 0.1), true)
+	_glove(_arm_l, ToyKit.plastic(WHITE), 0.44)
+	_arm_r = _piece("ArmR", Vector3(1.02, 2.0, 0.1), true)
+	_glove(_arm_r, ToyKit.plastic(WHITE), 0.44)
+	_set_paw(0.5)
+	for sx in [-1.0, 1.0]:
+		var foot := _piece("FootL" if sx < 0.0 else "FootR", Vector3(sx * 0.3, 0.14, 0.12))
+		_p(foot, ToyKit.sphere(), body_mat, Vector3(0, 0, 0.12), Vector3(0.46, 0.28, 0.85))
+		_p(foot, ToyKit.sphere(), gold, Vector3(0, 0.08, 0.55), Vector3.ONE * 0.18)
+		if sx < 0.0:
+			_foot_l = foot
+		else:
+			_foot_r = foot
+
+
+## The die: a big rounded cube with pips, its face on the front, gloves and little shoes.
+func _build_die() -> void:
+	var pip := ToyKit.plastic(ACCENTS[kind])
+	var dark := ToyKit.plastic(Color("39405a"))
+	var body := _piece("Body", Vector3(0, 1.2, 0), true)
+	_p(body, ToyKit.rounded_box(0.22), body_mat, Vector3.ZERO, Vector3(1.75, 1.75, 1.75))
+	for v: Vector2 in [Vector2(0, 0), Vector2(0.46, 0.46), Vector2(-0.46, 0.46), Vector2(0.46, -0.46), Vector2(-0.46, -0.46)]:
+		_p(body, ToyKit.sphere(), pip, Vector3(v.x, 0.86, v.y), Vector3(0.32, 0.1, 0.32))
+	for k in 3:
+		_p(body, ToyKit.sphere(), pip, Vector3(0.86, 0.45 - 0.45 * k, -0.45 + 0.45 * k), Vector3(0.1, 0.3, 0.3))
+	for v: Vector2 in [Vector2(0.42, 0.42), Vector2(-0.42, 0.42), Vector2(0.42, -0.42), Vector2(-0.42, -0.42)]:
+		_p(body, ToyKit.sphere(), pip, Vector3(-0.86, v.x, v.y), Vector3(0.1, 0.3, 0.3))
+	_p(body, ToyKit.sphere(), pip, Vector3(0.4, 0.4, -0.86), Vector3(0.3, 0.3, 0.1))
+	_p(body, ToyKit.sphere(), pip, Vector3(-0.4, -0.4, -0.86), Vector3(0.3, 0.3, 0.1))
+	# The face is painted on the front of the cube; the "head" is only a little cap on top.
+	_p(body, ToyKit.sphere(), ToyKit.plastic(INK), Vector3(0, -0.34, 0.87), Vector3(0.42, 0.16, 0.08))  # smile
+	for sx in [-1.0, 1.0]:
+		_eye(body, Vector3(sx * 0.38, 0.22, 0.87), Vector3(sx * 0.1, 0.25, 1.0), 0.56, 1.15, 0.5)
+		_blush(body, Vector3(sx * 0.62, -0.2, 0.86), 0.26)
+	var head := _piece("Head", Vector3(0, 2.1, 0.0), true)
+	_head = head
+	_p(head, ToyKit.sphere(), dark, Vector3(0, 0.0, 0), Vector3(0.5, 0.2, 0.5))
+	_p(head, ToyKit.sphere(), pip, Vector3(0, 0.12, 0), Vector3.ONE * 0.22)
+	_arm_l = _piece("ArmL", Vector3(-1.05, 1.6, 0.1), true)
+	_glove(_arm_l, ToyKit.plastic(WHITE), 0.42)
+	_arm_r = _piece("ArmR", Vector3(1.05, 1.6, 0.1), true)
+	_glove(_arm_r, ToyKit.plastic(WHITE), 0.42)
+	_set_paw(0.5)
+	_foot_l = _piece("FootL", Vector3(-0.45, 0.18, 0.1))
+	_p(_foot_l, ToyKit.sphere(), dark, Vector3(0, 0, 0.1), Vector3(0.58, 0.38, 0.9))
+	_foot_r = _piece("FootR", Vector3(0.45, 0.18, 0.1))
+	_p(_foot_r, ToyKit.sphere(), dark, Vector3(0, 0, 0.1), Vector3(0.58, 0.38, 0.9))
+
+
+## Roly-poly nesting doll: round and bottom-heavy, a painted face in a kerchief, a flower on the apron.
+func _build_doll() -> void:
+	var face := ToyKit.plastic(ACCENTS[kind])
+	var dark := ToyKit.plastic(color.darkened(0.45))
+	var gold := ToyKit.plastic(Color("ffd21f"))
+	var body := _piece("Body", Vector3(0, 0.95, 0), true)
+	_p(body, ToyKit.sphere(), body_mat, Vector3.ZERO, Vector3(2.0, 1.9, 2.0))
+	_p(body, ToyKit.sphere(), face, Vector3(0, -0.1, 0.58), Vector3(1.25, 1.2, 0.9))               # apron
+	_p(body, ToyKit.sphere(), gold, Vector3(0, -0.05, 1.02), Vector3(0.24, 0.24, 0.12))            # flower
+	for k in 5:
+		var a := TAU * k / 5.0
+		_p(body, ToyKit.sphere(), ToyKit.plastic(Color("ff6f91")), Vector3(sin(a) * 0.24, -0.05 + cos(a) * 0.24, 0.98), Vector3(0.24, 0.24, 0.1))
+	_p(body, ToyKit.torus(), dark, Vector3(0, 0.66, 0), Vector3(1.55, 1.3, 1.55))                  # band at the neck
+	var head := _piece("Head", Vector3(0, 2.0, 0.05))
+	_head = head
+	_p(head, ToyKit.sphere(), body_mat, Vector3.ZERO, Vector3(1.5, 1.45, 1.5))
+	_p(head, ToyKit.sphere(), face, Vector3(0, 0.06, 0.32), Vector3(1.15, 1.1, 1.0))
+	_p(head, ToyKit.sphere(), ToyKit.plastic(Color("6b3f2a")), Vector3(0, 0.46, 0.5), Vector3(0.7, 0.3, 0.42))   # hair
+	_p(head, ToyKit.sphere(), ToyKit.plastic(Color("e0457b")), Vector3(0, -0.2, 0.8), Vector3(0.2, 0.1, 0.1))    # mouth
+	_p(head, ToyKit.sphere(), body_mat, Vector3(0.16, -0.62, 0.52), Vector3(0.34, 0.26, 0.22), Vector3(0, 0, 0.5))  # knot
+	_p(head, ToyKit.sphere(), body_mat, Vector3(-0.16, -0.62, 0.52), Vector3(0.34, 0.26, 0.22), Vector3(0, 0, -0.5))
+	for sx in [-1.0, 1.0]:
+		_eye(head, Vector3(sx * 0.24, 0.14, 0.76), Vector3(sx * 0.25, 0.3, 1.0), 0.32, 1.2, 0.66)
+		_blush(head, Vector3(sx * 0.42, -0.06, 0.68), 0.24)
+	_arm_l = _piece("ArmL", Vector3(-1.0, 1.55, 0.25), true)
+	_glove(_arm_l, face, 0.36)
+	_arm_r = _piece("ArmR", Vector3(1.0, 1.55, 0.25), true)
+	_glove(_arm_r, face, 0.36)
+	_set_paw(0.5)
+	_foot_l = _piece("FootL", Vector3(-0.3, 0.1, 0.4))
+	_p(_foot_l, ToyKit.sphere(), dark, Vector3(0, 0, 0.1), Vector3(0.42, 0.24, 0.62))
+	_foot_r = _piece("FootR", Vector3(0.3, 0.1, 0.4))
+	_p(_foot_r, ToyKit.sphere(), dark, Vector3(0, 0, 0.1), Vector3(0.42, 0.24, 0.62))
+
+
+## Spinning top: always turning under its face, on tiptoes, with a striped band and a knob on top.
+func _build_top() -> void:
+	var acc := ToyKit.plastic(ACCENTS[kind])
+	var dark := ToyKit.plastic(color.darkened(0.5))
+	var white := ToyKit.plastic(WHITE)
+	var body := _piece("Body", Vector3(0, 1.2, 0), true)
+	_p(body, ToyKit.cylinder(), acc, Vector3.ZERO, Vector3(2.0, 0.36, 2.0))                       # band
+	_spin = Node3D.new()
+	body.add_child(_spin)
+	_p(_spin, ToyKit.cone(), body_mat, Vector3(0, -0.62, 0), Vector3(1.9, 1.0, 1.9), Vector3(PI, 0, 0))
+	_p(_spin, ToyKit.sphere(), body_mat, Vector3(0, 0.16, 0), Vector3(1.92, 1.0, 1.92))
+	for k in 6:
+		var a := TAU * k / 6.0
+		_p(_spin, ToyKit.rounded_box(0.3), dark, Vector3(sin(a) * 0.98, 0, cos(a) * 0.98), Vector3(0.3, 0.37, 0.12), Vector3(0, a, 0))
+	for k in 3:
+		var a := TAU * k / 3.0
+		_p(_spin, ToyKit.sphere(), white, Vector3(sin(a) * 0.5, 0.58, cos(a) * 0.5), Vector3(0.6, 0.1, 0.24), Vector3(0, a + 0.9, 0))
+	_p(_spin, ToyKit.cylinder(), ToyKit.plastic(Color("c9d2dc")), Vector3(0, 0.9, 0), Vector3(0.24, 0.6, 0.24))
+	_p(_spin, ToyKit.sphere(), acc, Vector3(0, 1.26, 0), Vector3.ONE * 0.42)
+	var head := _piece("Head", Vector3(0, 1.45, 0.0))
+	_head = head
+	_p(head, ToyKit.sphere(), ToyKit.plastic(INK), Vector3(0, -0.14, 0.9), Vector3(0.3, 0.12, 0.1))       # mouth
+	for sx in [-1.0, 1.0]:
+		_eye(head, Vector3(sx * 0.32, 0.16, 0.8), Vector3(sx * 0.2, 0.55, 1.0), 0.46, 1.15, 0.5)
+	_arm_l = _piece("ArmL", Vector3(-1.2, 1.9, 0.0), true)
+	_glove(_arm_l, white, 0.38)
+	_arm_r = _piece("ArmR", Vector3(1.2, 1.9, 0.0), true)
+	_glove(_arm_r, white, 0.38)
+	_set_paw(0.5)
+	_foot_l = _piece("FootL", Vector3(-0.3, 0.12, 0.1))
+	_p(_foot_l, ToyKit.sphere(), dark, Vector3(0, 0, 0.08), Vector3(0.42, 0.26, 0.6))
+	_foot_r = _piece("FootR", Vector3(0.3, 0.12, 0.1))
+	_p(_foot_r, ToyKit.sphere(), dark, Vector3(0, 0, 0.08), Vector3(0.42, 0.26, 0.6))
 
 
 func _build_stars() -> void:
@@ -368,6 +587,7 @@ func sync(p: SimPlayer, src: Sim, drawn: Vector2, dt: float) -> void:
 	visible = true
 	position = Vector3(drawn.x, 0.0, drawn.y)
 	rotation = Vector3(0.0, motion.yaw, 0.0)
+	_blink -= dt
 	_apply_pose()
 	_step_ghosts(dt)
 
@@ -393,7 +613,7 @@ func _apply_pose() -> void:
 	# Arms: the yo-yo arm (right, +x) swings back over the shoulder (wind-up) or forward; the other swings with the gait.
 	var arm := s[ToyPose.ARM]
 	var ang := arm * (1.5 if arm >= 0.0 else 2.5)
-	_arm_r.rotation = Vector3(ang, twist, -0.35 * clampf(arm, 0.0, 1.0) - 0.15)
+	_aim_arm(arm, ang, twist)
 	var swing := sin(f.gait) * 0.6 * s[ToyPose.STEP]
 	var other := swing
 	if motion.act == ToyPose.Act.DASH or motion.act == ToyPose.Act.PULL:
@@ -411,12 +631,47 @@ func _apply_pose() -> void:
 			fl.basis = _ear_basis(fl, s[ToyPose.EARS])
 	if _key != null:
 		_key.rotation = Vector3(0.0, 0.0, motion.wind)
+	if _spin != null:
+		_spin.rotation.y = -motion.wind * 1.6
+	# The imp's spring stays on the floor and stretches up to the hopping head.
+	var lift := maxf(s[ToyPose.LIFT], 0.0)
+	for k in _coils.size():
+		_coils[k].position.y = -0.36 + 0.24 * k - lift * (1.0 - k / 3.0)
+	if not _coils.is_empty():
+		_foot_l.position.y -= lift * 0.55
+		_foot_r.position.y -= lift * 0.55
 	var dz := s[ToyPose.DIZZY]
 	_stars.visible = dz > 0.05
 	if _stars.visible:
 		_stars.rotation.y = f.time * 6.0
 		_stars.scale = Vector3.ONE * dz
 	_shadow.scale = Vector3.ONE * 2.7 / (1.0 + maxf(s[ToyPose.LIFT], 0.0) * 0.35)
+	if _blink < -BLINK_TIME:
+		_blink = _rng.randf_range(1.6, 4.5)
+	var open := 0.12 if _blink < 0.0 else (0.45 if dz > 0.5 else 1.0)
+	for e in _eyes:
+		e.basis = (e.get_meta("open") as Basis).scaled_local(Vector3(1.0, open, 1.0))
+
+
+## The yo-yo arm points at where the hand should be: in front of the belly, wound up behind the shoulder, or
+## along the string while a yo-yo is out. The yo-yo itself is drawn in the real hand (`hand_point`).
+func _aim_arm(arm: float, ang: float, twist: float) -> void:
+	if _paw == null:
+		_arm_r.rotation = Vector3(ang, twist, -0.35 * clampf(arm, 0.0, 1.0) - 0.15)
+		return
+	var sh := _arm_r.position
+	var reach_dir := Vector3(0.0, -0.25, 1.0)
+	if string_dir != Vector2.ZERO:
+		var loc := Vector3(string_dir.x, 0.0, string_dir.y).rotated(Vector3.UP, -motion.yaw)
+		reach_dir = Vector3(loc.x, -0.25, loc.z)
+	var reach := sh + reach_dir.normalized() * HAND_REACH
+	var tgt := HAND_WOUND.lerp(HAND_HOLD, clampf((arm + 1.0) / 1.3, 0.0, 1.0))
+	if arm > 0.3:
+		tgt = HAND_HOLD.lerp(reach, clampf((arm - 0.3) / 0.7, 0.0, 1.0))
+	var y := -(tgt - sh).normalized()
+	var x := y.cross(Vector3(0, 0, 1))
+	x = x.normalized() if x.length() > 0.01 else Vector3.RIGHT
+	_arm_r.basis = Basis(x, y, x.cross(y))
 
 
 ## Ears lying back, swung by EARS (the base rotation is kept in the node's metadata).
@@ -435,15 +690,16 @@ func _feet(s: Array[float], f: ToyPose.Facts) -> void:
 	var hr := _home[kr].origin
 	var a := sin(f.gait)
 	var b := sin(f.gait + PI)
-	if kind == ToyPose.Kind.ROBOT:
-		a = clampf(a * 3.0, -1.0, 1.0)
+	var hops := kind == ToyPose.Kind.BUNNY or kind == ToyPose.Kind.IMP
+	if kind == ToyPose.Kind.ROBOT or kind == ToyPose.Kind.DIE:
+		a = clampf(a * (3.0 if kind == ToyPose.Kind.ROBOT else 2.2), -1.0, 1.0)
 		b = -a
-	elif kind == ToyPose.Kind.BUNNY:
+	elif hops:
 		b = a                          # both feet together: hops
 	var stride := 0.38 * step
 	var up := 0.22 * step
-	_foot_l.position = hl + Vector3(0.0, maxf(0.0, cos(f.gait)) * up if kind != ToyPose.Kind.BUNNY else 0.0, a * stride)
-	_foot_r.position = hr + Vector3(0.0, maxf(0.0, -cos(f.gait)) * up if kind != ToyPose.Kind.BUNNY else 0.0, b * stride)
+	_foot_l.position = hl + Vector3(0.0, maxf(0.0, cos(f.gait)) * up if not hops else 0.0, a * stride)
+	_foot_r.position = hr + Vector3(0.0, maxf(0.0, -cos(f.gait)) * up if not hops else 0.0, b * stride)
 	var tuck := 0.0
 	if motion.act == ToyPose.Act.PULL or motion.act == ToyPose.Act.DASH:
 		tuck = -0.7                    # feet trail behind
@@ -547,6 +803,8 @@ func flash(on: bool) -> void:
 ## Where the yo-yo held in the hand is drawn (world position): in front of the belly at rest (the same spot
 ## ClientCore assumes for the other players), behind and above the shoulder when wound up for a throw.
 func hand_point(pos: Vector2, face: Vector2, hr: float, rest_y: float) -> Vector3:
+	if _paw != null and is_inside_tree() and visible:
+		return _paw.global_position + Vector3(0, hr * 0.3, 0)
 	var back := motion.wind_up()
 	var side := Vector2(face.y, -face.x)
 	var fwd := (_pr + hr * 0.4) * (1.0 - back) - (_pr * 1.1 + hr) * back

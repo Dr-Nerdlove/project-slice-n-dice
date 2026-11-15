@@ -5,7 +5,7 @@ extends RefCounted
 ## own: everything is a function of the arguments, so it is testable headless and the same at every frame rate.
 ## ToyMotion feeds it from the sim, ToyFigure turns the pose into node transforms.
 
-enum Kind { DINO, ROBOT, BUNNY, DUCK }
+enum Kind { DINO, ROBOT, BUNNY, DUCK, IMP, DIE, DOLL, TOP }
 enum Act { IDLE, WALK, CHARGE, THROW, OUT, CATCH, DASH, DASH_STOP, PULL, STUN, DEAD, SPAWN }
 
 ## Pose channels (indices into a pose array). Units: radians, player radii, scale factors.
@@ -43,7 +43,7 @@ const BREATH_SPEED := 2.4
 ## Actions in which the feet keep walking.
 const GAIT_ACTS: Array[int] = [Act.IDLE, Act.WALK, Act.CHARGE, Act.THROW, Act.OUT, Act.CATCH]
 ## Walk cycle length (two steps, or one hop) per kind, in player radii.
-const CYCLE: Array[float] = [4.0, 3.2, 4.6, 3.4]
+const CYCLE: Array[float] = [4.0, 3.2, 4.6, 3.4, 4.2, 4.4, 2.6, 2.8]
 
 
 ## What a figure knows about its player in one frame.
@@ -111,6 +111,13 @@ static func targets(f: Facts, out: Array[float]) -> int:
 	# Lean into the movement: forward with speed, into the side the figure is drifting to.
 	out[LEAN] = 0.16 * clampf(f.fwd_speed, -1.0, 1.2)
 	out[ROLL] = -0.12 * clampf(f.side_speed, -1.0, 1.0)
+	# Toys that never stand quite still: the roly-poly doll sways, the spinning top wobbles around its tip.
+	if f.kind == Kind.DOLL:
+		out[ROLL] += 0.07 * sin(f.time * 1.7) * (1.0 - walk)
+		out[LEAN] += 0.07 * cos(f.time * 1.7) * (1.0 - walk)
+	elif f.kind == Kind.TOP:
+		out[ROLL] += 0.05 * sin(f.time * 3.1)
+		out[LEAN] += 0.05 * cos(f.time * 3.1)
 	if act in GAIT_ACTS:
 		_gait(f, walk * (0.6 if act == Act.CHARGE else 1.0), out)
 	match act:
@@ -194,7 +201,8 @@ static func targets(f: Facts, out: Array[float]) -> int:
 	return act
 
 
-## Kind-specific walk: dino stomps, robot steps stiffly, bunny hops, duck waddles. `w` is 0..1.
+## Kind-specific walk: dino stomps, robot steps stiffly, bunny hops, duck waddles, the imp bounces on its spring,
+## the die tumbles from edge to edge, the doll rocks in circles, the top tiptoes leaning far in. `w` is 0..1.
 static func _gait(f: Facts, w: float, out: Array[float]) -> void:
 	if w <= 0.0:
 		return
@@ -226,6 +234,30 @@ static func _gait(f: Facts, w: float, out: Array[float]) -> void:
 			out[LIFT] += 0.04 * w * absf(s)
 			out[TWIST] += 0.12 * w * s
 			out[EARS] += 0.6 * w * s
+		Kind.IMP:
+			var hop := maxf(0.0, s)
+			out[STEP] = w
+			out[LIFT] += 0.8 * w * hop
+			out[SQUASH] += w * (0.16 * hop - 0.24 * pow(1.0 - hop, 6.0) * float(s <= 0.0))   # the spring loads
+			out[LEAN] += 0.1 * w * cos(f.gait)
+			out[EARS] += w * cos(f.gait)
+		Kind.DIE:
+			var q := clampf(s * 2.2, -1.0, 1.0)                  # tips over an edge, then catches itself
+			out[STEP] = w
+			out[ROLL] += 0.3 * w * q
+			out[LIFT] += 0.16 * w * absf(q)
+			out[TWIST] += 0.18 * w * q
+			out[SQUASH] -= 0.08 * w * pow(1.0 - absf(s), 6.0)
+			out[LEAN] *= 0.4
+		Kind.DOLL:
+			out[STEP] = 0.45 * w
+			out[ROLL] += 0.24 * w * cos(f.gait)
+			out[LEAN] += 0.2 * w * s
+		Kind.TOP:
+			out[STEP] = 0.5 * w
+			out[LEAN] += 0.14 * w
+			out[LIFT] += 0.03 * w * absf(s)
+			out[ROLL] += 0.06 * w * sin(f.gait * 2.0)
 
 
 ## Moves `shown` (with its velocities `vel`) towards `target` for `dt` seconds. Fixed sub-steps: independent of the

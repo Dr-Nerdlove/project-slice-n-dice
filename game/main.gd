@@ -108,8 +108,10 @@ func _apply_bot_mode() -> void:
 ## Copies the sandbox modifier choice into the sim (takes effect on the next tick).
 func _sync_mods() -> void:
 	sim.apply_mods(0, cfg.mods_you)
+	sim.set_skin(0, cfg.character)
 	for i in range(1, Config.NUM_PLAYERS):
 		sim.apply_mods(i, cfg.mods_bots)
+		sim.set_skin(i, cfg.character + i)
 
 
 func _process(delta: float) -> void:
@@ -124,6 +126,7 @@ func _process(delta: float) -> void:
 		shown = client.sim
 		slot = client.slot
 		client.set_mods(cfg.mods_you)
+		client.set_skin(cfg.character)
 		# Online the world does not wait: no hit-stop, and the sim keeps running while the menu is open.
 		_acc = minf(_acc + delta, Config.MAX_ACCUMULATED_TIME)
 		while _acc >= dt and _online:
@@ -233,6 +236,7 @@ func _connect(address_text: String) -> void:
 	client = ClientCore.new(lag)
 	client.smooth_others = _smooth
 	client.set_mods(cfg.mods_you)
+	client.set_skin(cfg.character)
 	menu.set_online_status("Verbinde …", true)
 
 

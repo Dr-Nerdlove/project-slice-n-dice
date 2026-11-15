@@ -22,6 +22,17 @@ This document is the binding basis for implementation. It collects all decisions
 - **Controls** (decided by the owner on 2026-11-13): Two virtual sticks (left moves, right aims and throws) plus controller support. Holding the right stick charges the throw: the longer the hold, the further the throw, and a visible aim line shows direction and landing distance. Releasing throws. While the yo-yo is out, a short tap on the right stick retracts it, and holding the right stick pulls the character to the yo-yo.
 - **Theme and name:** Name still open. **Look direction** (decided by the owners on 2026-11-13): toys from around the year 2000 come alive. Glossy moulded plastic and loud colours are the base, hits get comic effects, menus get a hologram shine. The figures are invented, generic toy types (no brand, no known character); the first arena is a children's playroom. See "Look" in section 6.
 
+### The toy train
+
+The prototype arena is a playroom (32 x 14.4 m). A toy train runs a closed loop around the middle of the arena and is a moving hazard (rules in `game/sim/sim.gd`, `_step_train`):
+
+- The locomotive and two cars follow the rails at a constant speed. Each car is a circle for the game.
+- A car runs over any living player whose centre is closer than the car radius plus a forgiving share of the player radius. That counts as a death for the victim and a kill for nobody (kill event with `killer: -1` and `cause: "train"`).
+- A car shoves the crate completely out of its way; the train itself never leaves its track. Players are not pushed, only killed.
+- Yo-yo heads, strings, wires and shards pass over the train unharmed. Making yo-yos interact with the train (blocking, riding or derailing it) is an open idea, not decided.
+- A player never respawns inside a car's hit distance; bots steer away from the cars and do not dash towards them.
+- Numbers: the track (a rounded rectangle, 11 x 7.2 m around the arena centre) and the car size live in `TrainTrack` (`game/sim/train_track.gd`), the speed in `Config.train_speed` (default 5.7 m/s, 0 = no train, a slider in the tuning menu), the hit share in `Config.TRAIN_HIT_SHARE`. The rails keep a car radius clear of walls and obstacles and all spawn points lie farther from the rails than the hit distance plus the spawn noise (tests check both).
+
 ## 3. The core weapon: the yo-yo
 
 ### States
