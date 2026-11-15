@@ -4,6 +4,14 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.4.2
+
+The toy train now gets in the way of yo-yos.
+
+- **The train blocks yo-yos:** a thrown yo-yo stops in front of a car (or bounces off it with the bounce modifier),
+  a yo-yo coming back is stopped by it, and a yo-yo lying on the track is pushed aside by the arriving train. Yo-yos
+  with the second pierce level still pass, like they pass the crate. Strings and shards still go over the train.
+
 ## 0.4.1
 
 Figures with more character, and a fix for see-through blocks.
