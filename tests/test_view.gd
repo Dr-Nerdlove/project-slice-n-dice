@@ -47,9 +47,11 @@ func _initialize() -> void:
 	test_springs()
 	test_motion()
 	test_looks()
+	test_die_roll()
 	test_winding()
 	await test_figures()
 	await test_figure_details()
+	await test_dino_die_figures()
 	test_arena_geometry()
 	await test_view_sources()
 	await test_arena_view_figures()
@@ -133,10 +135,11 @@ func test_pose_mapping() -> void:
 		low = maxf(low, amp[kind][0])
 	check("pose: the imp bounces on its spring (lift far above the walkers and above the bunny)", amp[K.IMP][0] > 4.0 * low and amp[K.IMP][0] > 1.2 * amp[K.BUNNY][0], str(amp))
 	check("pose: the duck waddles (more roll than the dino), the robot stays stiff (least)", amp[K.DUCK][1] > amp[K.DINO][1] and amp[K.ROBOT][1] < amp[K.DINO][1] * 0.6, str(amp))
-	var others_roll := 0.0
-	for kind in [K.DINO, K.ROBOT, K.BUNNY, K.DUCK, K.IMP, K.DOLL, K.TOP]:
-		others_roll = maxf(others_roll, amp[kind][1])
-	check("pose: the die tumbles from edge to edge (the largest roll of all)", amp[K.DIE][1] > 1.1 * others_roll and amp[K.DIE][1] > 0.25, str(amp))
+	check("pose: the die neither leans, rolls nor hops through the pose (the cube really rolls: ToyMotion.tumble)", amp[K.DIE][0] == 0.0 and amp[K.DIE][1] == 0.0 and absf(amp[K.DIE][2]) < 0.001, str(amp[K.DIE]))
+	var die_charge := facts(A.CHARGE, K.DIE)
+	die_charge.charge = 1.0
+	check("pose: the die does not twist (its face stays to the front), not even when charging", pose_of(facts(A.WALK, K.DIE))[ToyPose.TWIST] == 0.0 and pose_of(die_charge)[ToyPose.TWIST] == 0.0)
+	check("pose: the die's walk cycle is two quarter turns of its cube", absf(ToyPose.CYCLE[K.DIE] - 2.0 * ToyMotion.DIE_SIDE) < 0.001)
 	var most_lean := -1.0
 	for kind in [K.DINO, K.ROBOT, K.BUNNY, K.DUCK, K.IMP, K.DIE, K.DOLL]:
 		most_lean = maxf(most_lean, amp[kind][2])
@@ -245,6 +248,26 @@ func test_looks() -> void:
 	var w1 := facts(A.WALK, ToyPose.Kind.DINO)
 	w1.gait = 0.4 + PI * 0.5
 	check("pose: the dino's jaw snaps open and shut in step with its walk", absf(pose_of(w0)[ToyPose.JAW] - pose_of(w1)[ToyPose.JAW]) > 0.5)
+	var dw0 := facts(A.WALK, ToyPose.Kind.DOLL)
+	dw0.gait = 0.0
+	var dw1 := facts(A.WALK, ToyPose.Kind.DOLL)
+	dw1.gait = PI * 0.5
+	check("pose: the walking doll rocks with the cosine of its gait (roll %.3f at 0, %.3f at a quarter cycle)" % [pose_of(dw0)[ToyPose.ROLL], pose_of(dw1)[ToyPose.ROLL]], pose_of(dw0)[ToyPose.ROLL] > 0.04 and absf(pose_of(dw1)[ToyPose.ROLL]) < 0.01)
+	var jst := pose_of(facts(A.STUN, ToyPose.Kind.DINO))[ToyPose.JAW]
+	var st_other := pose_of(facts(A.STUN, ToyPose.Kind.ROBOT))[ToyPose.JAW]
+	check("pose: the dazed dino's jaw hangs a little open (%.2f)" % jst, jst > 0.15 and jst < 0.5 and st_other == 0.0)
+	var catch_max := 0.0
+	var catch_first := 1.0
+	var catch_last := 1.0
+	for k in 21:
+		var fc := facts(A.CATCH, ToyPose.Kind.DINO)
+		fc.since_catch = ToyPose.CATCH_TIME * k / 20.0 * 0.999
+		var jc := pose_of(fc)[ToyPose.JAW]
+		catch_max = maxf(catch_max, jc)
+		if k == 0:
+			catch_first = jc
+		catch_last = jc
+	check("pose: the dino snaps once on a catch: shut, wide open, shut again (%.2f / %.2f / %.2f)" % [catch_first, catch_max, catch_last], catch_first < 0.05 and catch_max > 0.6 and catch_last < 0.1)
 
 
 func test_springs() -> void:
@@ -382,8 +405,8 @@ func test_figures() -> void:
 			if fig.pose_node.get_node_or_null(n) == null:
 				missing.append(n)
 		var meshes := fig.find_children("*", "MeshInstance3D", true, false).size()
-		check("figure %s: builds with its parts (%d meshes)" % [ToyFigure.NAMES[kind], meshes], missing.is_empty() and meshes >= 15 and meshes <= 45, str(missing))
-		if kind == ToyPose.Kind.IMP or kind == ToyPose.Kind.TOP or kind == ToyPose.Kind.DOLL:
+		check("figure %s: builds with its parts (%d meshes)" % [ToyFigure.NAMES[kind], meshes], missing.is_empty() and meshes >= 15 and meshes <= 58, str(missing))
+		if kind == ToyPose.Kind.IMP or kind == ToyPose.Kind.TOP or kind == ToyPose.Kind.DOLL or kind == ToyPose.Kind.DIE:
 			var feet_meshes := 0
 			for fn in ["FootL", "FootR"]:
 				feet_meshes += fig.pose_node.get_node(fn).find_children("*", "MeshInstance3D", true, false).size()
@@ -588,6 +611,226 @@ func test_figure_details() -> void:
 			spin_idle > 0.5 and spin_run > 2.0 * spin_idle and spin_dash > 1.5 * spin_run)
 	check("figure Kreisel: the base node follows the spin angle", applied[0])
 	top.queue_free()
+	holder.queue_free()
+	await process_frame
+
+
+## Starts a die's ToyMotion on the sim's one player and lets the drop-in pass: [motion, sim, player, position].
+func die_motion() -> Array:
+	var s := one_player()
+	var m := ToyMotion.new(ToyPose.Kind.DIE)
+	var p := s.players[0]
+	var pos: Vector2 = p.pos
+	for _k in 40:
+		m.update(p, s, pos, 1.0 / 60.0)
+	return [m, s, p, pos]
+
+
+## The die really rolls: ToyMotion.tumble, die_height, die_hop.
+func test_die_roll() -> void:
+	var dt := 1.0 / 60.0
+	var K := ToyPose.Kind
+	var side_m := ToyMotion.DIE_SIDE * Config.new().player_radius       # one side length in metres
+	# The player faces +x on the sim's plane: local +z (front) is world +x, local +x is world -y (the `side` vector).
+	var fwd := Vector2.RIGHT
+	var lat := Vector2(0, -1)
+	var rolled := func(dir: Vector2, length: float, fps: int) -> Basis:
+		var d: Array = die_motion()
+		var m: ToyMotion = d[0]
+		var pos: Vector2 = d[3]
+		var before := m.tumble
+		var n := roundi(10.0 * fps / 60.0)
+		for _k in n:
+			pos += dir * (length / n)
+			m.update(d[2], d[1], pos, 1.0 / fps)
+		return m.tumble * before.inverse()
+	var q: Basis = rolled.call(fwd, side_m, 60)
+	check("die: one side length forward is a quarter turn that tips the top to the front (up -> %s)" % str(q * Vector3.UP), (q * Vector3.UP).is_equal_approx(Vector3(0, 0, 1)) and (q * Vector3(0, 0, 1)).is_equal_approx(Vector3(0, -1, 0)))
+	var qs: Basis = rolled.call(lat, side_m, 60)
+	check("die: sideways movement rolls about the other axis, the top tips to the side (up -> %s)" % str(qs * Vector3.UP), (qs * Vector3.UP).is_equal_approx(Vector3(1, 0, 0)) and (qs * Vector3(1, 0, 0)).is_equal_approx(Vector3(0, -1, 0)))
+	var qb: Basis = rolled.call(-fwd, side_m, 60)
+	check("die: backwards tips the top to the back", (qb * Vector3.UP).is_equal_approx(Vector3(0, 0, -1)))
+	var q2: Basis = rolled.call(fwd, side_m * 2.0, 60)
+	check("die: two side lengths are a half turn", (q2 * Vector3.UP).is_equal_approx(Vector3(0, -1, 0)))
+	# Same result at 30, 60 and 120 fps (a path with a corner).
+	var around := func(fps: int) -> Basis:
+		var d: Array = die_motion()
+		var m: ToyMotion = d[0]
+		var pos: Vector2 = d[3]
+		var n := roundi(12.0 * fps / 60.0)
+		for k in 2 * n:
+			pos += (fwd if k < n else lat) * (side_m * 1.3 / n)
+			m.update(d[2], d[1], pos, 1.0 / fps)
+		return m.tumble
+	var a30: Basis = around.call(30)
+	var a60: Basis = around.call(60)
+	var a120: Basis = around.call(120)
+	var dev := 0.0
+	for ax in 3:
+		dev = maxf(dev, maxf((a30[ax] - a120[ax]).length(), (a60[ax] - a120[ax]).length()))
+	check("die: the roll is the same at 30, 60 and 120 fps (deviation %.3f)" % dev, dev < 0.06)
+	# Height: lying flat is half a side, on an edge (45 degrees) half a side times sqrt(2), on a corner times sqrt(3).
+	var mh := ToyMotion.new(K.DIE)
+	var half := ToyMotion.DIE_SIDE * 0.5
+	var h0 := mh.die_height()
+	mh.tumble = Basis(Vector3.RIGHT, PI * 0.25)
+	var h45 := mh.die_height()
+	mh.tumble = Basis(Vector3(1, 0, -1).normalized(), atan(sqrt(2.0)))        # a corner straight down
+	var hc := mh.die_height()
+	mh.tumble = Basis(Vector3.UP, 0.9)
+	var hy := mh.die_height()
+	check("die: the cube always touches the floor (flat %.3f = %.3f, edge %.3f = %.3f, corner %.3f = %.3f, turned about up %.3f)" % [h0, half, h45, half * sqrt(2.0), hc, half * sqrt(3.0), hy],
+			is_equal_approx(h0, half) and absf(h45 - half * sqrt(2.0)) < 1e-4 and absf(hc - half * sqrt(3.0)) < 1e-3 and absf(hy - half) < 1e-4)
+	# Standing still: eases back to upright (the face to the front) within 0.6 s, with a small hop on the way.
+	var d: Array = die_motion()
+	var m: ToyMotion = d[0]
+	var pos: Vector2 = d[3]
+	for _k in 14:
+		pos += fwd * (side_m * 0.12)
+		m.update(d[2], d[1], pos, dt)
+	var tilt0 := m.tumble.get_rotation_quaternion().angle_to(Quaternion.IDENTITY)
+	var hop_max := 0.0
+	var hop_t := -1.0
+	for k in 40:
+		m.update(d[2], d[1], pos, dt)
+		hop_max = maxf(hop_max, m.die_hop())
+		if hop_t < 0.0 and m.tumble == Basis.IDENTITY:
+			hop_t = (k + 1) * dt
+	check("die: standing it eases back upright within 0.6 s (was %.2f rad off, upright after %.2f s) with a hop of up to %.2f, none at rest" % [tilt0, hop_t, hop_max],
+			tilt0 > 0.5 and hop_t > 0.0 and hop_t < 0.6 and hop_max > 0.05 and m.die_hop() == 0.0 and m.die_height() == half)
+	# A big angle gives the full hop height: a half turn still to go is 0.35.
+	m.tumble = Basis(Vector3.RIGHT, PI * 0.999)
+	m.settling = true
+	check("die: the settling hop grows with the angle still to go (%.2f at a half turn)" % m.die_hop(), absf(m.die_hop() - ToyMotion.SETTLE_HOP) < 0.01)
+	# A teleport does not roll it; a stun sets it upright even while it slides; a respawn too.
+	var d2: Array = die_motion()
+	var m2: ToyMotion = d2[0]
+	var pos2: Vector2 = d2[3]
+	for _k in 12:
+		pos2 += fwd * (side_m * 0.12)
+		m2.update(d2[2], d2[1], pos2, dt)
+	var before: Basis = m2.tumble
+	pos2 += Vector2(8, 0)
+	m2.update(d2[2], d2[1], pos2, dt)
+	check("die: a teleport (respawn, correction) does not roll it", m2.tumble.get_rotation_quaternion().angle_to(Quaternion.IDENTITY) <= before.get_rotation_quaternion().angle_to(Quaternion.IDENTITY) + 1e-4)
+	d2[2].stun_t = 1.0
+	for _k in 60:
+		pos2 += fwd * 0.02
+		m2.update(d2[2], d2[1], pos2, dt)
+	check("die: stunned it eases upright even while it slides", m2.tumble == Basis.IDENTITY)
+	d2[2].stun_t = 0.0
+	for _k in 12:
+		pos2 += fwd * (side_m * 0.12)
+		m2.update(d2[2], d2[1], pos2, dt)
+	check("die: and it rolls again after the stun", m2.tumble != Basis.IDENTITY)
+	d2[2].alive = false
+	m2.update(d2[2], d2[1], pos2, dt)
+	d2[2].alive = true
+	m2.update(d2[2], d2[1], pos2, dt)
+	check("die: on a respawn it is upright", m2.spawned and m2.tumble == Basis.IDENTITY)
+	# A long random walk: the basis stays a clean rotation. Other figures never roll.
+	var d3: Array = die_motion()
+	var m3: ToyMotion = d3[0]
+	var pos3: Vector2 = d3[3]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var dir3 := Vector2.RIGHT
+	var worst := 0.0
+	for k in 4000:
+		if k % 25 == 0:
+			dir3 = Vector2.from_angle(rng.randf() * TAU)
+		pos3 += dir3 * rng.randf_range(0.0, 0.12)
+		m3.update(d3[2], d3[1], pos3, dt)
+		var b := m3.tumble
+		var err := absf(b.x.length() - 1.0) + absf(b.y.length() - 1.0) + absf(b.z.length() - 1.0)
+		err += absf(b.determinant() - 1.0) + absf(b.x.dot(b.y)) + absf(b.y.dot(b.z)) + absf(b.x.dot(b.z))
+		worst = maxf(worst, err)
+	check("die: after a long random walk the cube's basis is still orthonormal (worst error %.5f)" % worst, worst < 1e-4)
+	var dd: Array = die_motion()
+	var duck := ToyMotion.new(K.DUCK)
+	var posd: Vector2 = dd[3]
+	for _k in 60:
+		posd += fwd * 0.1
+		duck.update(dd[2], dd[1], posd, dt)
+	check("die: only the die rolls", duck.tumble == Basis.IDENTITY)
+
+
+## The snapper's hinged upper jaw and the die's cube on real figures.
+func test_dino_die_figures() -> void:
+	var holder := Node3D.new()
+	root.add_child(holder)
+	await process_frame
+	var dt := 1.0 / 60.0
+	var K := ToyPose.Kind
+	# --- dino: the lower jaw stays, the upper part (with the eyes) swings UP and back when the mouth opens
+	var dino := ToyFigure.new(K.DINO, Color("2ec4ff"))
+	holder.add_child(dino)
+	var sd := one_player()
+	dino.sync(sd.players[0], sd, sd.players[0].pos, dt)
+	var pr := sd.cfg.player_radius
+	var tip := Vector3(0, 0.2, 0.9)                  # the front of the snout, in the hinged part's frame
+	dino.motion.shown[ToyPose.JAW] = 0.0
+	dino._apply_pose()
+	var tip_shut := dino._jaw.to_global(tip)
+	var eye_shut := (dino._eyes[0] as Node3D).global_position
+	var lower_shut := (dino._head.get_child(0) as Node3D).global_position
+	dino.motion.shown[ToyPose.JAW] = 1.0
+	dino._apply_pose()
+	var tip_open := dino._jaw.to_global(tip)
+	var eye_open := (dino._eyes[0] as Node3D).global_position
+	var lower_open := (dino._head.get_child(0) as Node3D).global_position
+	var rise := (tip_open.y - tip_shut.y) / pr
+	check("dino: opening the mouth swings the snout up by %.2f player radii, the lower jaw stays" % rise, rise > 0.35 and lower_open.is_equal_approx(lower_shut))
+	check("dino: the eyes sit on the hinged part and tip back with it", dino._eyes.size() == 2 and (dino._eyes[0] as Node3D).get_parent() == dino._jaw and dino.to_local(eye_open).z < dino.to_local(eye_shut).z - 0.1)
+	check("dino: a tail, a hinged Jaw node, a yo-yo paw on the right arm", dino.pose_node.get_node_or_null("Tail") == dino._tail and dino._head.get_node_or_null("Jaw") == dino._jaw and dino._paw != null and dino._paw.get_parent() == dino._arm_r)
+	dino.queue_free()
+	# --- die: the cube node follows the motion, always touches the floor, and the face looks to the front when upright
+	var die := ToyFigure.new(K.DIE, Color("ff2e88"))
+	holder.add_child(die)
+	var si := one_player()
+	for _k in 60:
+		die.sync(si.players[0], si, si.players[0].pos, dt)
+	var floor_err := 0.0
+	var tilts := [Basis.IDENTITY, Basis(Vector3.RIGHT, 0.6), Basis(Vector3(1, 0.4, -0.7).normalized(), 2.2), Basis(Vector3.BACK, PI * 0.25)]
+	for tb: Basis in tilts:
+		die.motion.tumble = tb
+		die.motion.settling = false
+		die._apply_pose()
+		var shell := die._cube.get_child(0) as MeshInstance3D
+		var lowest := INF
+		for i in 8:
+			lowest = minf(lowest, (shell.global_transform * shell.mesh.get_aabb().get_endpoint(i)).y)
+		floor_err = maxf(floor_err, absf(lowest))
+	check("die: whatever its orientation the lowest corner of the cube is on the floor (error %.4f)" % floor_err, floor_err < 0.002 and die._cube.basis.is_equal_approx(tilts[3]))
+	die.motion.tumble = Basis.IDENTITY
+	die._apply_pose()
+	var eye := die._eyes[0] as Node3D
+	var face_dir := eye.global_basis.z.normalized()
+	check("die: upright, the face (eyes, smile) looks to the front and up", die._eyes.size() == 2 and face_dir.dot(die.global_basis.z.normalized()) > 0.9 and face_dir.y > 0.1 and eye.get_parent() == die._cube)
+	var pips := 0
+	for node in die._cube.get_children():
+		var mi := node as MeshInstance3D
+		if mi != null and mi.mesh == ToyKit.cylinder():
+			pips += 1
+	check("die: 3 + 4 + 2 + 5 + 6 pips on the five other sides (%d)" % pips, pips == 20)
+	# Rolling shows on the figure: walking forward tips the top of the cube to the front.
+	var pd := si.players[0]
+	var posd: Vector2 = pd.pos
+	for _k in 12:
+		posd += Vector2.RIGHT * si.cfg.player_speed * dt
+		die.sync(pd, si, posd, dt)
+	var top_dir := die._cube.basis.y
+	check("die: walking forward tips the cube's top towards the front of the figure (%s)" % str(top_dir), top_dir.z > 0.2 and absf(top_dir.x) < 0.05)
+	# It stops: upright again; the burst of a death resets the cube.
+	for _k in 60:
+		die.sync(pd, si, posd, dt)
+	check("die: stopped, the cube is upright again", die._cube.basis.is_equal_approx(Basis.IDENTITY) and absf(die._cube.position.y) < 0.001)
+	die.motion.tumble = Basis(Vector3.RIGHT, 0.5)
+	die._apply_pose()
+	pd.alive = false
+	die.sync(pd, si, posd, dt)
+	check("die: a popped die's cube is reset (it flies as one piece)", die._cube.transform == Transform3D.IDENTITY)
+	die.queue_free()
 	holder.queue_free()
 	await process_frame
 

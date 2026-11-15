@@ -15,6 +15,12 @@ const DASH_SPEED_FACTOR := 2.0
 const SPIN_IDLE := 2.0           # rad/s of the top's base standing still
 const SPIN_RUN := 10.0           # extra rad/s at full running speed
 const SPIN_DASH := 30.0          # rad/s in a dash or a pull
+## The die: side length of its cube in player radii (ToyFigure builds the cube from it), how fast a rolled cube
+## eases back to face the front, the hop height of that settling at a half turn still to go.
+const DIE_SIDE := 1.84
+const TUMBLE_SETTLE := 12.0      # 1/s
+const TUMBLE_SNAP := 0.02        # rad: closer than this to upright it snaps
+const SETTLE_HOP := 0.35
 
 var kind := 0
 var facts := ToyPose.Facts.new()
@@ -26,6 +32,10 @@ var yaw := 0.0
 var velocity := Vector2.ZERO     # smoothed drawn velocity, m/s
 var spin := 0.0                  # angle of the spinning top's base: slow idle, faster running, fastest in a dash
 var wind := 0.0                  # angle of the wind-up key (robot)
+## The die only: orientation of its cube in the figure's frame (identity = face to the front). Walking rolls it over
+## its edges, one side length = a quarter turn; standing, stunned or spawning it eases back to the identity.
+var tumble := Basis.IDENTITY
+var settling := false            # the die is easing back to upright (it hops a little while it does)
 var popped := false              # true on the frame the player died: the figure pops
 var spawned := false             # true on the frame the player (re)appeared: the figure drops in
 var _last := Vector2.INF
@@ -63,7 +73,8 @@ func update(p: SimPlayer, src: Sim, drawn: Vector2, dt: float) -> void:
 	if drawn.distance_to(_last) > TELEPORT:
 		_last = drawn
 		velocity = Vector2.ZERO
-	var moved := drawn.distance_to(_last)
+	var step := drawn - _last
+	var moved := step.length()
 	if dt > 0.0:
 		velocity = velocity.lerp((drawn - _last) / dt, 1.0 - exp(-SPEED_SMOOTH * dt))
 	_last = drawn
@@ -102,10 +113,47 @@ func update(p: SimPlayer, src: Sim, drawn: Vector2, dt: float) -> void:
 	var walk := clampf(velocity.length() / ps, 0.0, 1.0)
 	spin += dt * (SPIN_DASH if dashing or facts.pulling else SPIN_IDLE + SPIN_RUN * walk)
 	wind += dt * (-12.0 * facts.charge if facts.charging else 1.5 + 9.0 * walk)
+	if kind == ToyPose.Kind.DIE:
+		_roll_die(step, velocity.length() / ps, cfg.player_radius, dt)
+
+
+## The die's cube: rolls over the edge in the direction of this frame's drawn movement `step` (in the figure's frame:
+## local +z is the facing, local +x the `side` vector of `update`), or eases back to upright while the figure
+## stands (`speed`: smoothed, in player speeds), is stunned or is spawning.
+func _roll_die(step: Vector2, speed: float, radius: float, dt: float) -> void:
+	settling = speed < ToyPose.WALK_MIN or act == ToyPose.Act.STUN or act == ToyPose.Act.SPAWN
+	if settling:
+		var q := tumble.get_rotation_quaternion().normalized()
+		if q.angle_to(Quaternion.IDENTITY) < TUMBLE_SNAP:
+			tumble = Basis.IDENTITY
+		else:
+			tumble = Basis(q.slerp(Quaternion.IDENTITY, 1.0 - exp(-TUMBLE_SETTLE * dt)))
+		return
+	var local := Vector3(step.dot(Vector2(cos(yaw), -sin(yaw))), 0.0, step.dot(Vector2(sin(yaw), cos(yaw))))
+	var dist := local.length()
+	if dist < 0.00001:
+		return
+	var axis := Vector3.UP.cross(local / dist)            # the top tips towards the movement
+	tumble = (Basis(axis.normalized(), (PI * 0.5) * dist / (DIE_SIDE * radius)) * tumble).orthonormalized()
+
+
+## Height of the die's cube centre above the floor (player radii): half the side times the sum of the absolute
+## vertical components of its three axes, so a cube standing on an edge is higher than one lying flat.
+func die_height() -> float:
+	return DIE_SIDE * 0.5 * (absf(tumble.x.y) + absf(tumble.y.y) + absf(tumble.z.y))
+
+
+## The extra hop while the die settles: grows with the angle still to go (SETTLE_HOP at a half turn).
+func die_hop() -> float:
+	if not settling:
+		return 0.0
+	return SETTLE_HOP * tumble.get_rotation_quaternion().normalized().angle_to(Quaternion.IDENTITY) / PI
 
 
 func _appear(p: SimPlayer, drawn: Vector2) -> void:
 	spawned = true
+	tumble = Basis.IDENTITY
+	settling = false
 	_last = drawn
 	velocity = Vector2.ZERO
 	var face := p.facing if p.facing.length() > 0.001 else Vector2.DOWN

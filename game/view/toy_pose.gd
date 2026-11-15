@@ -46,7 +46,8 @@ const BREATH_SPEED := 2.4
 ## Actions in which the feet keep walking.
 const GAIT_ACTS: Array[int] = [Act.IDLE, Act.WALK, Act.CHARGE, Act.THROW, Act.OUT, Act.CATCH]
 ## Walk cycle length (two steps, or one hop) per kind, in player radii.
-const CYCLE: Array[float] = [4.0, 3.2, 4.6, 2.14, 4.2, 4.4, 2.6, 2.8]
+## (The die's is two quarter turns of its cube: 2 * ToyMotion.DIE_SIDE.)
+const CYCLE: Array[float] = [4.0, 3.2, 4.6, 2.14, 4.2, 3.68, 2.6, 2.8]
 
 
 ## What a figure knows about its player in one frame.
@@ -163,6 +164,8 @@ static func targets(f: Facts, out: Array[float]) -> int:
 			out[LEAN] = -0.22 * k
 			out[ARM] = 0.1
 			out[HEAD] = -0.2 * k
+			if f.kind == Kind.DINO:
+				out[JAW] = 0.9 * sin(PI * (1.0 - k))             # the snapper snaps once: open, then shut
 		Act.DASH:
 			out[LEAN] = 0.4
 			out[STRETCH] = 1.5
@@ -200,6 +203,8 @@ static func targets(f: Facts, out: Array[float]) -> int:
 			out[SQUASH] = 0.92
 			out[ARM] = 0.0
 			out[STEP] = 0.0
+			if f.kind == Kind.DINO:
+				out[JAW] = 0.3                                   # the dazed snapper's mouth hangs a little open
 			if f.kind == Kind.DOLL:
 				out[TILT_F] = 0.45 * sin(t * 0.9)               # hit: rocks wildly, then settles by itself
 				out[TILT_S] = 0.45 * cos(t * 0.9)
@@ -214,11 +219,18 @@ static func targets(f: Facts, out: Array[float]) -> int:
 				out[SQUASH] = 0.62                                # landing squash; the spring bounces back
 				out[STRETCH] = 1.12
 			out[ARM] = 0.3
+	if f.kind == Kind.DIE:
+		# The cube rolls on the floor (ToyMotion.tumble): a pitched or rolled cube would sink a corner into it. Only the
+		# dizzy rocking stays, at half size. Nor does it twist: its face always looks to the front.
+		var keep := 0.5 if act == Act.STUN else 0.0
+		out[LEAN] *= keep
+		out[ROLL] *= keep
+		out[TWIST] = 0.0
 	return act
 
 
 ## Kind-specific walk: dino stomps, robot steps stiffly, bunny hops, duck waddles, the imp bounces on its spring,
-## the die tumbles from edge to edge, the doll rocks in circles, the top tiptoes leaning far in. `w` is 0..1.
+## the die rolls its cube over its edges (ToyMotion.tumble), the doll rocks in circles, the top tiptoes leaning far in. `w` is 0..1.
 static func _gait(f: Facts, w: float, out: Array[float]) -> void:
 	if w <= 0.0:
 		return
@@ -258,13 +270,8 @@ static func _gait(f: Facts, w: float, out: Array[float]) -> void:
 			out[LEAN] += 0.1 * w * cos(f.gait)
 			out[EARS] += w * cos(f.gait)
 		Kind.DIE:
-			var q := clampf(s * 2.2, -1.0, 1.0)                  # tips over an edge, then catches itself
-			out[STEP] = w
-			out[ROLL] += 0.3 * w * q
-			out[LIFT] += 0.16 * w * absf(q)
-			out[TWIST] += 0.18 * w * q
-			out[SQUASH] -= 0.08 * w * pow(1.0 - absf(s), 6.0)
-			out[LEAN] *= 0.4
+			out[STEP] = w                                        # the gloves swing; the cube rolls by itself (ToyMotion.tumble)
+			out[SQUASH] -= 0.08 * w * pow(1.0 - absf(s), 6.0)    # a small squash each time the cube lands flat
 		Kind.DOLL:
 			out[ROLL] += 0.05 * w * cos(f.gait)
 		Kind.TOP:

@@ -6,8 +6,14 @@ there is none. Write it for testers, in plain words.
 
 ## 0.4.2
 
-The toy train gets in the way of yo-yos, and a lying yo-yo can be picked up by walking over it.
+A new Schnapp-Dino and a rolling Würfel, the toy train blocks yo-yos, and a lying yo-yo can be picked up by walking
+over it.
 
+- **The Schnapp-Dino** is now a round T-Rex with a fat tail, back plates and tiny arms. Its head is a snapper toy:
+  the upper part with the eyes swings up, so you see the pink mouth and teeth from above. It snaps while walking, opens
+  wider while charging, shuts on the throw, hangs open a little when dizzy and snaps once when it catches the yo-yo.
+- **The Würfel** really rolls over its edges in the direction it moves. It has one face (eyes, smile, cheeks) and pips on
+  the other sides, and when it stops it hops a little and lands with the face to the front.
 - **The train blocks yo-yos:** a thrown yo-yo stops in front of a car (or bounces off it with the bounce modifier),
   a yo-yo coming back is stopped by it, and a yo-yo lying on the track is pushed aside by the arriving train. Yo-yos
   with the second pierce level still pass, like they pass the crate. Strings and shards still go over the train.
