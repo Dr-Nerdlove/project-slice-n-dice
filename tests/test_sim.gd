@@ -287,6 +287,7 @@ func _initialize() -> void:
 	_new_tests()
 	_path_tests()
 	_train_tests()
+	_pickup_tests()
 
 var _frames := 0
 func _process(_delta: float) -> bool:
@@ -313,13 +314,16 @@ func ins2(a: SimInput, b: SimInput) -> Array:
 	return [a, b, inp(), inp()]
 
 # charge + release of player `i` (others idle)
-func throw_i(s: Sim, i: int, dir: Vector2, charge_ticks: int, wait := 200) -> void:
+# stunned: the thrower is stunned right after the release, so a head that lands at their feet is not picked up
+func throw_i(s: Sim, i: int, dir: Vector2, charge_ticks: int, wait := 200, stunned := false) -> void:
 	var arr := idle4()
 	for t in charge_ticks:
 		arr[i] = inp(Vector2.ZERO, dir, true)
 		s.step(arr)
 	arr[i] = inp()
 	s.step(arr)
+	if stunned:
+		s.players[i].stun_t = 100.0
 	for t in wait:
 		var all_done := true
 		for h in s.players[i].heads:
@@ -524,7 +528,7 @@ func _mod_tests() -> void:
 	var land_x := {}
 	for L in [0, 1, 2, 3]:
 		s = mk([0]); place(s, 0, Vector2(RW - 6.0, 6.3)); setm(s, 0, {"bounce": L} if L > 0 else {})
-		throw_i(s, 0, Vector2.RIGHT, 60); p = s.players[0]
+		throw_i(s, 0, Vector2.RIGHT, 60, 200, true); p = s.players[0]
 		land_x[L] = p.heads[0].pos.x
 	check("bounce: L0 stops at wall, L1 +1.5m, L2 +3m, L3 +5m per bounce", absf(land_x[0] - (RW - 0.35)) < 0.05 and absf(land_x[1] - (RW - 4.2)) < 0.15 and absf(land_x[2] - (RW - 5.7)) < 0.15 and absf(land_x[3] - (RW - 7.7)) < 0.15, str(land_x))
 	var bcount := {}
@@ -832,11 +836,11 @@ func _new_tests() -> void:
 
 	# ---------------- 1 Abpraller: pins recorded, distance per bounce already in the adapted check
 	s = mk([0]); place(s, 0, Vector2(RW - 6.0, 6.3)); setm(s, 0, {"bounce": 2})
-	throw_i(s, 0, Vector2.RIGHT, 60); h = s.players[0].heads[0]
+	throw_i(s, 0, Vector2.RIGHT, 60, 200, true); h = s.players[0].heads[0]
 	check("bounce L2: one pin at the wall, string path length = 8 + 3", h.pins.size() == 1 and absf(h.pins[0].x - (RW - 0.35)) < 0.05 and absf(Sim.path_length(s.string_path(s.players[0], h)) - 11.0) < 0.2, "pins=%s len=%.2f" % [h.pins, Sim.path_length(s.string_path(s.players[0], h))])
 	for L in [1, 2, 3]:
 		s = mk([0]); place(s, 0, Vector2(RW - 6.0, 6.3)); setm(s, 0, {"bounce": L})
-		throw_i(s, 0, Vector2.RIGHT, 60); h = s.players[0].heads[0]
+		throw_i(s, 0, Vector2.RIGHT, 60, 200, true); h = s.players[0].heads[0]
 		var back := RW - 0.35 - h.pos.x
 		check("bounce L%d: flies %.1f m back after the wall (2.35 + bonus)" % [L, 2.35 + Mods.n("bounce", "bonus_dist", L)], absf(back - (2.35 + [1.5, 3.0, 5.0][L - 1])) < 0.15, "back=%.2f" % back)
 
@@ -1603,3 +1607,88 @@ func _train_tests() -> void:
 	place(s, 0, gaps[0])
 	run(s, int(TrainTrack.LENGTH / spd * 60.0) + 60, func(_t: int) -> Array: return idle4())
 	check("train: a player standing in the gap above the centre block survives a whole lap", s.players[0].alive and s.players[0].deaths == 0 and s.train_s > 0.0)
+
+
+# ================================================================ walking over your own lying yo-yo
+
+func _count_events(evs: Array, type: String) -> int:
+	var n := 0
+	for e in evs:
+		if e["type"] == type:
+			n += 1
+	return n
+
+func _pickup_tests() -> void:
+	# Throw, let it land, walk to it without pressing anything: back in hand, one event, can throw again.
+	var s := mk([0]); place(s, 0, Vector2(3, 6.3))
+	throw_i(s, 0, Vector2.RIGHT, 40)
+	var p := s.players[0]
+	var h := p.heads[0]
+	check("pickup: head lies out after the throw", h.state == HS.OUT)
+	var catch_d := s.cfg.player_radius + s.head_r(p) + Config.CATCH_MARGIN
+	var evs := []
+	var shards_seen := 0
+	for t in 200:
+		s.step(only0(inp(Vector2.RIGHT)))
+		evs.append_array(s.events)
+		if h.state != HS.OUT: break
+	check("pickup: walking onto the lying head puts it back in hand", h.state == HS.HAND and p.hand_index() == 0)
+	check("pickup: exactly one pickup event", _count_events(evs, "pickup") == 1, "n=%d" % _count_events(evs, "pickup"))
+	check("pickup: no explosion, wire or shard from a pickup", _count_events(evs, "explosion") == 0 and s.wires.is_empty() and s.shards.is_empty())
+	throw_i(s, 0, Vector2.LEFT, 30)
+	check("pickup: can throw again afterwards", p.heads[0].state == HS.OUT or p.heads[0].state == HS.FLIGHT)
+
+	# Farther than the catch distance: stays out.
+	s = mk([0]); place(s, 0, Vector2(3, 6.3))
+	throw_i(s, 0, Vector2.RIGHT, 40)
+	p = s.players[0]
+	var far := p.pos.distance_to(p.heads[0].pos)
+	many(s, 30, idle4())
+	check("pickup: head farther than the catch distance stays out", p.heads[0].state == HS.OUT and far > catch_d, "d=%.2f" % far)
+
+	# Shards + warhead: a pickup is not a retract.
+	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"shards": 3, "warhead": 3})
+	throw_i(s, 0, Vector2.RIGHT, 40)
+	p = s.players[0]
+	s.events.clear()
+	var evs2 := []
+	for t in 200:
+		s.step(only0(inp(Vector2.RIGHT)))
+		evs2.append_array(s.events)
+		shards_seen += s.shards.size()
+		if p.heads[0].state != HS.OUT: break
+	check("pickup (shards+warhead): picked up", p.heads[0].state == HS.HAND)
+	check("pickup (shards+warhead): no shards, wire or blast", shards_seen == 0 and s.wires.is_empty() and _count_events(evs2, "explosion") == 0)
+
+	# A stunned player standing on the head does not pick it up.
+	s = mk([0]); place(s, 0, Vector2(3, 6.3))
+	throw_i(s, 0, Vector2.RIGHT, 40)
+	p = s.players[0]
+	place(s, 0, p.heads[0].pos)
+	p.stun_t = 0.3
+	s.step(idle4())
+	check("pickup: stunned player does not pick up", p.heads[0].state == HS.OUT)
+	many(s, 30, idle4())
+	check("pickup: after the stun it is picked up", p.heads[0].state == HS.HAND)
+
+	# Another player on the head does not take it.
+	s = mk([0, 1]); place(s, 0, Vector2(3, 6.3)); place(s, 1, Vector2(12, 3))
+	throw_i(s, 0, Vector2.RIGHT, 40)
+	p = s.players[0]
+	var hpos := p.heads[0].pos
+	place(s, 1, hpos + Vector2(0.05, 0))
+	s.step(idle4())
+	check("pickup: another player on the head does not pick it up", p.heads[0].state == HS.OUT and p.heads[0].pos == hpos)
+
+	# Zwilling: only the touched head is picked up.
+	s = mk([0]); place(s, 0, Vector2(3, 6.3)); setm(s, 0, {"twin": 1})
+	throw_i(s, 0, Vector2.RIGHT, 20)
+	throw_i(s, 0, Vector2.RIGHT, 50)
+	p = s.players[0]
+	check("pickup twin: both heads lie out", p.heads.size() == 2 and p.heads[0].state == HS.OUT and p.heads[1].state == HS.OUT)
+	var near_i := 0 if p.pos.distance_to(p.heads[0].pos) < p.pos.distance_to(p.heads[1].pos) else 1
+	var far_i := 1 - near_i
+	for t in 300:
+		s.step(only0(inp(Vector2.RIGHT)))
+		if p.heads[near_i].state != HS.OUT: break
+	check("pickup twin: touched head is in hand, the other still out", p.heads[near_i].state == HS.HAND and p.heads[far_i].state == HS.OUT)

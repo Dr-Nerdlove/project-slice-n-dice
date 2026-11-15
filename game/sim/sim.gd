@@ -339,6 +339,7 @@ func _step_player(p: SimPlayer, inp: SimInput, dt: float) -> void:
 			var h := p.heads[i]
 			if h.state == HS.OUT and not (p.pulling and i == p.pull_target):
 				_apply_out_variant(p, h, delta)
+		_pickup_touched_heads(p)
 		_step_yoyo_input(p, inp, pressed, held, released, dt)
 
 	for h in p.heads:
@@ -612,7 +613,7 @@ func _step_pull(p: SimPlayer, held: bool, dt: float) -> void:
 		p.pulling = false
 		p.press_active = false
 		return
-	var catch_dist := cfg.player_radius + head_r(p) + Config.CATCH_MARGIN
+	var catch_dist := _catch_dist(p)
 	var speed := cfg.pull_speed * mv(p, "elastic", "pull_mult", 1.0)
 	var budget := speed * dt
 	# The player follows the string: through the pins (each is dropped when passed), then to the head.
@@ -650,6 +651,28 @@ func _step_pull(p: SimPlayer, held: bool, dt: float) -> void:
 			p.fling_left = fd
 			p.fling_dir = p.facing
 			p.fling_speed = mv(p, "elastic", "fling_speed", 0.0)
+
+
+## How close the player must be to a lying head to catch it (pull arrival and walking over it).
+func _catch_dist(p: SimPlayer) -> float:
+	return cfg.player_radius + head_r(p) + Config.CATCH_MARGIN
+
+
+## Walking over your own lying head picks it up. Not a retract: no shards, wire or blast.
+func _pickup_touched_heads(p: SimPlayer) -> void:
+	var catch_dist := _catch_dist(p)
+	var picked := false
+	for i in p.heads.size():
+		var h := p.heads[i]
+		if p.pulling and i == p.pull_target:
+			continue  # _step_pull catches its target itself (Gummiband fling)
+		if h.state == HS.OUT and p.pos.distance_to(h.pos) <= catch_dist:
+			events.append({"type": "pickup", "pos": h.pos, "player": p.id})
+			_to_hand(p, h)
+			picked = true
+	# Like a retract arrival: once nothing is out any more, a still-held press must not carry on.
+	if picked and not p.any_out():
+		p.press_active = false
 
 
 func _to_hand(p: SimPlayer, h: SimHead) -> void:

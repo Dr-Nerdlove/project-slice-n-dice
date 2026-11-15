@@ -4,6 +4,13 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.4.2
+
+Small handling improvement for the yo-yo.
+
+- **New:** walking over your own lying yo-yo picks it up again, no tap or hold needed. It works for every
+  variant and for both yo-yos of the Zwilling. A stunned player does not pick it up.
+
 ## 0.4.1
 
 Figures with more character, and a fix for see-through blocks.
