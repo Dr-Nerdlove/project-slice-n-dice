@@ -10,7 +10,7 @@ extends Node3D
 ## least the six standard pieces, its accent colour in ACCENTS and its name in NAMES.
 
 const NAMES: Array[String] = [
-	"Gummi-Dino", "Aufzieh-Roboter", "Plüschhase", "Quietsche-Ente", "Springteufel", "Würfel", "Stehauf-Püppchen",
+	"Schnapp-Dino", "Aufzieh-Roboter", "Plüschhase", "Quietsche-Ente", "Springteufel", "Würfel", "Stehauf-Püppchen",
 	"Kreisel"]
 ## The second colour of each toy (spikes, metal and dials, muzzle, beak, horns and ruff, pips, face, band). None
 ## of them is a player colour.

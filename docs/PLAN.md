@@ -163,7 +163,7 @@ The tuning menu has a "Werte kopieren" button. It copies one compact text block 
 ### Look (first step, version 0.3.1)
 
 - **Done:** four toy figures built in code from shared primitive meshes (`game/view/toy_figure.gd`, materials and
-  meshes in `game/view/toy_kit.gd`): Gummi-Dino, Aufzieh-Roboter (wind-up key turning in the back), Plüschhase
+  meshes in `game/view/toy_kit.gd`): Schnapp-Dino, Aufzieh-Roboter (wind-up key turning in the back), Plüschhase
   (floppy ears), Quietsche-Ente. For now player slot 0-3 gets one each (bunny, robot, dino, duck), body in the
   player colour, a second accent colour per toy. Each has a top silhouette that shows where it faces (dino: spikes
   from the forehead down the back; robot: antenna in front, key behind; bunny: ears lying back in a V; duck: beak

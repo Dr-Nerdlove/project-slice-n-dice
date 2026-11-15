@@ -4,6 +4,19 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.4.1
+
+Figures with more character, and a fix for see-through blocks.
+
+- **Fixed:** the Würfel, the Aufzieh-Roboter and the building blocks no longer look see-through.
+- **Springteufel and Kreisel** have no feet any more. The Kreisel's lower part now spins visibly too: slowly when
+  standing, faster when running, fastest in a dash.
+- **The dino is now the Schnapp-Dino**, a chunky wind-up snapper: its jaw snaps as it walks, opens wider and wider
+  while charging and shuts on the throw.
+- **The Quietsche-Ente** is a wooden pull-along duck on wheels that waddles and lifts its wings on a throw.
+- **The Stehauf-Püppchen** is a real roly-poly: no legs, it tips into its run and rocks out when it stops or is hit.
+- **All figures are about the same size now**, matching the hit area, which is the same for everyone as before.
+
 ## 0.4.0
 
 A toy train, four more figures, and you pick your own.
