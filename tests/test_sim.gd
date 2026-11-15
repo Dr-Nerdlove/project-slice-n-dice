@@ -296,6 +296,7 @@ func _initialize() -> void:
 	_phase_dash_tests()
 	_range_tests()
 	_match_tests()
+	_zone_tests()
 
 var _frames := 0
 func _process(_delta: float) -> bool:
@@ -1903,6 +1904,181 @@ func _range_tests() -> void:
 	throw0(s, Vector2.RIGHT, 60)
 	var d: float = s.players[0].head.x - 3.0
 	check("default config: full charge throws ~10 m", s.players[0].ystate == Y.OUT and absf(d - 10.0) < 0.2, "dist=%.2f" % d)
+
+
+# ================================================================ shrinking zone
+func rect_close(a: Rect2, b: Rect2) -> bool:
+	return a.position.is_equal_approx(b.position) and a.end.is_equal_approx(b.end)
+
+func _zone_tests() -> void:
+	var M := MatchMode.Phase
+	var dt := 1.0 / 60.0
+	var full := Rect2(Vector2.ZERO, Config.ARENA_SIZE)
+	var spot: Rect2 = Config.ZONE_SPOTS[0]
+	# a stand-in for players who stay put (the zone clock runs in PLAY only)
+	var hold := func(s: Sim, n: int, at0: Vector2, at1: Vector2) -> void:
+		for _t in n:
+			place(s, 0, at0); place(s, 1, at1)
+			s.step(idle4())
+
+	var s := mk([0, 1])
+	hold.call(s, 25 * 60, Vector2(5, 7), Vector2(25, 7))
+	check("zone: none in phase OFF (free play): full rect, no clock, no timers", not s.zone_active() and s.zone_rect() == full and s.mode.zone_t == 0.0 and s.players[0].zone_t == 0.0 and s.players[0].alive)
+
+	s = mk([0, 1]); s.start_match(10); s.mode.zone_spot = 0
+	check("zone: a match has one (full while the countdown runs)", s.zone_active() and s.zone_rect() == full)
+	to_play(s)
+	check("zone: the clock starts with PLAY", s.mode.phase == M.PLAY and s.mode.zone_t < 0.1)
+	hold.call(s, int(MatchMode.ZONE_FULL_TIME * 60.0) - 130, Vector2(5, 7), Vector2(25, 7))
+	check("zone: the whole arena for the first 20 s", s.zone_rect() == full and s.mode.zone_t < MatchMode.ZONE_FULL_TIME)
+	hold.call(s, 240, Vector2(5, 7), Vector2(25, 7))
+	check("zone: shrinks once the 20 s are over", s.mode.zone_t > MatchMode.ZONE_FULL_TIME and s.zone_rect() != full and s.mode.phase == M.PLAY)
+
+	# every edge moves linearly from the arena edge to the final spot
+	s.mode.zone_t = 20.0 + 15.0
+	var mid := s.zone_rect()
+	check("zone: halfway through the shrink every edge is halfway", mid.position.is_equal_approx(spot.position * 0.5) and mid.end.is_equal_approx((Config.ARENA_SIZE + spot.end) * 0.5), str(mid))
+	s.mode.zone_t = 20.0 + 7.5
+	var q := s.zone_rect()
+	check("zone: a quarter of the way every edge is a quarter of the way", q.position.is_equal_approx(spot.position * 0.25) and q.end.is_equal_approx(Config.ARENA_SIZE * 0.75 + spot.end * 0.25), str(q))
+	s.mode.zone_t = 20.0
+	check("zone: exactly the full arena when the shrink begins", s.zone_rect() == full)
+
+	# the final rect after 50 s, and it stays
+	s.mode.zone_t = 49.9
+	var c0 := spot.get_center()
+	for p in s.players: p.zone_t = 0.0
+	hold.call(s, 60, c0, c0 + Vector2(1, 0))
+	check("zone: the final spot is reached after 50 s", rect_close(s.zone_rect(), spot), str(s.zone_rect()))
+	hold.call(s, 600, c0, c0 + Vector2(1, 0))
+	check("zone: and stays there", rect_close(s.zone_rect(), spot) and s.mode.phase == M.PLAY and s.players[0].alive and s.players[1].alive)
+
+	# which spot: one of the four, varies over rounds
+	var seen := {}
+	s = mk([0, 1])
+	for _r in 60:
+		s.start_match(10)
+		seen[s.mode.zone_spot] = true
+	var in_range := true
+	for k: int in seen.keys():
+		in_range = in_range and k >= 0 and k < Config.ZONE_SPOTS.size()
+	check("zone: the final spot varies over rounds and is always one of the four", seen.size() == Config.ZONE_SPOTS.size() and in_range and Config.ZONE_SPOTS.size() == 4, str(seen.keys()))
+	var sa := mk([0, 1]); sa.start_match(10)
+	var sb := mk([0, 1]); sb.start_match(10)
+	check("zone: the same seed gives the same spot", sa.mode.zone_spot == sb.mode.zone_spot)
+
+	# a death after 3 s outside, cause zone, without a kill credit
+	s = mk([0, 1, 2]); s.start_match(10); s.mode.zone_spot = 0; to_play(s)
+	s.mode.zone_t = 60.0
+	var inside := spot.get_center()
+	var outside := Vector2(20, 7.2)
+	var seen_zone: Dictionary = {}
+	var t_dead := -1.0
+	var before := 0.0
+	for t in 300:
+		place(s, 0, outside); place(s, 1, inside); place(s, 2, inside + Vector2(1, 0))
+		s.step(idle4())
+		for e: Dictionary in s.events:
+			if e["type"] == "kill": seen_zone = e
+		if t_dead < 0.0 and not s.players[0].alive:
+			t_dead = (t + 1) * dt
+		elif t_dead < 0.0:
+			before = s.players[0].zone_t
+	check("zone: a player outside dies after 3 s", absf(t_dead - 3.0) < 0.05, "t=%f" % t_dead)
+	check("zone: the timer was just below 3 s the tick before", before > 2.9 and before < 3.0, str(before))
+	check("zone: the kill event has cause zone, the victim and no killer", seen_zone.get("cause") == "zone" and seen_zone.get("victim") == 0 and seen_zone.get("killer") == -1, str(seen_zone))
+	check("zone: no kill credit, one death, the timer is reset", s.players[0].deaths == 1 and s.players[0].kills == 0 and s.players[1].kills == 0 and s.players[2].kills == 0 and s.players[0].zone_t == 0.0)
+	check("zone: the others inside are untouched", s.players[1].alive and s.players[2].alive and s.players[1].zone_t == 0.0)
+
+	# simultaneous deaths keep the rule: nobody scores
+	s = mk([0, 1]); s.start_match(10); s.mode.zone_spot = 0; to_play(s)
+	s.mode.zone_t = 60.0
+	hold.call(s, 200, Vector2(20, 7.2), Vector2(24, 7.2))
+	check("zone: both outside die in the same tick: no point, round over", not s.players[0].alive and not s.players[1].alive and s.mode.points == [0, 0, 0, 0] and s.mode.phase == M.RESULT and s.mode.last_scorer == -1)
+
+	# draining inside at the same rate, floor at zero
+	s = mk([0, 1]); s.start_match(10); s.mode.zone_spot = 0; to_play(s)
+	s.mode.zone_t = 60.0
+	hold.call(s, 120, Vector2(20, 7.2), inside)
+	var filled: float = s.players[0].zone_t
+	check("zone: the timer fills at one second per second", absf(filled - 2.0) < 0.05, str(filled))
+	hold.call(s, 60, inside, inside + Vector2(1, 0))
+	check("zone: back inside it drains at the same rate", absf(s.players[0].zone_t - (filled - 1.0)) < 0.05 and s.players[0].alive, str(s.players[0].zone_t))
+	hold.call(s, 120, inside, inside + Vector2(1, 0))
+	check("zone: and stops at zero", s.players[0].zone_t == 0.0 and s.players[0].alive)
+
+	# the edge counts by the centre
+	s = mk([0, 1]); s.start_match(10); s.mode.zone_spot = 0; to_play(s)
+	s.mode.zone_t = 60.0
+	hold.call(s, 30, Vector2(spot.end.x - 0.01, spot.get_center().y), inside)
+	check("zone: a centre just inside the edge is safe", s.players[0].zone_t == 0.0)
+	hold.call(s, 30, Vector2(spot.end.x + 0.01, spot.get_center().y), inside)
+	check("zone: a centre just outside the edge fills the timer", s.players[0].zone_t > 0.4)
+
+	# a new round resets clock and timers
+	s = mk([0, 1, 2]); s.start_match(10); to_play(s)
+	s.mode.zone_t = 40.0
+	s.players[1].zone_t = 2.0
+	s._start_round()
+	check("zone: a new round resets the clock and every timer", s.mode.zone_t == 0.0 and s.players[1].zone_t == 0.0 and s.zone_rect() == full)
+	s = mk([0, 1]); s.start_match(10); to_play(s)
+	s.mode.zone_t = 40.0
+	s.players[0].zone_t = 2.0
+	kill_i(s, 1)
+	for _t in 400:
+		s.step(idle4())
+	check("zone: the round after a finished one starts clean", s.mode.round == 2 and s.mode.zone_t < 1.0 and s.players[0].zone_t == 0.0)
+
+	# the snapshot carries zone clock, spot and timers
+	s = mk([0, 1]); s.start_match(10); s.mode.zone_spot = 2; to_play(s)
+	hold.call(s, 40, Vector2(5, 7), Vector2(25, 7))
+	s.mode.zone_t = 20.0 + 17.0
+	s.players[0].zone_t = 1.5
+	var twin := mk([0, 1])
+	twin.load_state(s.save_state())
+	check("zone: save / load carry clock, spot, timers and the rect", twin.mode.zone_t == s.mode.zone_t and twin.mode.zone_spot == 2 and twin.players[0].zone_t == 1.5 and twin.zone_rect() == s.zone_rect())
+	hold.call(s, 30, Vector2(5, 7), Vector2(25, 7)); hold.call(twin, 30, Vector2(5, 7), Vector2(25, 7))
+	check("zone: a restored sim continues identically", var_to_bytes(s.save_state()) == var_to_bytes(twin.save_state()))
+
+	# bots steer back in and survive a long round
+	var bs := mk([0, 1]); bs.start_match(10); bs.mode.zone_spot = 0; to_play(bs)
+	bs.mode.zone_t = 60.0
+	var steers := true
+	for sd in 12:
+		var bot := Bot.new(0, bs.cfg, 5 + sd)
+		place(bs, 0, Vector2(20, 7.2)); place(bs, 1, inside)
+		var bi := bot.think(bs, dt)
+		steers = steers and bi.move.x < -0.3
+	check("zone: a bot outside the zone steers towards it (12 random wander targets)", steers)
+	bs = mk([0, 1]); bs.start_match(10); bs.mode.zone_spot = 3; to_play(bs)
+	var bots := [Bot.new(0, bs.cfg, 5), Bot.new(1, bs.cfg, 6)]
+	var worst := 0.0
+	for _t in 60 * 58:
+		for p in bs.players:
+			if p.alive: worst = maxf(worst, p.zone_t)
+		bs.step([bots[0].think(bs, dt), bots[1].think(bs, dt), inp(), inp()])
+		if bs.mode.phase != M.PLAY: break
+	check("zone: bots follow the shrinking zone (their timers stay low)", worst < 1.0, "worst=%f" % worst)
+
+	# geometry of the spots: free areas
+	var rr: float = Config.DEFAULTS["player_radius"]
+	var crate := Rect2(Config.CRATE_START - Vector2.ONE * Config.CRATE_HALF, Vector2.ONE * Config.CRATE_HALF * 2.0)
+	var box := Rect2(Config.BOX_POS - Vector2.ONE * Config.BOX_HALF, Vector2.ONE * Config.BOX_HALF * 2.0)
+	var track_n := int(TrainTrack.LENGTH / 0.02)
+	for k in Config.ZONE_SPOTS.size():
+		var z: Rect2 = Config.ZONE_SPOTS[k]
+		var nm := "zone spot %d: " % k
+		check(nm + "inside the arena", full.encloses(z))
+		check(nm + "a quarter of the arena", is_equal_approx(z.size.x, Config.ARENA_SIZE.x * 0.25) and is_equal_approx(z.size.y, Config.ARENA_SIZE.y * 0.25))
+		var hit := false
+		for o in Config.OBSTACLES:
+			hit = hit or z.intersects(o)
+		check(nm + "no obstacle in it", not hit)
+		check(nm + "no crate start and no box in it", not z.intersects(crate) and not z.intersects(box))
+		var near := 1e9
+		for i in track_n:
+			near = minf(near, rect_dist(TrainTrack.point(i * 0.02), z))
+		check(nm + "at least car radius plus player radius from the train track", near >= TrainTrack.CAR_RADIUS + rr, "near=%.3f need>=%.3f" % [near, TrainTrack.CAR_RADIUS + rr])
 
 
 # ================================================================ rounds and match (Last Standing)

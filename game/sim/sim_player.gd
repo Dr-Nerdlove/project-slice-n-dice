@@ -27,6 +27,7 @@ var dash_dir := Vector2.RIGHT
 var last_move := Vector2.ZERO
 
 var mods := {}              # modifier id -> level 0..3
+var zone_t := 0.0           # seconds spent outside the shrinking zone (drains inside); dies at MatchMode.ZONE_DEATH_TIME
 var stun_t := 0.0           # > 0: cannot move, dash or use the yo-yo
 var fling_left := 0.0       # Rubber Band: distance still to be flung
 var fling_dir := Vector2.RIGHT

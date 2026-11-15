@@ -42,6 +42,7 @@ var camera: Camera3D
 var _bodies: Array[Node3D] = []   # the figures (ToyFigure), one per player
 var _figures: Array[ToyFigure] = []
 var playroom: Playroom
+var _zone: ZoneView
 var _heads: Array = []     # per player: Array[Node3D]
 var _string_segs: Array[MeshInstance3D] = []   # pool: one box per string segment, reused every frame
 var _aim_segs: Array[MeshInstance3D] = []      # pool: segments of the aim lines
@@ -153,6 +154,10 @@ func _build_arena() -> void:
 	playroom.name = "Playroom"
 	add_child(playroom)
 	playroom.build(sim)
+	_zone = ZoneView.new()
+	_zone.name = "Zone"
+	add_child(_zone)
+	_zone.build(sim.players.size())
 
 
 func _build_players() -> void:
@@ -527,6 +532,8 @@ func render(alpha: float, delta: float) -> void:
 					break
 		# The figure follows the same source as everything else of this player (and pops when it dies).
 		fig.sync(p, src, pos, delta)
+		# The ring of a player outside the zone, from the same source as the figure (a predicted own player's own timer).
+		_zone.show_ring(i, pos, p.zone_t, pr, vis and src.zone_active())
 		_aim_marks[i].visible = false
 		_lethal_discs[i].visible = false
 		var heads: Array = _heads[i]
@@ -603,6 +610,7 @@ func render(alpha: float, delta: float) -> void:
 		_aim_segs[k].visible = false
 	_render_wires()
 	_render_shards(alpha)
+	_zone.show_zone(sim)
 
 	playroom.update(sim, alpha, delta)
 
