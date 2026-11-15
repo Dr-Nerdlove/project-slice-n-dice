@@ -433,6 +433,7 @@ Step order (decided by the owner on 2026-11-15):
 3. Rounds and points for Last Standing (no respawn, 1 point, target 10/15/20, round and match result screens; the mode as its own unit).
    **Done (version 0.6.0).** The mode is its own unit in `game/sim` (`MatchMode` phases OFF / COUNTDOWN / PLAY / RESULT / MATCH_OVER, `LastStanding` rules), part of the sim state. Solo starts a match at once; in Together the host presses "Start match" in the lobby (needs two players, bots count), the others wait in the lobby. A round ends when one player is left (1 point, none on simultaneous deaths); the next round starts by itself after 4 s (until the shop exists). `MatchOverlay` shows the countdown, the round result with the scoreboard and the match-over panel with Rematch (Solo, host) and Main menu. The target (10/15/20) is chosen in the lobby and saved with the settings. Rejoining a running match after a dropped connection is done (see M4, version 0.6.0). Not done: the shop between rounds; looked at on a real screen.
 4. Shrinking zone.
+   **Done (unreleased).** Numbers live in `MatchMode` (`ZONE_FULL_TIME` 20 s, `ZONE_SHRINK_TIME` 30 s, `ZONE_DEATH_TIME` 3 s), the four final spots in `Config.ZONE_SPOTS` (each ARENA_SIZE / 4; y = 0 is the top wall, the top of the screen). The zone exists only in a match (not in phase OFF). `Sim.zone_rect()` is the safe rectangle (full arena, then every edge linear to the round's spot, then held); `MatchMode.zone_t` (clock, kept through RESULT, reset by the next round) and `zone_spot` (drawn per round from the sim's saved rng) and `SimPlayer.zone_t` (personal timer, fills outside, drains inside at the same rate) are ordinary snapshot state. A full timer is `_kill(p, null, "zone")`: no kill credit, simultaneous deaths score nothing. Bots keep `BOT_ZONE_MARGIN` inside the edge and steer back in. `game/view/zone_view.gd`: darker veil outside, bright edge line, per-player fill ring (the others from the display sim online); drawn only while the zone is smaller than the arena. "Free area" means a place where a figure can really stand: no obstacle, crate start, box or train track (car radius + player radius clear); a geometry test checks every spot. Not done: looked at on a real screen; the spots do not yet guard against the spawn points (a spawn inside a spot is fine).
 5. Coins.
 6. Shop (works in Multiplayer too, bots buy).
 7. Touch control settings.
@@ -470,4 +471,4 @@ Contents:
 
 ## 11. Next step
 
-M3 step 3: see section 9.
+M3 step 5 (coins): see section 9.

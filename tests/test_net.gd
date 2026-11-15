@@ -1678,6 +1678,35 @@ func add_client(rig: Dictionary, token: String) -> ClientCore:
 	return c
 
 
+func test_zone() -> void:
+	var M := MatchMode.Phase
+	var rig := play_phase_rig(false)
+	var srv: ServerCore = rig["server"]
+	var c0: ClientCore = rig["clients"][0]
+	var c1: ClientCore = rig["clients"][1]
+	check("zone net: a running match", srv.sim.mode.phase == M.PLAY and c0.sim.mode.phase == M.PLAY)
+	# put the server into the shrunk state and one player outside, the other inside (server state; clients follow)
+	var spot: Rect2 = Config.ZONE_SPOTS[1]
+	srv.sim.mode.zone_spot = 1
+	srv.sim.mode.zone_t = 20.0 + 12.0
+	srv.sim.players[0].pos = Vector2(5.0, 7.2)
+	srv.sim.players[0].prev_pos = srv.sim.players[0].pos
+	srv.sim.players[1].pos = spot.get_center()
+	srv.sim.players[1].prev_pos = srv.sim.players[1].pos
+	for _t in 70:
+		step_rig(rig, idle_input)
+	var zs := srv.sim.zone_rect()
+	var zc := c0.sim.zone_rect()
+	check("zone net: the client sees the same zone rect as the server", c0.sim.mode.zone_spot == 1 and zs.position.distance_to(zc.position) < 0.2 and zs.end.distance_to(zc.end) < 0.2 and zs != Rect2(Vector2.ZERO, Config.ARENA_SIZE), "server %s client %s" % [zs, zc])
+	check("zone net: the clock agrees within a few ticks", absf(srv.sim.mode.zone_t - c0.sim.mode.zone_t) < 0.15, "%f vs %f" % [srv.sim.mode.zone_t, c0.sim.mode.zone_t])
+	var ts: float = srv.sim.players[0].zone_t
+	check("zone net: the outside player's timer is running and the own client predicts it", ts > 0.5 and absf(c0.sim.players[0].zone_t - ts) < 0.15, "server %f client %f" % [ts, c0.sim.players[0].zone_t])
+	check("zone net: the other client sees the same timers", absf(c1.sim.players[0].zone_t - ts) < 0.15 and c1.sim.players[1].zone_t == 0.0, "%f" % c1.sim.players[0].zone_t)
+	c1.prepare_display(0.5)
+	var disp: Sim = c1.display_sim
+	check("zone net: the interpolated display sim carries the zone for the others", disp != null and disp.zone_active() and absf(disp.players[0].zone_t - ts) < 0.4, "%s" % disp)
+
+
 func test_rejoin() -> void:
 	var M := MatchMode.Phase
 	# a drop during PLAY keeps the place: enabled, roster, points; the figure stands (also with bots on)
@@ -1735,6 +1764,7 @@ func test_rejoin() -> void:
 		active.poll(DT_MS / 1000.0)
 		active.tick(SimInput.new())
 		si.tick()
+		si.sim.mode.zone_t = 0.0   # keep the shrinking zone from ending the round while the idle players stand still
 	check("rejoin: the idle timeout in a match keeps the slot reserved", si.sim.mode.phase == M.PLAY and si.slots[1].away and si.sim.players[1].enabled and si.players_online() == 1, "phase=%d" % si.sim.mode.phase)
 
 	# the held places are freed when the match ends; a rematch works
@@ -3075,7 +3105,7 @@ func _initialize() -> void:
 		test_lan_code, test_pick_address, test_lan_beacon, test_local_host, test_menu_local, test_main_local,
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
-		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
+		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_zone, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
 		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_match_flow, test_main_rejoin,
 	]
 	for g in groups:

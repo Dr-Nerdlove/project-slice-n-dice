@@ -147,6 +147,11 @@ func _wander(sim: Sim, me: SimPlayer, dt: float) -> Vector2:
 		wander_target = Vector2(
 			rng.randf_range(Config.BOT_MARGIN, Config.ARENA_SIZE.x - Config.BOT_MARGIN),
 			rng.randf_range(Config.BOT_MARGIN, Config.ARENA_SIZE.y - Config.BOT_MARGIN))
+	var zone := Rect2()
+	if sim.mode.phase == MatchMode.Phase.PLAY:
+		# The target stays inside the (shrinking) zone with a margin, because its edges move in.
+		zone = sim.zone_rect().grow(-Config.BOT_ZONE_MARGIN)
+		wander_target = Vector2(clampf(wander_target.x, zone.position.x, zone.end.x), clampf(wander_target.y, zone.position.y, zone.end.y))
 	var dir := (wander_target - me.pos).normalized() * Config.BOT_MOVE_SCALE
 	for s in sim.statics:
 		var closest := Vector2(clampf(me.pos.x, s.position.x, s.end.x), clampf(me.pos.y, s.position.y, s.end.y))
@@ -167,4 +172,10 @@ func _wander(sim: Sim, me: SimPlayer, dt: float) -> Vector2:
 			side = side.normalized() if side.length() > 0.05 else Vector2(-td.y, td.x)
 			var w := (1.0 - d / Config.BOT_TRAIN_AVOID_DIST) * Config.BOT_TRAIN_AVOID_WEIGHT
 			dir += (side + rel.normalized() * 0.5) * w
+	if zone != Rect2():
+		# Outside the margin: steer back in.
+		var z := zone
+		var inside := Vector2(clampf(me.pos.x, z.position.x, z.end.x), clampf(me.pos.y, z.position.y, z.end.y))
+		if inside != me.pos:
+			dir += (inside - me.pos).normalized() * 3.0
 	return dir.limit_length(1.0)
