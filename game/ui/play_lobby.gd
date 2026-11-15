@@ -15,6 +15,7 @@ signal stop_requested
 signal figure_chosen(index: int)
 signal target_chosen(points: int)
 signal start_match_requested
+signal rejoin_requested
 
 var cfg: Config                 # the saved config; only `character` is touched
 ## How the figure choice is persisted (a test replaces this so it never writes the real settings file).
@@ -34,6 +35,8 @@ var _bots_check: CheckButton
 var _host_btn: Button
 var _stop_btn: Button
 var _join_btn: Button
+var rejoin_btn: Button         # shown while a Play game with a running match is stored and this device is not in a session
+var _has_rejoin := false
 var _code_edit: LineEdit
 var _status: Label
 var _hosting_box: Control
@@ -246,6 +249,10 @@ func _build_together() -> Control:
 	_join_btn = UiKit.button("Join", "dark")
 	_join_btn.pressed.connect(func() -> void: join_code_requested.emit(_code_edit.text))
 	join_row.add_child(_join_btn)
+	rejoin_btn = UiKit.button("Rejoin", "main")
+	rejoin_btn.visible = false
+	rejoin_btn.pressed.connect(func() -> void: rejoin_requested.emit())
+	col.add_child(rejoin_btn)
 	_status = UiKit.label("Not connected", 22, UiKit.INK, true)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(_status)
@@ -314,6 +321,7 @@ func set_session(hosting: bool, connected: bool, code: String, players: int) -> 
 	_host_btn.disabled = hosting or connected
 	_join_btn.disabled = hosting or connected
 	_stop_btn.disabled = not (hosting or connected)
+	_refresh_rejoin()
 	_hosting_box.visible = hosting
 	var shown := "%s|%d" % [code, players]
 	if hosting and shown != _shown:
@@ -327,6 +335,16 @@ func set_session(hosting: bool, connected: bool, code: String, players: int) -> 
 			_players_label.text = "Players: %d of %d" % [players, Config.NUM_PLAYERS]
 	if not hosting:
 		_shown = ""
+
+
+## Whether a game to rejoin is stored (the button also needs this device to be neither hosting nor connected).
+func set_rejoin(has_game: bool) -> void:
+	_has_rejoin = has_game
+	_refresh_rejoin()
+
+
+func _refresh_rejoin() -> void:
+	rejoin_btn.visible = _has_rejoin and not _hosting and not _connected
 
 
 ## The start controls of a connected lobby: the host sees "Start match" (enabled when `can_start`), a joiner sees

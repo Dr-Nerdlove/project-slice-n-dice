@@ -11,6 +11,8 @@ extends Node
 const SIM_SEED := 20260101
 const UPDATE_CHECK_DELAY := 3.0
 const UPDATE_TIMEOUT := 10.0
+const RECONNECT_TIME := 20.0   # a Play joiner whose connection broke in a match tries to come back for this long ...
+const RECONNECT_EVERY := 1.5   # ... starting a new attempt this often (when the last one is over)
 
 enum Screen { MENU, LOBBY, GAME }
 
@@ -41,6 +43,14 @@ var _online := false           # the predicted sim of `client` is what the view 
 var _lag_ms := 0.0
 var _loss_pct := 0.0
 var _from_local := false       # the current / last connection was started from the Play lobby
+var _joined := {}              # {"host", "port"} of the Play game this device joined (not hosted)
+var _last_game := {}           # the Play game with a running match that "Rejoin" would join (also saved in NetStore)
+var _rejoining := false        # the current connection comes from the Rejoin button
+var _reconnecting := false     # a Play joiner lost its connection in a match and is trying to come back
+var _reconnect_left := 0.0
+var _retry_in := 0.0
+var _frozen: Sim               # while reconnecting: the last state of the match, still drawn
+var _frozen_slot := 0
 var _smooth := true            # draw the other players interpolated (menu switch "Smooth others")
 
 var _acc := 0.0
@@ -65,6 +75,7 @@ func _ready() -> void:
 	TuningStore.load_into(train_cfg)
 	play_cfg = _make_play_cfg()
 	cfg = play_cfg
+	_last_game = NetStore.load_last_game()
 	sim = Sim.new(cfg, SIM_SEED)
 
 	view = ArenaView.new()
@@ -89,7 +100,7 @@ func _ready() -> void:
 	menu.setup(train_cfg)
 	menu.update_requested.connect(_download_update)
 	menu.closed.connect(_update_blocked)
-	menu.main_menu_requested.connect(_show_main_menu)
+	menu.main_menu_requested.connect(_main_menu_pressed)
 	menu.connect_requested.connect(_connect)
 	menu.disconnect_requested.connect(func() -> void: _leave_online("closed"))
 	menu.lag_changed.connect(func(ms: float, loss: float) -> void:
@@ -121,18 +132,19 @@ func _ready() -> void:
 	lobby.join_code_requested.connect(_join_code)
 	lobby.stop_requested.connect(func() -> void: _leave_online("closed"))
 	lobby.start_match_requested.connect(_start_hosted_match)
+	lobby.rejoin_requested.connect(_rejoin)
 
 	pause = PauseMenu.new()
 	add_child(pause)
 	pause.setup()
 	pause.resume_pressed.connect(_on_pause_pressed)
-	pause.main_menu_pressed.connect(_show_main_menu)
+	pause.main_menu_pressed.connect(_main_menu_pressed)
 
 	overlay = MatchOverlay.new()
 	add_child(overlay)
 	overlay.setup()
 	overlay.rematch_pressed.connect(_rematch)
-	overlay.main_menu_pressed.connect(_show_main_menu)
+	overlay.main_menu_pressed.connect(_main_menu_pressed)
 
 	bots = _make_bots()
 	_apply_bot_mode()
@@ -199,8 +211,24 @@ func _new_sim(c: Config) -> void:
 	hud.use_sim(sim, 0)
 
 
+## The player chose "Main menu": they leave on purpose, so a running match is not theirs to come back to.
+func _main_menu_pressed() -> void:
+	_forget_last_game()
+	_show_main_menu()
+
+
+func _forget_last_game() -> void:
+	if not _last_game.is_empty():
+		_last_game = {}
+		NetStore.clear_last_game()
+
+
+func _session_active() -> bool:
+	return client != null or local_host != null or _reconnecting
+
+
 func _show_main_menu() -> void:
-	if client != null or local_host != null:
+	if _session_active():
 		_end_session("closed")   # the lobby status then says how it ended
 	training = false
 	play_cfg = _make_play_cfg()
@@ -214,8 +242,9 @@ func _show_lobby() -> void:
 
 ## Solo against bots with the fixed values.
 func start_solo() -> void:
-	if client != null or local_host != null:
+	if _session_active():
 		_leave_online("closed", false)
+	_forget_last_game()
 	training = false
 	play_cfg = _make_play_cfg()
 	_new_sim(play_cfg)
@@ -225,8 +254,9 @@ func start_solo() -> void:
 
 ## The sandbox: the tuned, saved values with the tuning menu.
 func start_training() -> void:
-	if client != null or local_host != null:
+	if _session_active():
 		_leave_online("closed", false)
+	_forget_last_game()
 	training = true
 	_new_sim(train_cfg)
 	_set_screen(Screen.GAME)
@@ -249,7 +279,7 @@ func _rematch() -> void:
 
 ## Can this device restart the match: Solo and the host of a local match, not a joiner.
 func _can_rematch() -> bool:
-	return not _online or local_host != null
+	return (not _online and not _reconnecting) or local_host != null
 
 
 ## The start controls of the lobby (host: Start match, enabled with two players; joiner: waiting).
@@ -321,9 +351,13 @@ func _process(delta: float) -> void:
 		lobby.set_session(true, client != null, local_host.code(), local_host.players())
 	if client != null:
 		_poll_client(delta)
+	_reconnect_step(delta)
 	var dt := 1.0 / Config.TICK_RATE
 	var shown := sim
 	var slot := 0
+	if _reconnecting:
+		shown = _frozen
+		slot = _frozen_slot
 	if _online:
 		shown = client.sim
 		slot = client.slot
@@ -335,7 +369,7 @@ func _process(delta: float) -> void:
 			_acc -= dt
 			_tick_online()
 			_poll_client(0.0)
-	else:
+	elif not _reconnecting:
 		_sync_mods()
 		if cfg.bot_mode != _applied_bot_mode:
 			_apply_bot_mode()
@@ -354,9 +388,12 @@ func _process(delta: float) -> void:
 		# A Play client waits in the lobby until the match starts (or is over already when it joins late).
 		if screen == Screen.LOBBY and _from_local and not training and shown.mode.phase != MatchMode.Phase.OFF:
 			_set_screen(Screen.GAME)
+		_track_game(shown.mode.phase)
 	if screen == Screen.LOBBY:
 		_refresh_start()
-	overlay.update(shown, slot, screen == Screen.GAME and not training, _can_rematch(), not _online, delta)
+		lobby.set_rejoin(not _last_game.is_empty())
+	overlay.reconnecting = _reconnecting
+	overlay.update(shown, slot, screen == Screen.GAME and not training, _can_rematch(), not _online and not _reconnecting, delta)
 	var me := shown.players[slot]
 	router.dash_charges = me.dash_charges
 	router.dash_charges_max = shown.dash_max(me)
@@ -440,6 +477,8 @@ const STATUS := {
 	"disconnected": "Disconnected",
 	"not_connected": "Not connected",
 	"bad_code": "Invalid code",
+	"reconnecting": "Reconnecting …",
+	"lost": "Connection lost",
 }
 
 
@@ -478,6 +517,7 @@ func _start_client(host: String, port: int) -> bool:
 	lag.delay_ms = _lag_ms
 	lag.loss_pct = _loss_pct
 	client = ClientCore.new(lag)
+	client.token = NetStore.token()
 	client.smooth_others = _smooth
 	client.set_mods(cfg.mods_you)
 	client.set_skin(cfg.character)
@@ -519,7 +559,26 @@ func _join_local(ip: String, port := -1) -> void:
 	if LanCode.encode(ip) == "":
 		_set_status("bad_address", false)
 		return
-	_start_client(ip, local_port if port < 1 else port)
+	_join_game(ip, local_port if port < 1 else port)
+
+
+## Joins a Play game (a host on the network) and remembers where, for reconnecting and "Rejoin".
+func _join_game(host: String, port: int) -> void:
+	_joined = {"host": host, "port": port}
+	_start_client(host, port)
+
+
+## The Rejoin button of the lobby: back into the Play match that was running, through the normal join path
+## (the server's answer decides; a refusal clears the stored game).
+func _rejoin() -> void:
+	if _last_game.is_empty():
+		return
+	var g := _last_game.duplicate()
+	_leave_online("closed", false)
+	_from_local = true
+	_use_play_config()
+	_rejoining = true
+	_join_game(g["host"], g["port"])
 
 
 func _join_code(code: String) -> void:
@@ -530,7 +589,19 @@ func _join_code(code: String) -> void:
 	if ip == "":
 		_set_status("bad_code", false)
 		return
-	_start_client(ip, local_port)
+	_join_game(ip, local_port)
+
+
+## A Play joiner remembers the game while its match runs (so Rejoin works, also after an app restart) and forgets it
+## when the match is over.
+func _track_game(phase: int) -> void:
+	if not _from_local or training or local_host != null or _joined.is_empty():
+		return
+	if phase == MatchMode.Phase.MATCH_OVER:
+		_forget_last_game()
+	elif phase != MatchMode.Phase.OFF and _last_game != _joined:
+		_last_game = _joined.duplicate()
+		NetStore.save_last_game(_joined["host"], _joined["port"])
 
 
 func _poll_client(delta: float) -> void:
@@ -542,10 +613,74 @@ func _poll_client(delta: float) -> void:
 			if not _online:
 				_enter_online()
 		ClientCore.State.FAILED, ClientCore.State.CLOSED:
-			_leave_online(client.fail_reason)
+			var reason := client.fail_reason
+			if _reconnecting:
+				if reason in ["started", "full", "version"]:
+					_give_up_reconnect(reason)   # the server answered: no point in trying again
+				else:
+					client = null
+					lag = null
+					_retry_in = RECONNECT_EVERY
+			elif _online and _can_reconnect(reason):
+				_begin_reconnect()
+			else:
+				if _rejoining:
+					# Any failure of a Rejoin ends that game for this device (refused, or the host is gone);
+					# a short network hiccup was already covered by the automatic reconnect.
+					_rejoining = false
+					_forget_last_game()
+				_leave_online(reason)
+
+
+## A Play joiner (not the host, not Training) in a running match whose connection broke.
+func _can_reconnect(reason: String) -> bool:
+	if not (reason in ["lost", "timeout", "closed"]):
+		return false
+	if not _from_local or training or local_host != null or _joined.is_empty() or client.sim == null:
+		return false
+	var ph := client.sim.mode.phase
+	return ph == MatchMode.Phase.COUNTDOWN or ph == MatchMode.Phase.PLAY or ph == MatchMode.Phase.RESULT
+
+
+## Keeps the GAME screen with the last state and starts trying to come back (see `_reconnect_step`).
+func _begin_reconnect() -> void:
+	_frozen = client.sim
+	_frozen_slot = client.slot
+	client.close()
+	client = null
+	lag = null
+	_online = false
+	_acc = 0.0
+	hud.online = false
+	_reconnecting = true
+	_reconnect_left = RECONNECT_TIME
+	_retry_in = 0.5
+	_set_status("reconnecting", true)
+
+
+func _reconnect_step(delta: float) -> void:
+	if not _reconnecting:
+		return
+	_reconnect_left -= delta
+	if _reconnect_left <= 0.0:
+		_give_up_reconnect("lost")
+		return
+	if client == null:
+		_retry_in -= delta
+		if _retry_in <= 0.0:
+			_retry_in = RECONNECT_EVERY
+			if _start_client(_joined["host"], _joined["port"]):
+				_set_status("reconnecting", true)
+
+
+func _give_up_reconnect(reason: String) -> void:
+	_leave_online(reason)
 
 
 func _enter_online() -> void:
+	_reconnecting = false
+	_frozen = null
+	_rejoining = false
 	_online = true
 	_acc = 0.0
 	view.use_sim(client.sim, client.slot)
@@ -580,6 +715,8 @@ func _leave_online(reason: String, show_status := true) -> void:
 func _end_session(reason: String, show_status := true) -> void:
 	var was_online := _online
 	var was_hosting := local_host != null
+	_reconnecting = false
+	_frozen = null
 	if client != null:
 		client.close()
 	_stop_local_host()
@@ -617,6 +754,8 @@ func _reason_key(reason: String, was_online: bool) -> String:
 			return "started"
 		"timeout", "unreachable":
 			return "connect_failed"
+		"lost":
+			return "lost"
 	return "disconnected" if was_online else "not_connected"
 
 

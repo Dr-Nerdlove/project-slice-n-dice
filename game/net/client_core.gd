@@ -18,6 +18,7 @@ extends RefCounted
 enum State { CONNECTING, ONLINE, FAILED, CLOSED }
 
 const CONNECT_TIMEOUT := 6.0       # seconds without a first snapshot
+const LOST_TIMEOUT := 3.0          # seconds of poll time without any snapshot while ONLINE: the connection counts as lost
 const PING_EVERY := 30             # ticks
 const MAX_PENDING := 600           # unacknowledged inputs kept at most (10 s)
 const PEAK_WINDOW := 120           # ticks over which correction_peak is held
@@ -39,6 +40,7 @@ var net: NetEndpoint
 var state := State.CONNECTING
 var fail_reason := ""              # "version", "full", "started", "timeout", "refused" or "closed"
 var slot := -1
+var token := ""                    # the install's identity (main.gd sets NetStore.token() before connecting); sent in the hello. A fresh random one by default
 var cfg: Config                    # the server's configuration (set on welcome)
 var sim: Sim                       # the predicted sim (set on welcome, valid while ONLINE)
 var events: Array = []             # events of the newest local tick (never of re-simulated ticks)
@@ -82,6 +84,7 @@ var _wanted_skin := -1   # -1: never chosen, keep the server's default
 var _skin_dirty := false
 var _time_ms := 0.0
 var _connect_elapsed := 0.0
+var _silent := 0.0                 # seconds since the last snapshot (while ONLINE)
 var _peak_age := 0
 var _ticks := 0
 var _net_closed := false
@@ -89,6 +92,7 @@ var _net_closed := false
 
 func _init(endpoint: NetEndpoint) -> void:
 	net = endpoint
+	token = Crypto.new().generate_random_bytes(16).hex_encode()
 	for i in Config.NUM_PLAYERS:
 		_others.append(SimInput.new())
 
@@ -134,10 +138,12 @@ func poll(dt := 0.0) -> void:
 	for ev: Dictionary in net.poll():
 		match ev["kind"]:
 			NetEndpoint.Kind.CONNECT:
-				net.send(1, NetProto.pack([NetProto.T_HELLO, NetProto.VERSION]), true)
+				net.send(1, NetProto.pack([NetProto.T_HELLO, NetProto.VERSION, token]), true)
 			NetEndpoint.Kind.DISCONNECT:
 				if state == State.CONNECTING and sim == null:
 					_end(State.FAILED, "unreachable")
+				elif state == State.ONLINE:
+					_end(State.FAILED, "lost")   # no goodbye from the server (it would have sent a reject first)
 				else:
 					_end(State.CLOSED, "closed")
 			NetEndpoint.Kind.PACKET:
@@ -148,6 +154,10 @@ func poll(dt := 0.0) -> void:
 		_connect_elapsed += dt
 		if _connect_elapsed > CONNECT_TIMEOUT:
 			_end(State.FAILED, "timeout")
+	elif state == State.ONLINE:
+		_silent += dt
+		if _silent > LOST_TIMEOUT:
+			_end(State.FAILED, "lost")
 
 
 func _end(new_state: int, reason: String) -> void:
@@ -201,6 +211,7 @@ func _on_snapshot(snap: Dictionary) -> void:
 		snapshots_dropped += 1
 		return
 	last_snapshot_tick = t
+	_silent = 0.0
 	var inputs: Array = snap["inputs"]
 	if inputs.size() == Config.NUM_PLAYERS:
 		for i in Config.NUM_PLAYERS:

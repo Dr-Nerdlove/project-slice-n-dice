@@ -431,7 +431,7 @@ Step order (decided by the owner on 2026-11-15):
 2. Translate all remaining German texts to English.
    **Done (version 0.6.0).** Training menu, Training HUD, modifier names and texts, figure names, status messages and code comments are English. Saved keys and ids are unchanged, so saved Training values still load; the HUD net line now uses a decimal point.
 3. Rounds and points for Last Standing (no respawn, 1 point, target 10/15/20, round and match result screens; the mode as its own unit).
-   **Done (version 0.6.0).** The mode is its own unit in `game/sim` (`MatchMode` phases OFF / COUNTDOWN / PLAY / RESULT / MATCH_OVER, `LastStanding` rules), part of the sim state. Solo starts a match at once; in Together the host presses "Start match" in the lobby (needs two players, bots count), the others wait in the lobby. A round ends when one player is left (1 point, none on simultaneous deaths); the next round starts by itself after 4 s (until the shop exists). `MatchOverlay` shows the countdown, the round result with the scoreboard and the match-over panel with Rematch (Solo, host) and Main menu. The target (10/15/20) is chosen in the lobby and saved with the settings. Not done: rejoining after a dropped connection (the next change); the shop between rounds; looked at on a real screen.
+   **Done (version 0.6.0).** The mode is its own unit in `game/sim` (`MatchMode` phases OFF / COUNTDOWN / PLAY / RESULT / MATCH_OVER, `LastStanding` rules), part of the sim state. Solo starts a match at once; in Together the host presses "Start match" in the lobby (needs two players, bots count), the others wait in the lobby. A round ends when one player is left (1 point, none on simultaneous deaths); the next round starts by itself after 4 s (until the shop exists). `MatchOverlay` shows the countdown, the round result with the scoreboard and the match-over panel with Rematch (Solo, host) and Main menu. The target (10/15/20) is chosen in the lobby and saved with the settings. Rejoining a running match after a dropped connection is done (see M4, version 0.6.0). Not done: the shop between rounds; looked at on a real screen.
 4. Shrinking zone.
 5. Coins.
 6. Shop (works in Multiplayer too, bots buy).
@@ -449,7 +449,7 @@ Contents:
 ### M4: Lobby (MVP)
 - Room codes, team selection, FFA and team modes.
 - LAN mode with embedded server.
-- Reconnecting after a dropped connection.
+- Reconnecting after a dropped connection. **Done (version 0.6.0):** a player who drops during a match keeps the place (figure stands, points kept) until the match ends; the app retries by itself for 20 s and the Play lobby offers a "Rejoin" button (identity: a random token per install, protocol version 5).
 - **Done when:** Friends install the APK and start a match without help.
 
 ### M5: Polish

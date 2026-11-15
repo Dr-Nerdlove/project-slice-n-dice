@@ -31,6 +31,10 @@ The game has a new name and a new start screen: **Spinback Rumble**.
   (bots count) are in; the others wait in the lobby. Nobody can join while a match is running; joining is open
   again when it is over. Training is unchanged (it still respawns, no rounds).
 - The app is now called **Spinback Rumble** (it installs over the old app as usual and keeps your saved settings).
+- **Coming back after a dropped connection**: if your connection breaks during a match (Wi-Fi hiccup, app closed
+  by accident), your figure stays standing in the arena with its points, and the game shows "Reconnecting …" and
+  tries to get you back by itself for about 20 seconds. If that fails, or you restarted the app, press **Rejoin**
+  in Play > Together. The place is held until the match ends.
 - New fonts for the new screens (Unbounded and Rubik, free under the SIL Open Font License).
 
 ## 0.5.0

@@ -1374,13 +1374,13 @@ func test_jitter_buffer() -> void:
 
 # ---------------------------------------------------------------- server robustness
 
-func join_raw(rig: Dictionary, version := NetProto.VERSION) -> LoopbackHub.LoopbackEndpoint:
+func join_raw(rig: Dictionary, version := NetProto.VERSION, token: Variant = "0123456789abcdef0123456789abcdef") -> LoopbackHub.LoopbackEndpoint:
 	var hub: LoopbackHub = rig["hub"]
 	var raw := hub.connect_client()
 	hub.advance(1.0)
 	(rig["server"] as ServerCore).pump()
 	raw.poll()
-	raw.send(1, NetProto.pack([NetProto.T_HELLO, version]), true)
+	raw.send(1, NetProto.pack([NetProto.T_HELLO, version] if token == null else [NetProto.T_HELLO, version, token]), true)
 	hub.advance(1.0)
 	(rig["server"] as ServerCore).pump()
 	return raw
@@ -1581,8 +1581,8 @@ func test_join_rules() -> void:
 	check("bots: the bots produce input", bot_moved)
 
 
-func hello_reason(rig: Dictionary) -> String:
-	var raw := join_raw(rig)
+func hello_reason(rig: Dictionary, token: Variant = "0123456789abcdef0123456789abcdef") -> String:
+	var raw := join_raw(rig, NetProto.VERSION, token)
 	for ev: Dictionary in raw.poll():
 		if ev["kind"] == NetEndpoint.Kind.PACKET:
 			var m := NetProto.unpack(ev["data"], 65536)
@@ -1652,6 +1652,185 @@ func test_match_lock() -> void:
 			max_gap = maxf(max_gap, cl.sim.players[cl.slot].pos.distance_to(se.sim.players[cl.slot].pos))
 	check("match lock: client prediction does not move in countdown", not moved_early)
 	check("match lock: client reaches play and stays near the server", play_seen and se.sim.mode.phase == M.PLAY and max_gap < 1.5, "gap=%.2f phase=%d" % [max_gap, cl.sim.mode.phase])
+
+
+# ---------------------------------------------------------------- rejoin
+
+func idle_input(_k: int) -> SimInput:
+	return SimInput.new()
+
+
+## Two clients in a running match (phase PLAY). With bots the other two slots are driven by bots.
+func play_phase_rig(with_bots := false) -> Dictionary:
+	var rig := make_rig(0.0, 0.0, 2, 6, with_bots)
+	warm_up(rig)
+	(rig["server"] as ServerCore).start_match(10)
+	for _t in 220:
+		step_rig(rig, idle_input)
+	return rig
+
+
+## A client with `token` joins the rig (and is stepped with the others from now on).
+func add_client(rig: Dictionary, token: String) -> ClientCore:
+	var c := ClientCore.new((rig["hub"] as LoopbackHub).connect_client())
+	c.token = token
+	(rig["clients"] as Array).append(c)
+	return c
+
+
+func test_rejoin() -> void:
+	var M := MatchMode.Phase
+	# a drop during PLAY keeps the place: enabled, roster, points; the figure stands (also with bots on)
+	var rig := play_phase_rig(true)
+	var srv: ServerCore = rig["server"]
+	var c1: ClientCore = rig["clients"][1]
+	var tok1 := c1.token
+	check("rejoin: the match is in PLAY", srv.sim.mode.phase == M.PLAY and srv.sim.mode.roster[1])
+	srv.sim.mode.points[1] = 3
+	c1.close()
+	var moved := false
+	for _t in 120:
+		step_rig(rig, idle_input)
+		if srv.current_inputs[1].move != Vector2.ZERO or srv.current_inputs[1].aim_held or srv.current_inputs[1].dash:
+			moved = true
+	check("rejoin: a drop during PLAY keeps the slot enabled, in the roster, with its points", srv.sim.players[1].enabled and srv.sim.mode.roster[1] and srv.sim.mode.points[1] == 3 and srv.slots[1].away and srv.slots[1].token == tok1)
+	check("rejoin: the absent figure gets empty input, no bot drives it", not moved and srv.away_slots() == [1] and srv.players_online() == 1)
+	check("rejoin: a bot still drives the free slots", srv.slots[2].peer < 0 and not srv.slots[2].away and srv.sim.players[2].enabled)
+	# the same token comes back to the same slot
+	var re := add_client(rig, tok1)
+	for _t in 60:
+		step_rig(rig, idle_input)
+	check("rejoin: the same token gets the same slot back during PLAY", re.state == ClientCore.State.ONLINE and re.slot == 1 and not srv.slots[1].away and srv.players_online() == 2, "state=%d slot=%d" % [re.state, re.slot])
+	check("rejoin: the points are intact for the returning player", re.sim.mode.points[1] == 3 and srv.sim.mode.points[1] == 3 and srv.sim.mode.phase == M.PLAY)
+	check("rejoin: a new token is still refused with 'started'", hello_reason(rig, "ffffffffffffffffffffffffffffffff") == "started")
+
+	# a drop in free play (phase OFF) frees the slot as before
+	var rig_o := make_rig(0.0, 0.0, 2, 6)
+	warm_up(rig_o)
+	var so: ServerCore = rig_o["server"]
+	(rig_o["clients"][1] as ClientCore).close()
+	for _t in 5:
+		step_rig(rig_o, idle_input)
+	check("rejoin: a drop in phase OFF frees the slot", not so.sim.players[1].enabled and not so.slots[1].away and so.slots[1].token == "" and so.away_slots().is_empty())
+
+	# takeover: the same token while the old connection is still there
+	var rig_t := play_phase_rig(false)
+	var st: ServerCore = rig_t["server"]
+	var old: ClientCore = rig_t["clients"][1]
+	var old_peer: int = st.slots[1].peer
+	var fresh := add_client(rig_t, old.token)
+	for _t in 60:
+		step_rig(rig_t, idle_input)
+	check("rejoin: takeover gives the slot to the new connection", fresh.state == ClientCore.State.ONLINE and fresh.slot == 1 and st.slots[1].peer != old_peer and st.slots[1].peer >= 0 and not st.slots[1].away)
+	check("rejoin: takeover disconnects the old connection and counts players right", old.state != ClientCore.State.ONLINE and st.players_online() == 2 and not st._peer_slot.has(old_peer), "online=%d" % st.players_online())
+	check("rejoin: takeover keeps the figure in the match", st.sim.players[1].enabled and st.sim.mode.roster[1])
+
+	# the idle timeout during a match reserves the slot too
+	var rig_i := play_phase_rig(false)
+	var si: ServerCore = rig_i["server"]
+	var active: ClientCore = rig_i["clients"][0]
+	var hi: LoopbackHub = rig_i["hub"]
+	for _t in ServerCore.IDLE_TIMEOUT + 30:
+		hi.advance(DT_MS)
+		active.poll(DT_MS / 1000.0)
+		active.tick(SimInput.new())
+		si.tick()
+	check("rejoin: the idle timeout in a match keeps the slot reserved", si.sim.mode.phase == M.PLAY and si.slots[1].away and si.sim.players[1].enabled and si.players_online() == 1, "phase=%d" % si.sim.mode.phase)
+
+	# the held places are freed when the match ends; a rematch works
+	var rig_e := play_phase_rig(false)
+	var se: ServerCore = rig_e["server"]
+	var tok_e: String = (rig_e["clients"][1] as ClientCore).token
+	(rig_e["clients"][1] as ClientCore).close()
+	for _t in 5:
+		step_rig(rig_e, idle_input)
+	check("rejoin: held before the match ends", se.slots[1].away)
+	se.sim.mode.phase = M.MATCH_OVER
+	se.sim.mode.phase_t = 0.0
+	for _t in 3:
+		step_rig(rig_e, idle_input)
+	check("rejoin: away slots are freed at MATCH_OVER", se.away_slots().is_empty() and not se.slots[1].away and se.slots[1].token == "" and not se.sim.players[1].enabled)
+	var fresh_e := add_client(rig_e, "aaaaaaaaaaaaaaaa")
+	for _t in 30:
+		step_rig(rig_e, idle_input)
+	check("rejoin: after MATCH_OVER a new player joins and the rematch starts", fresh_e.state == ClientCore.State.ONLINE and se.start_match(10) and se.sim.mode.phase == M.COUNTDOWN)
+	check("rejoin: the old token no longer gets a held place after the match", tok_e != "" and not se.slots[1].away)
+	# leaving the match (phase OFF) frees them as well
+	var rig_f := play_phase_rig(false)
+	var sf: ServerCore = rig_f["server"]
+	(rig_f["clients"][1] as ClientCore).close()
+	for _t in 5:
+		step_rig(rig_f, idle_input)
+	sf.sim.mode.phase = M.OFF
+	step_rig(rig_f, idle_input)
+	check("rejoin: away slots are freed when the match is left (phase OFF)", sf.away_slots().is_empty() and not sf.sim.players[1].enabled)
+
+	# malformed tokens are dropped like any malformed hello
+	var rig_m := make_rig(0.0, 0.0, 0, 3)
+	var sm: ServerCore = rig_m["server"]
+	var bad: Array = [5, "abc", "a".repeat(65), "ZZZZZZZZZZZZ", "0123456789abcdeg", ["x"], null]
+	var all_dropped := true
+	for t: Variant in bad:
+		var before := sm.dropped_packets
+		var raw := join_raw(rig_m, NetProto.VERSION, t)
+		var welcomed := false
+		for ev: Dictionary in raw.poll():
+			if ev["kind"] == NetEndpoint.Kind.PACKET:
+				welcomed = true
+		if sm.dropped_packets != before + 1 or welcomed or sm.players_online() != 0:
+			all_dropped = false
+	check("rejoin: a hello with a malformed or missing token is dropped", all_dropped)
+	check("rejoin: a valid token of 8 and of 64 characters is accepted", hello_reason(rig_m, "abcdef01") == "welcome" and hello_reason(rig_m, "0123456789abcdef".repeat(4)) == "welcome")
+
+	# ClientCore: lost-connection detector
+	var fs := fake_server_setup()
+	var cl: ClientCore = fs["client"]
+	var s := Sim.new(fs["cfg"], 1)
+	send_snapshot(fs, s, 100, 0)
+	cl.poll(ClientCore.LOST_TIMEOUT - 0.5)
+	check("client lost: online while snapshots are recent", cl.state == ClientCore.State.ONLINE)
+	s.tick = 102
+	send_snapshot(fs, s, 102, 0)
+	cl.poll(ClientCore.LOST_TIMEOUT - 0.5)
+	check("client lost: a snapshot resets the silence", cl.state == ClientCore.State.ONLINE)
+	cl.poll(1.0)
+	check("client lost: no snapshot for LOST_TIMEOUT fails with 'lost'", cl.state == ClientCore.State.FAILED and cl.fail_reason == "lost", "%d %s" % [cl.state, cl.fail_reason])
+	var fs2 := fake_server_setup()
+	send_snapshot(fs2, Sim.new(fs2["cfg"], 1), 100, 0)
+	(fs2["hub"] as LoopbackHub).server.disconnect_peer(1)
+	(fs2["hub"] as LoopbackHub).advance(1.0)
+	(fs2["client"] as ClientCore).poll()
+	check("client lost: a disconnect while online is 'lost'", (fs2["client"] as ClientCore).fail_reason == "lost")
+	var fs3 := fake_server_setup()
+	(fs3["client"] as ClientCore).poll(10.0)
+	check("client lost: the detector only runs while online", (fs3["client"] as ClientCore).fail_reason == "timeout")
+	var fs4 := fake_server_setup()
+	send_snapshot(fs4, Sim.new(fs4["cfg"], 1), 100, 0)
+	(fs4["client"] as ClientCore).close()
+	check("client lost: leaving on purpose stays 'closed'", (fs4["client"] as ClientCore).fail_reason == "closed")
+
+	# the hello carries the token
+	var fs5 := fake_server_setup()
+	check("client: the token is a valid random one by default", NetProto.valid_token((fs5["client"] as ClientCore).token) and (fs5["client"] as ClientCore).token != cl.token)
+
+	# NetStore token
+	NetStore.path = "user://test_online%d.json" % PORT_OFFSET
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(NetStore.path))
+	check("netstore: no token before the first use", NetStore.load_token() == "")
+	var t1 := NetStore.token()
+	check("netstore: the token is created once and stable", NetProto.valid_token(t1) and t1.length() == 32 and NetStore.token() == t1 and NetStore.load_token() == t1)
+	NetStore.save_address("host:1")
+	check("netstore: saving the address keeps the token and the other way round", NetStore.token() == t1 and NetStore.load_address() == "host:1")
+	NetStore.save_last_game("10.0.0.2", 24565)
+	check("netstore: the last game round-trips and can be cleared", NetStore.load_last_game() == {"host": "10.0.0.2", "port": 24565} and NetStore.token() == t1)
+	NetStore.clear_last_game()
+	check("netstore: cleared last game is empty", NetStore.load_last_game().is_empty() and NetStore.load_address() == "host:1")
+	var f := FileAccess.open(NetStore.path, FileAccess.WRITE)
+	f.store_string('{"address": "old:5"}')
+	f.close()
+	var t2 := NetStore.token()
+	check("netstore: an old file with only the address still reads, and gets a token", NetStore.load_address() == "old:5" and NetProto.valid_token(t2) and t2 != t1)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(NetStore.path))
 
 
 func test_idle_and_sticks() -> void:
@@ -2085,7 +2264,7 @@ func test_main_scene() -> void:
 		await process_frame
 		if not main._online:
 			break
-	check("main: when the server vanishes the game falls back to offline", not main._online and main.view.sim == main.sim and main.menu._online_status.text == "Disconnected", main.menu._online_status.text)
+	check("main: when the server vanishes the game falls back to offline", not main._online and main.view.sim == main.sim and main.menu._online_status.text == "Connection lost", main.menu._online_status.text)
 	for _i in 20:
 		await process_frame
 	check("main: and the offline sim runs again", main.sim.tick > ticks_before)
@@ -2564,6 +2743,119 @@ func test_main_local() -> void:   # async
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online%d.json" % PORT_OFFSET))
 
 
+## Ticks the server (if any) and waits one frame per round, until `until` is true (false: gave up after max_frames).
+func spin(server: ServerCore, max_frames: int, until: Callable) -> bool:
+	for _i in max_frames:
+		if server != null:
+			server.tick()
+		OS.delay_msec(10)
+		await process_frame
+		if until.call():
+			return true
+	return false
+
+
+## A Play joiner whose connection breaks in a match: it reconnects to the same slot, gives up after a while, and the
+## Rejoin button of the lobby brings it back. Real ENet on localhost; "the connection breaks" = the server stops
+## sending for a few seconds.
+func test_main_rejoin() -> void:   # async
+	NetStore.path = "user://test_online%d.json" % PORT_OFFSET
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(NetStore.path))
+	var port := lan_free_port(LAN_PORT_BASE + 100)
+	check("main rejoin: test port is free", port != 0)
+	if port == 0:
+		return
+	var M := MatchMode.Phase
+	var main: Node = load("res://main.tscn").instantiate()
+	root.add_child(main)
+	main.local_port = port
+	main.beacon_port = lan_free_port(LAN_PORT_BASE + 110)
+	main.beacon_targets = ["127.0.0.1"]
+	main.lobby.discovery_port = main.beacon_port
+	await process_frame
+	var ep := ENetEndpoint.new()
+	ep.listen(port, ServerCore.MAX_PENDING)
+	var server := ServerCore.new(Config.new(), ep, 7, true)
+	main._show_lobby()
+	check("main rejoin: no Rejoin button without a stored game", not main.lobby.rejoin_btn.visible)
+	main.lobby.join_local_requested.emit("127.0.0.1", port)
+	await spin(server, 300, func() -> bool: return main._online)
+	var slot: int = main.client.slot
+	check("main rejoin: joined", main._online and main.screen == main.Screen.LOBBY and NetStore.load_last_game().is_empty())
+	server.start_match(10)
+	await spin(server, 600, func() -> bool: return main.screen == main.Screen.GAME and main.client.sim.mode.phase == M.PLAY)
+	server.sim.mode.points[slot] = 2
+	await spin(server, 20, func() -> bool: return false)
+	check("main rejoin: during a match the game is stored (memory and file)", main._last_game == {"host": "127.0.0.1", "port": port} and NetStore.load_last_game() == {"host": "127.0.0.1", "port": port})
+	check("main rejoin: the token of the install is the one the server holds", server.slots[slot].token == NetStore.token() and NetStore.token() == main.client.token)
+	# the connection breaks: the server goes quiet
+	await spin(null, 600, func() -> bool: return main._reconnecting)
+	check("main rejoin: a lost connection enters the reconnect state and stays on the game screen", main._reconnecting and main.screen == main.Screen.GAME and not main._online and main.lobby._status.text == "Reconnecting …", main.lobby._status.text)
+	await process_frame
+	var tick_frozen: int = main._frozen.tick
+	var offline_tick: int = main.sim.tick
+	await spin(null, 30, func() -> bool: return false)
+	check("main rejoin: the offline sim stands still while reconnecting", main._reconnecting and main.sim.tick == offline_tick)
+	check("main rejoin: the overlay shows Reconnecting and the game state stays drawn", main.overlay.reconnect_panel.visible and not main.overlay.countdown_label.visible and main.view.sim == main._frozen and main._frozen.tick == tick_frozen)
+	# the server is reachable again: the old connection is taken over
+	await spin(server, 900, func() -> bool: return main._online and not main._reconnecting)
+	check("main rejoin: the player is back in the same slot with the points, still on the game screen", main._online and main.client.slot == slot and main.client.sim.mode.points[slot] == 2 and main.screen == main.Screen.GAME and server.players_online() == 1, "slot=%d" % main.client.slot)
+	await process_frame
+	check("main rejoin: the reconnect panel is gone", not main.overlay.reconnect_panel.visible and main.view.sim == main.client.sim)
+	# lost again, and the server is gone for good: gives up into the main menu
+	ep.close()
+	await spin(null, 600, func() -> bool: return main._reconnecting)
+	check("main rejoin: lost again enters reconnect", main._reconnecting)
+	main._reconnect_left = 0.3
+	await spin(null, 300, func() -> bool: return not main._reconnecting)
+	check("main rejoin: giving up goes to the main menu with 'Connection lost'", not main._reconnecting and main.screen == main.Screen.MENU and main.lobby._status.text == "Connection lost" and main.client == null, main.lobby._status.text)
+	check("main rejoin: the stored game stays for the Rejoin button", not main._last_game.is_empty() and NetStore.load_last_game() == {"host": "127.0.0.1", "port": port})
+	main._show_lobby()
+	await process_frame
+	check("main rejoin: the lobby shows Rejoin", main.lobby.rejoin_btn.visible)
+	# the server (a fresh one, free play) is back: Rejoin joins through the normal path
+	var ep2 := ENetEndpoint.new()
+	ep2.listen(port, ServerCore.MAX_PENDING)
+	var server2 := ServerCore.new(Config.new(), ep2, 7, true)
+	main.lobby.rejoin_btn.pressed.emit()
+	await spin(server2, 300, func() -> bool: return main._online)
+	check("main rejoin: the Rejoin button joins the stored game", main._online and server2.players_online() == 1 and not main.lobby.rejoin_btn.visible)
+	# a match, a lost connection, and Main menu during the reconnect cancels it and forgets the game
+	server2.start_match(10)
+	await spin(server2, 600, func() -> bool: return main.screen == main.Screen.GAME and main.client.sim.mode.phase == M.PLAY)
+	await spin(null, 600, func() -> bool: return main._reconnecting)
+	check("main rejoin: second reconnect state", main._reconnecting)
+	main.overlay.main_menu_pressed.emit()
+	check("main rejoin: Main menu cancels the reconnect and forgets the game", not main._reconnecting and main.client == null and main.screen == main.Screen.MENU and main._last_game.is_empty() and NetStore.load_last_game().is_empty())
+	for _i in 100:
+		server2.tick()
+		await process_frame
+	check("main rejoin: no attempt goes on after cancelling", main.client == null and not main._online)
+	# a refused rejoin shows the status and clears the stored game
+	main._last_game = {"host": "127.0.0.1", "port": port}
+	NetStore.save_last_game("127.0.0.1", port)
+	for sl in server2.slots:
+		if sl.away:
+			sl.reset()   # nobody holds a place for this token any more
+	main._show_lobby()
+	main.lobby.rejoin_btn.pressed.emit()
+	# the match on server2 is still running (PLAY) and the token has no place: refused with 'started'
+	await spin(server2, 300, func() -> bool: return main.client == null)
+	check("main rejoin: a refused rejoin shows the status and clears the stored game", main.lobby._status.text == "The match has already started." and main._last_game.is_empty() and NetStore.load_last_game().is_empty() and not main._online, main.lobby._status.text)
+	ep2.close()
+	# the host is gone for good: a Rejoin that cannot connect also clears the stored game (no button forever)
+	main._last_game = {"host": "127.0.0.1", "port": port}
+	NetStore.save_last_game("127.0.0.1", port)
+	main._show_lobby()
+	main.lobby.rejoin_btn.pressed.emit()
+	await spin(null, 900, func() -> bool: return main.client == null)
+	await process_frame
+	check("main rejoin: a rejoin to a host that is gone clears the stored game and hides the button", main.client == null and not main._online and main._last_game.is_empty() and NetStore.load_last_game().is_empty() and not main.lobby.rejoin_btn.visible, main.lobby._status.text)
+	main.queue_free()
+	await process_frame
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online%d.json" % PORT_OFFSET))
+
+
 ## Rounds and points in Play: the target choice, Solo starting a match, the overlay texts, the rematch.
 func test_match_flow() -> void:   # async
 	NetStore.path = "user://test_online%d.json" % PORT_OFFSET
@@ -2783,8 +3075,8 @@ func _initialize() -> void:
 		test_lan_code, test_pick_address, test_lan_beacon, test_local_host, test_menu_local, test_main_local,
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
-		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
-		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_match_flow,
+		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
+		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_match_flow, test_main_rejoin,
 	]
 	for g in groups:
 		if stop_early and fails > 0:
