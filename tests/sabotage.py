@@ -738,7 +738,7 @@ SB=[
  ('8 colour: the server ignores T_COLOR','net/server_core.gd','sim.set_color(i, msg[1])','pass'),
  ('8 colour: T_COLOR range is not validated','net/server_core.gd','msg[1] >= 0 and msg[1] < Config.COLOR_COUNT','true'),
  ('8 colour: the client never sends its choice','net/client_core.gd','net.send(1, NetProto.pack([NetProto.T_COLOR, _wanted_color]), true)','pass'),
- ('8 colour: the protocol version stays','net/net_proto.gd','const VERSION := 10','const VERSION := 9'),
+ ('8 colour: the protocol version stays','net/net_proto.gd','const VERSION := 11','const VERSION := 10'),
  ('8 colour: the scoreboard uses the slot index','ui/match_overlay.gd','ArenaView.color_of(sim.players[i]),','ArenaView.PLAYER_COLORS[i],'),
  ('8 colour: Play does not get the colour','main.gd','\tc.player_color = train_cfg.player_color\n',''),
  ('8 colour: offline colours are not assigned','main.gd','\tsim.assign_colors(cfg.player_color)\n',''),
