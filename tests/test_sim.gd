@@ -3044,6 +3044,70 @@ func _assembly_plan_tests() -> void:
 				open_ok = open_ok and hi - lo >= br.size.y
 	check("map Assembly Line: the belt crosses both dividing walls through an opening as wide as the belt", crossings == 2 and open_ok)
 
+## Map 4 (Magnet Lab) is rebuilt: point-symmetric, every magnet stands in a broken square (walls on three sides, open
+## corners, the long middle wall on the fourth) that blocks a straight throw from outside but not a bent one.
+func _magnet_plan_tests() -> void:
+	check("map Magnet Lab: it is marked as reworked, so the strict floor-plan rules run on it", 4 in MapDef.REWORKED)
+	var size := Config.ARENA_SIZE
+	var obs: Array = MapDef.obstacles(4)
+	var mirrored := true
+	for o: Rect2 in obs:
+		var m := Rect2(size - o.end, o.size)
+		var found := false
+		for q: Rect2 in obs:
+			found = found or (q.position.distance_to(m.position) < 1e-3 and q.size.distance_to(m.size) < 1e-3)
+		mirrored = mirrored and found
+	for sp: Vector2 in MapDef.spawns(4):
+		var found := false
+		for q: Vector2 in MapDef.spawns(4):
+			found = found or q.distance_to(size - sp) < 1e-4
+		mirrored = mirrored and found
+	for z: Rect2 in MapDef.zone_spots(4):
+		var found := false
+		for q: Rect2 in MapDef.zone_spots(4):
+			found = found or q.position.distance_to(size - z.end) < 1e-3
+		mirrored = mirrored and found
+	check("map Magnet Lab: obstacles, spawn points and zone areas are point-symmetric about the centre", mirrored)
+	# the magnets are the first two obstacles and stand where MAGNETS says
+	var at_magnets := obs.size() >= 2
+	for k in MapDef.MAGNETS.size():
+		at_magnets = at_magnets and (obs[k] as Rect2).get_center().distance_to(MapDef.MAGNETS[k]) < 1e-3
+	check("map Magnet Lab: the first two obstacles are the magnets", at_magnets)
+	# a straight throw from outside a square cannot reach its magnet (left or right of it, above and below); the
+	# inner side towards the middle wall is open
+	var s := map_sim(4)
+	var grid := NavGrid.for_sim(s)
+	var blocked := true
+	var open_inner := true
+	for k in MapDef.MAGNETS.size():
+		var m: Vector2 = MapDef.MAGNETS[k]
+		var outward := -1.0 if k == 0 else 1.0
+		for from: Vector2 in [m + Vector2(4.0 * outward, 0.0), m + Vector2(0.0, -5.0), m + Vector2(0.0, 5.0)]:
+			blocked = blocked and not grid.line_clear(from, m + (from - m).normalized() * 0.9, 0.0)
+		open_inner = open_inner and grid.line_clear(m + Vector2(-3.4 * outward, 0.0), m - Vector2(0.9 * outward, 0.0), 0.0)
+	check("map Magnet Lab: a straight throw from the outside, above or below never reaches a magnet", blocked)
+	check("map Magnet Lab: the inner side of each square is open", open_inner)
+	# three wall pieces stand within 5 m of each magnet (centre of the piece) and not near the other one
+	var near := 0
+	for k in MapDef.MAGNETS.size():
+		for i in range(2, obs.size()):
+			var c: Vector2 = (obs[i] as Rect2).get_center()
+			if c.distance_to(MapDef.MAGNETS[k]) < 5.0 and c.distance_to(MapDef.MAGNETS[1 - k]) > 5.0:
+				near += 1
+	check("map Magnet Lab: three wall pieces (outer, above, below) close in each magnet from its own side", near == 6, str(near))
+	# the middle wall has a door on each side of its centre piece, 2.0 m wide
+	var mid_ok := false
+	var tops := 0.0
+	var bottoms := 0.0
+	for o: Rect2 in obs:
+		if absf(o.get_center().x - size.x * 0.5) < 0.01 and o.position.y < 0.01:
+			tops = o.end.y
+		if absf(o.get_center().x - size.x * 0.5) < 0.01 and absf(o.end.y - size.y) < 0.01:
+			bottoms = o.position.y
+	var centre: Rect2 = obs[2]
+	mid_ok = tops > 0.0 and bottoms > 0.0 and centre.position.y - tops >= 2.0 - 1e-3 and bottoms - centre.end.y >= 2.0 - 1e-3
+	check("map Magnet Lab: the middle wall reaches both outer walls and leaves a door of at least 2 m on each side of its centre piece", mid_ok)
+
 ## Map 3 (Bounce House) is rebuilt: mirror-symmetric about x = 16 (three long walls with one door each, a pad and a
 ## landing spot in every strip), landing spots in the open, and a bot that takes a trampoline when the walk is long.
 func _bounce_plan_tests() -> void:
@@ -3187,6 +3251,7 @@ func _map_tests() -> void:
 	_assembly_plan_tests()
 	_lava_plan_tests()
 	_bounce_plan_tests()
+	_magnet_plan_tests()
 	_nav_tests()
 	_bot_path_tests()
 	_spawn_spread_tests()
@@ -3411,6 +3476,7 @@ func _magnet_tests() -> void:
 	var ends := []
 	for t0 in [0.0, MapDef.MAGNET_PERIOD, MapDef.MAGNET_PERIOD - MapDef.MAGNET_OFF]:
 		var s := map_sim(MapDef.Id.MAGNETS, [0])
+		s.statics.resize(s.wall_count)    # the bending is tested on open floor, the walls of the plan would stop the throw
 		place(s, 0, Vector2(6.0, 4.0))
 		s.map_t = t0
 		var path0 := s.aim_path(s.players[0])
@@ -3422,6 +3488,7 @@ func _magnet_tests() -> void:
 	check("magnets: both off, the throw flies straight", absf(ends[2].y - 4.0) < 0.05, str(ends[2]))
 	# the aim line is the real flight
 	var s := map_sim(MapDef.Id.MAGNETS, [0])
+	s.statics.resize(s.wall_count)
 	place(s, 0, Vector2(6.0, 4.0))
 	s.players[0].aim_dir = Vector2.RIGHT
 	for _t in 40:
@@ -3692,6 +3759,7 @@ func _bot_path_tests() -> void:
 	var dt := 1.0 / 60.0
 	# a bot behind a long wall reaches a goal on the other side
 	var s := map_sim(MapDef.Id.MAGNETS, [0])
+	s.statics.resize(s.wall_count)
 	s.statics.append(Rect2(8.0, 2.0, 1.0, 10.4))
 	place(s, 0, Vector2(3.0, 7.2))
 	var bot := Bot.new(0, s.cfg, 11)

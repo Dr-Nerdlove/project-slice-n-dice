@@ -304,7 +304,17 @@ testers is the owners' call; a good moment is after A (the floor plans are what 
   guarantees it. Bot: `_lava_steer` now walks the NavGrid path. Old tests: only the position of the safe player in
   `_lava_tests` was moved off a new wall.)
 - [x] A3 Bounce House (built; 11 obstacles, mirror-symmetric about x = 16 instead of point-symmetric because the zigzag of doors (top, bottom, top) is not point-symmetric; `NetProto.VERSION` 13. Changes against the idea: the strips are 8.5, 6, 6 and 8.5 m wide, doors are 4.0 m tall so a zone area fits across the top ones; pads S1->S2, S2->S4, S4->S3, S3->S1; the bot rule is `Bot._pad_goal` (walk to a pad when it saves 10 m of walking and is within 9 m on foot, via `NavGrid.path_length`). Old tests: the pad test in `_bounce_tests` was moved to the new pad positions.)
-- [ ] A4 Magnet Lab
+- [x] A4 Magnet Lab (built; 17 obstacles, point-symmetric, `NetProto.VERSION` 14. Changes against the idea: the 2.0 m
+  passage rule is measured to the magnet blocks too, and the magnets (1.6 m) plus two inner walls plus the centre
+  wall do not fit into 8.4 m with three gaps of 2.0 m on each side, so each square has three walls (outer, above,
+  below; 3.0 m, open corners) and the long middle wall is its fourth side (4.6 and 5.0 m from the magnets); the
+  walls above and below sit away from the middle so the corners are open by the passage rule; the middle wall
+  got a 3.0 m stem to the top and to the bottom wall (doors of 2.0 m), and a stem under each outer horizontal
+  wall closes the lane towards the end room: without them no set of eight starts could stay out of sight of
+  each other; the stub from the end wall was not needed; the cross walls are 3.6 m from the short walls, 5 m
+  long. Zone areas: the four corners of the two end rooms (the top and bottom of the middle are narrower than
+  3.6 m or taken by the stems), the chest and the present moved next to the middle wall's doors. Old tests: the
+  magnet bending tests and a bot path test now strip the obstacles (they test physics on open floor).)
 - [ ] A5 Piggy Bank
 - [ ] B0 theme system
 - [ ] B1..B6 themes of maps 0 to 5

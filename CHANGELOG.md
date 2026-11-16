@@ -6,6 +6,11 @@ there is none. Write it for testers, in plain words.
 
 ## 0.13.0
 
+- **Magnet Lab has a new floor plan**: each magnet stands in a broken square of short walls (open at the corners), so
+  a straight throw into it is blocked and only a throw bent by the magnet gets round. A long middle wall with a
+  door at each end splits the room in two, and a cross wall near each short side makes the two end rooms. Starts
+  are spread so that nobody starts in sight of another player. (Players on different versions can no longer play
+  together.)
 - **Bounce House has a new floor plan**: three long walls divide the room into four strips side by side, each wall
   with only one walking door (top, bottom, top), so walking across is a long zigzag. Every strip has one
   trampoline that throws you over a wall into another strip, and bots take a trampoline when it saves them a long

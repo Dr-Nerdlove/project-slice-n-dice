@@ -223,6 +223,8 @@ pads and landing spots in `PADS`.
 ```
 (`N` / `S` the two magnets, `$` in the next sketch the pig.)
 
+*The sketch is the old layout. The rebuilt floor plan of step A4 is in `docs/map-rework.md` (Progress) and printed by `tools/map_ascii.gd`.*
+
 **Twist.** Two big horseshoe magnets stand left and right of the centre. One pulls yo-yos, the other pushes
 them away; every 8 s they swap (the last second of each turn both are off and blink). Within 6 m a magnet
 bends the flight of a thrown yo-yo: towards the red one, away from the blue one. A yo-yo that lies on the
