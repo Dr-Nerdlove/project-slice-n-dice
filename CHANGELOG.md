@@ -4,6 +4,13 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.13.0
+
+- **Lava Mats has a new floor plan**: a windmill of walls around a small courtyard in the middle, and a small
+  room with a way out in every corner. The walls give cover, and a mat that is about to burn is still never more
+  than a short walk from a safe one. Bots walk around the walls when they flee from the lava. (Players on
+  different versions can no longer play together.)
+
 ## 0.12.0
 
 - **Assembly Line has a new floor plan**: two long walls divide the room into a left, a middle and a right part.

@@ -3044,12 +3044,58 @@ func _assembly_plan_tests() -> void:
 				open_ok = open_ok and hi - lo >= br.size.y
 	check("map Assembly Line: the belt crosses both dividing walls through an opening as wide as the belt", crossings == 2 and open_ok)
 
+## Map 2 (Lava Mats) is rebuilt: point-symmetric, and no wall closes the seam inside a mat pair.
+func _lava_plan_tests() -> void:
+	check("map Lava Mats: it is marked as reworked, so the strict floor-plan rules run on it", 2 in MapDef.REWORKED)
+	var size := Config.ARENA_SIZE
+	var obs: Array = MapDef.obstacles(2)
+	var mirrored := true
+	for o: Rect2 in obs:
+		var m := Rect2(size - o.end, o.size)
+		var found := false
+		for q: Rect2 in obs:
+			found = found or (q.position.distance_to(m.position) < 1e-4 and q.size.distance_to(m.size) < 1e-4)
+		mirrored = mirrored and found
+	for sp: Vector2 in MapDef.spawns(2):
+		var found := false
+		for q: Vector2 in MapDef.spawns(2):
+			found = found or q.distance_to(size - sp) < 1e-4
+		mirrored = mirrored and found
+	for z: Rect2 in MapDef.zone_spots(2):
+		var found := false
+		for q: Rect2 in MapDef.zone_spots(2):
+			found = found or q.position.distance_to(size - z.end) < 1e-4
+		mirrored = mirrored and found
+	check("map Lava Mats: obstacles, spawn points and zone areas are point-symmetric about the centre", mirrored)
+	# the seam inside a mat pair (x = 4, 12, 20, 28) stays open for at least half of every mat's edge
+	var worst := 0.0
+	for pair in MapDef.LAVA_COLS / 2:
+		var x := (pair * 2 + 1) * MapDef.LAVA_TILE.x
+		for row in MapDef.LAVA_ROWS:
+			var y0 := row * MapDef.LAVA_TILE.y
+			var covered := 0.0
+			for o: Rect2 in obs:
+				if o.position.x < x - 1e-4 and o.end.x > x + 1e-4:
+					covered += maxf(0.0, minf(o.end.y, y0 + MapDef.LAVA_TILE.y) - maxf(o.position.y, y0))
+			worst = maxf(worst, covered / MapDef.LAVA_TILE.y)
+	# no sealed pocket: every free spot of the floor can be walked to from the first spawn point
+	var t := map_sim(2, [0])
+	var grid := NavGrid.for_sim(t)
+	var sealed := 0
+	for row in NavGrid.ROWS:
+		for col in NavGrid.COLS:
+			if grid.is_free(col, row) and not grid.reachable(MapDef.spawns(2)[0], NavGrid.center(col, row)):
+				sealed += 1
+	check("map Lava Mats: no part of the floor is sealed off", sealed == 0, "sealed=%d" % sealed)
+	check("map Lava Mats: no wall closes more than half of the seam inside a mat pair", worst <= 0.5 + 1e-4, "worst=%.2f" % worst)
+
 func _map_tests() -> void:
 	for id in Config.MAP_COUNT:
 		_map_geometry(id)
 	_floor_plan_rule_tests()
 	_train_set_plan_tests()
 	_assembly_plan_tests()
+	_lava_plan_tests()
 	_nav_tests()
 	_bot_path_tests()
 	_spawn_spread_tests()
@@ -3154,7 +3200,7 @@ func _lava_tests() -> void:
 	# a burning mat kills, a blinking one and a safe one do not
 	var cell := 10
 	var centre := MapDef.lava_rect(cell).get_center()
-	var safe := MapDef.lava_rect(cell + 1).get_center()
+	var safe := MapDef.lava_rect(cell + 1).get_center() - Vector2(1.0, 0.0)   # clear of the wall of the new floor plan
 	s = map_sim(MapDef.Id.LAVA, [0, 1])
 	place(s, 0, centre)
 	place(s, 1, safe)
@@ -3177,6 +3223,73 @@ func _lava_tests() -> void:
 	s.lava_cells = PackedInt32Array([1, 4])
 	s.start_match(10)
 	check("lava: a new round resets the clock, the waves and the mats", s.map_t == 0.0 and s.lava_wave == 0 and s.lava_cells.is_empty())
+	_lava_escape_tests()
+	_lava_bot_wall_test()
+
+## A bot on a marked mat whose nearest safe mat lies behind a wall walks around the wall instead of pushing at it.
+func _lava_bot_wall_test() -> void:
+	var s := map_sim(MapDef.Id.LAVA, [0], 7, true)
+	s.players[0].pos = Vector2(15.4, 5.4)   # right of the short bar at x 14..15; the nearest safe mat (x 8..12) is behind it
+	s.map_t = MapDef.LAVA_CALM + 0.1
+	s.lava_cells = PackedInt32Array([3, 4, 11, 12])
+	var bot := Bot.new(0, s.cfg, 300)
+	for _t in 75:
+		s.step([bot.think(s, 1.0 / 60.0)])
+	check("lava: a bot flees around a wall to the safe mat behind it", not s.lava_cells.has(MapDef.lava_cell(s.players[0].pos)), str(s.players[0].pos))
+
+## Walking distance (metres, 8 neighbours on the NavGrid, no corner cutting) from every free cell to the nearest free
+## cell of a mat that is not marked. -1.0 where there is no way.
+func _escape_distances(grid: NavGrid, marked: PackedInt32Array) -> PackedFloat32Array:
+	var dist := PackedFloat32Array()
+	dist.resize(NavGrid.COLS * NavGrid.ROWS)
+	dist.fill(1e9)
+	for row in NavGrid.ROWS:
+		for col in NavGrid.COLS:
+			if grid.is_free(col, row) and not marked.has(MapDef.lava_cell(NavGrid.center(col, row))):
+				dist[row * NavGrid.COLS + col] = 0.0
+	var changed := true
+	while changed:
+		changed = false
+		for row in NavGrid.ROWS:
+			for col in NavGrid.COLS:
+				if not grid.is_free(col, row):
+					continue
+				var here := row * NavGrid.COLS + col
+				for k in 8:
+					var dx: int = NavGrid.NEIGHBOURS[k].x
+					var dy: int = NavGrid.NEIGHBOURS[k].y
+					if not grid.is_free(col + dx, row + dy):
+						continue
+					if dx != 0 and dy != 0 and not (grid.is_free(col + dx, row) and grid.is_free(col, row + dy)):
+						continue
+					var d: float = dist[(row + dy) * NavGrid.COLS + col + dx] + NavGrid.CELL * (1.41421 if dx != 0 and dy != 0 else 1.0)
+					if d < dist[here] - 1e-4:
+						dist[here] = d
+						changed = true
+	return dist
+
+## Whoever stands on a marked mat can walk to a safe one within the warning time, for every wave of many seeds. During
+## the warning nothing burns yet, so only the length of the way counts (walls make it longer than the straight line).
+func _lava_escape_tests() -> void:
+	var limit := Config.new().player_speed * MapDef.LAVA_WARN
+	var worst := 0.0
+	var cells := 0
+	var stuck := false
+	var grid: NavGrid = null
+	for seed_value in 12:
+		var t := map_sim(MapDef.Id.LAVA, [0], seed_value)
+		grid = NavGrid.for_sim(t)
+		for w in 8:
+			t._draw_lava()
+			var dist := _escape_distances(grid, t.lava_cells)
+			for row in NavGrid.ROWS:
+				for col in NavGrid.COLS:
+					if grid.is_free(col, row) and t.lava_cells.has(MapDef.lava_cell(NavGrid.center(col, row))):
+						var d: float = dist[row * NavGrid.COLS + col]
+						cells += 1
+						worst = maxf(worst, d)
+						stuck = stuck or d >= 1e8
+	check("lava: every free spot of a marked mat has a safe mat within reach in the warning time (worst way %.1f m, limit %.1f m)" % [worst, limit], cells > 100 and not stuck and worst <= limit, "worst=%.2f cells=%d" % [worst, cells])
 
 func _bounce_tests() -> void:
 	var pad: Array = MapDef.PADS[0]

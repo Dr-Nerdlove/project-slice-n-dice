@@ -169,9 +169,9 @@ func _map_hazard_near(sim: Sim, me: SimPlayer, extra: float) -> bool:
 	return false
 
 
-## Lava Mats. On a marked mat: straight to the nearest spot on a safe one (inside the zone if possible), at full
+## Lava Mats. On a marked mat: along the walking path to the nearest spot on a safe one (inside the zone if possible), at full
 ## speed. Next to marked mats: pushed away from their edges.
-func _lava_steer(sim: Sim, me: SimPlayer, zone: Rect2) -> Vector2:
+func _lava_steer(sim: Sim, me: SimPlayer, zone: Rect2, dt: float) -> Vector2:
 	if sim.lava_cells.is_empty():
 		return Vector2.ZERO
 	if sim.lava_cells.has(MapDef.lava_cell(me.pos)):
@@ -192,7 +192,8 @@ func _lava_steer(sim: Sim, me: SimPlayer, zone: Rect2) -> Vector2:
 				best_d = d
 				best = q
 		_urgent = true
-		return (best - me.pos).normalized() * Config.BOT_LAVA_WEIGHT
+		# around the walls of the floor plan, not straight into them
+		return (_steer_point(sim, me, best, dt) - me.pos).normalized() * Config.BOT_LAVA_WEIGHT
 	var push := Vector2.ZERO
 	for c in sim.lava_cells:
 		var r := MapDef.lava_rect(c)
@@ -316,7 +317,7 @@ func _wander(sim: Sim, me: SimPlayer, dt: float) -> Vector2:
 	_urgent = false
 	match sim.map_id:
 		MapDef.Id.LAVA:
-			dir += _lava_steer(sim, me, zone)
+			dir += _lava_steer(sim, me, zone, dt)
 		MapDef.Id.BOUNCE:
 			dir += _pad_steer(sim, me, zone)
 	if zone != Rect2():

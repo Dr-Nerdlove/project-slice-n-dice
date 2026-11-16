@@ -125,14 +125,24 @@ pieces in `BELTS` (rectangle, direction forwards, direction backwards: the two c
 ## 2. Lava Mats
 
 ```
-...##...|.5.....|.8..##.|.......
-...##...|.......|.......|.......
---------+-------+-------+-------
-..3.....|...C..##.......|.....2.
---------+------##-------+-------
-..1.....|.......|...P...|.....4.
---------+-------+-------+-------
-........|#....7.|.....6.|..##...
+.........#..........zzzzzzzzzz#.........
+.........#..........zzzzzzzzzz#.....3...
+...1.....#..........zzzzzzzzzz#.........
+.........#..........zzzzz7zzzz#..#######
+#######..#....................zzzzzzzzzz
+.................##...........zzzzzzzzzz
+............5.CC.##..######...zzzzzzzzzz
+..............CC.##..######...zzzzzzzzzz
+.................##..#........zzzzzzzzzz
+zzzzzzzzzz.......##..#..................
+zzzzzzzzzz..#######..#..PP..............
+zzzzzzzzzz...........#..PP.6............
+zzzzzzzzzz...................#..........
+######...#zzzzzzzzzz.........#...#######
+.........#zzzzz8zzzz.........#..........
+.........#zzzzzzzzzz.........#..........
+...4.....#zzzzzzzzzz.........#......2...
+.........#zzzzzzzzzz.........#..........
 ```
 
 **Twist.** The carpet is a puzzle mat of 8 x 4 foam tiles (4 x 3.6 m each). "The floor is lava" comes in
@@ -149,7 +159,13 @@ takes both mats of a pair. So a safe mat is always right next to you (at most 4 
 1.5 s of warning), and the final zone areas are exactly such pairs, so the last fight always keeps half its
 ground. The dash crosses a burning mat's edge in an instant.
 
-**Bots.** On a blinking or burning mat they walk straight to the nearest safe mat; next to one they are
+**Floor plan.** A pillow fort (step A2, point-symmetric, 12 walls): a windmill of four bars around a 2 m courtyard
+in the middle (two long bars and two short ones, open at two opposite corners), and a small room with a 2 m way out
+in each corner. Walls stand on mat seams (0.8 m; the windmill bars are 1.0 m); where a seam borders a final zone
+area the wall sits flush against the area, 0.4 m off the seam. No wall closes more than half of the seam inside a mat
+pair. The four zone areas are the top-middle-right, bottom-middle-left, left and right mat pairs.
+
+**Bots.** On a blinking or burning mat they walk along the path (around walls) to the nearest safe mat; next to one they are
 pushed away from its edge; they do not dash while mats are marked. They never respawn on a marked mat.
 
 **Numbers:** `LAVA_CALM` 3.0 s, `LAVA_WARN` 1.5 s, `LAVA_HOT` 2.0 s, `LAVA_FIRST` 6, `LAVA_STEP` 2,

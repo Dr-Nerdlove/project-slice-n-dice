@@ -293,7 +293,16 @@ testers is the owners' call; a good moment is after A (the floor plans are what 
   pockets, which the 14 m sight rule needs) and two short walls on opposite sides of the vertical run; zone areas moved
   down by 0.2 to 0.4 m to clear the new walls. Old tests: none had to change, the belt tests already run on
   stripped arenas.)
-- [ ] A2 Lava Mats
+- [x] A2 Lava Mats (built; 12 obstacles, point-symmetric, `NetProto.VERSION` 12, version 0.13.0 because 0.12.0 was
+  released with the old layout of map 2. Changes against the idea: the pinwheel is a windmill of four touching bars
+  around an open 2 m courtyard (a plus-shaped hub is impossible: two bars separated by a third closer than 2.0 m break
+  the passage rule), two long and two short bars so it does not read as a symbol; the bars are 1.0 m thick because
+  touching 0.8 m bars overlap by a float32 rounding error; walls next to a zone area sit flush against it (0.4 m off
+  the seam) because a wall centred on the seam would reach 0.4 m into the area; the zone areas moved to the
+  top-middle-right, bottom-middle-left, left and right mat pairs; four corner rooms replace the corner blocks. The
+  escape test checks the real walking distance on the NavGrid (limit speed x `LAVA_WARN` = 9 m), so layout alone
+  guarantees it. Bot: `_lava_steer` now walks the NavGrid path. Old tests: only the position of the safe player in
+  `_lava_tests` was moved off a new wall.)
 - [ ] A3 Bounce House
 - [ ] A4 Magnet Lab
 - [ ] A5 Piggy Bank
