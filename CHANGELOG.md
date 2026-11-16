@@ -4,6 +4,13 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.12.0
+
+- **Assembly Line has a new floor plan**: two long walls divide the room into a left, a middle and a right part.
+  The conveyor belt runs through an opening in each wall (the quick way into the next part), and there is a
+  separate walking door at the far end. Short walls along the belt give cover and places to step off. (Players on
+  different versions can no longer play together.)
+
 ## 0.11.0
 
 - **Bots walk around walls** instead of pushing against them, and only throw at a player they can actually see
@@ -12,6 +19,7 @@ there is none. Write it for testers, in plain words.
 - **Train Set has a new floor plan**: walls divide the room into corner rooms and side rooms that are connected
   along the toy train's rails, and the block in the middle has two walls that make a small yard. (Players on
   different versions can no longer play together.)
+
 
 ## 0.10.0
 

@@ -74,20 +74,38 @@ free zone areas (left middle, right middle, bottom left, top right).
 ## 1. Assembly Line
 
 ```
-.3................8..#........6.
-...>>>>>>>>>>>>vv...............
-...>>>C>>>>>>>>vv...............
-..........#....vv....#..........
-..1.......#....vv....#........2.
-...............>>>>>>>>>>>>>>...
-...............>>>>>>>>>>>>>>...
-.5........#...7...........P...4.
+...........#...............##zzzzzzzzzz.
+...........#...............##zzzzzzzz6z.
+..3........#.................zzzzzzzzzz.
+....>>>>>>>>>>>>>>>vv........zzzzzzzzzz.
+....>>>C>>>>>>>>>>>vv........zzzzzzzzzz.
+....>>>>>>>>>>>>>>>vv......##....#######
+########...#.......vv......##zzzzzzzzzz.
+.zzzzzzzzzz#......#vv......##zzzzzzzzzz.
+.zzzzzzzzzz#...7..#vv#..8..##zzzzz2zzzz.
+.zzzz1zzzzz#......#vv#.....##zzzzzzzzzz.
+.zzzzzzzzzz#.......vv#.....##zzzzzzzzzz.
+.zzzzzzzzzz#.......vv......##...########
+#######............>>>>>>>>>>>>>>>>>....
+.zzzzzzzzzz........>>>>>>>>>>>>>>>>>....
+.zzzzzzzzzz........>>>>>>>>>>>>>>>>>....
+.zzzzzzzzzz#...............##...........
+.z5zzzzzzzz#...............##...P....4..
+...........#...............##...........
 ```
+(`#` wall, `>` `v` the belt and its direction, `z` the four final zone areas, `C` chest, `P` present, `1`-`8` spawn points; one character is 0.8 m.)
 
 **Twist.** A building-set conveyor runs through the room in an S: along the top to the middle, down the
 middle, along the bottom to the right. It carries everything that stands or lies on it: players, the toy
 chest and yo-yos that lie out (they stay deadly while they ride). Every 9 s the belt stops for 1.5 s and
 then runs the other way.
+
+**Floor plan (step A1 of `docs/map-rework.md`).** Two dividing walls (x 9 to 10 and 22 to 23, 1.0 m thick) split the
+room into a left, a middle and a right part. Each has a belt opening 2.6 m high (the belt runs through it, so riding
+it is the quick way into the next part, in the direction it currently runs) and a walking door 2.4 m high at the far
+end from the belt. Short walls lie along the belt's edges (under the top run, over the bottom run, and on both sides of
+the vertical run at different heights, never both sides at the same x) and double as cover. Spawn points: three in the
+left part, two in the middle (off the belt), three in the right part. 12 obstacles, point-symmetric about the arena centre.
 
 **Why it is fun.** The belt is a fast lane and a trap at once. With it you move at 10 m/s instead of 6;
 against it only at 2, and while you charge a throw (slower walking) it drags you backwards. A yo-yo thrown

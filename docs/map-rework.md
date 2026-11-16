@@ -286,7 +286,13 @@ testers is the owners' call; a good moment is after A (the floor plans are what 
   arcs, not before the straight. Old tests: `test_sim` already runs in an arena without obstacles (`mk()`), so
   they did not change; `test_net` clears the obstacles of its rigs with `open_arena()`. Later map steps: expect
   the same, keep the zone areas free, and fix stale sabotage patterns that quote the old layout.)
-- [ ] A1 Assembly Line
+- [x] A1 Assembly Line (built; 12 obstacles, point-symmetric. Changes against the idea: the dividing walls are
+  1.0 m thick at x 9..10 and 22..23, with a 2.6 m belt opening and a 2.4 m walking door each (the door at the end of the
+  wall away from the belt, so the left wall's door is at the bottom and the right wall's at the top); the short walls
+  along the belt are two long horizontal covers per side part (they also split each side part into three starting
+  pockets, which the 14 m sight rule needs) and two short walls on opposite sides of the vertical run; zone areas moved
+  down by 0.2 to 0.4 m to clear the new walls. Old tests: none had to change, the belt tests already run on
+  stripped arenas.)
 - [ ] A2 Lava Mats
 - [ ] A3 Bounce House
 - [ ] A4 Magnet Lab

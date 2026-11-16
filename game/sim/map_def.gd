@@ -20,12 +20,18 @@ const HINTS: Array[String] = [
 
 ## Maps whose floor plan has been rebuilt (docs/map-rework.md). The stricter floor-plan rules of the tests (10 to
 ## 18 obstacles, spawn points far apart and out of sight, the 2.0 m passage rule) apply only to these.
-const REWORKED: Array[int] = [0]
+const REWORKED: Array[int] = [0, 1]
 
 # --- layout per map (index = map id) ---
 const OBSTACLES: Array = [
 	[],  # map 0: Config.OBSTACLES
-	[Rect2(9.6, 6.1, 1.8, 2.2), Rect2(20.6, 6.1, 1.8, 2.2), Rect2(20.5, 0.9, 1.5, 1.5), Rect2(10.0, 12.0, 1.5, 1.5)],
+	# Assembly Line: two dividing walls (x 9..10 and 22..23) make a left, a middle and a right part. Each has a belt
+	# opening (2.6 m, the belt runs through) and a walking door (2.4 m) at the far end. Short walls lie along the
+	# belt's edges, never on both sides at the same x. Point-symmetric about the arena centre.
+	[Rect2(9.0, 0.0, 1.0, 2.4), Rect2(9.0, 5.0, 1.0, 5.0), Rect2(9.0, 12.4, 1.0, 2.0),
+			Rect2(22.0, 12.0, 1.0, 2.4), Rect2(22.0, 4.4, 1.0, 5.0), Rect2(22.0, 0.0, 1.0, 2.0),
+			Rect2(0.0, 4.8, 6.4, 0.8), Rect2(25.6, 8.8, 6.4, 0.8), Rect2(0.0, 9.5, 5.6, 0.8), Rect2(26.4, 4.1, 5.6, 0.8),
+			Rect2(14.1, 5.4, 0.8, 2.4), Rect2(17.1, 6.6, 0.8, 2.4)],
 	[Rect2(15.2, 6.4, 1.6, 1.6), Rect2(3.0, 1.0, 2.0, 1.6), Rect2(27.0, 11.8, 2.0, 1.6), Rect2(9.0, 11.6, 1.6, 1.6),
 			Rect2(21.4, 1.2, 1.6, 1.6)],
 	[Rect2(15.4, 3.2, 1.2, 8.0), Rect2(9.6, 1.4, 1.8, 1.8), Rect2(20.6, 11.2, 1.8, 1.8)],
@@ -40,8 +46,8 @@ const OBSTACLES: Array = [
 const SPECIAL_OBSTACLES: Array[int] = [0, 0, 0, 0, 2, 1]
 const SPAWNS: Array = [
 	[],  # map 0: Config.SPAWNS
-	[Vector2(2.0, 7.2), Vector2(30.0, 7.2), Vector2(1.8, 1.5), Vector2(30.2, 12.9),
-			Vector2(1.8, 12.9), Vector2(30.2, 1.5), Vector2(14.0, 13.0), Vector2(18.0, 1.4)],
+	[Vector2(4.5, 7.8), Vector2(27.5, 6.6), Vector2(1.6, 1.6), Vector2(30.4, 12.8),
+			Vector2(1.6, 13.2), Vector2(30.4, 1.2), Vector2(12.4, 7.2), Vector2(19.6, 7.2)],
 	[Vector2(2.0, 9.0), Vector2(30.0, 5.4), Vector2(2.0, 5.4), Vector2(30.0, 9.0),
 			Vector2(10.0, 1.8), Vector2(22.0, 12.6), Vector2(14.0, 12.6), Vector2(18.0, 1.8)],
 	[Vector2(2.8, 7.2), Vector2(29.2, 7.2), Vector2(2.8, 2.2), Vector2(29.2, 12.2),
@@ -54,7 +60,7 @@ const SPAWNS: Array = [
 ## Where the shrinking zone can end (each ARENA_SIZE / 4, free of blocks, chest, present, belts and trampolines).
 const ZONE_SPOTS: Array = [
 	[],  # map 0: Config.ZONE_SPOTS
-	[Rect2(0.8, 5.4, 8.0, 3.6), Rect2(23.2, 5.4, 8.0, 3.6), Rect2(0.8, 10.4, 8.0, 3.6), Rect2(23.2, 0.4, 8.0, 3.6)],
+	[Rect2(0.8, 5.8, 8.0, 3.6), Rect2(23.2, 5.0, 8.0, 3.6), Rect2(0.8, 10.4, 8.0, 3.6), Rect2(23.2, 0.4, 8.0, 3.6)],
 	# Lava Mats: each is one mat pair, so a wave never takes more than half of it.
 	[Rect2(8.0, 0.0, 8.0, 3.6), Rect2(16.0, 10.8, 8.0, 3.6), Rect2(0.0, 7.2, 8.0, 3.6), Rect2(24.0, 3.6, 8.0, 3.6)],
 	[Rect2(0.8, 5.4, 8.0, 3.6), Rect2(23.2, 5.4, 8.0, 3.6), Rect2(0.8, 0.4, 8.0, 3.6), Rect2(23.2, 10.4, 8.0, 3.6)],
