@@ -12,6 +12,9 @@ there is none. Write it for testers, in plain words.
 - **Train Set has a new floor plan**: walls divide the room into corner rooms and side rooms that are connected
   along the toy train's rails, and the block in the middle has two walls that make a small yard. (Players on
   different versions can no longer play together.)
+- **Assembly Line has a new floor plan**: two long walls divide the room into a left, a middle and a right part.
+  The conveyor belt runs through an opening in each wall (the quick way into the next part), and there is a
+  separate walking door at the far end. Short walls along the belt give cover and places to step off.
 
 ## 0.10.0
 

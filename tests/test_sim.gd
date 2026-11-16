@@ -2997,11 +2997,59 @@ func _train_set_plan_tests() -> void:
 		mirrored = mirrored and found
 	check("map Train Set: obstacles and spawn points are point-symmetric about the centre", mirrored)
 
+## Map 1 (Assembly Line) is rebuilt: point-symmetric, the belt runs through openings in two dividing walls.
+func _assembly_plan_tests() -> void:
+	check("map Assembly Line: it is marked as reworked, so the strict floor-plan rules run on it", 1 in MapDef.REWORKED)
+	var size := Config.ARENA_SIZE
+	var obs: Array = MapDef.obstacles(1)
+	var mirrored := true
+	for o: Rect2 in obs:
+		var m := Rect2(size - o.end, o.size)
+		var found := false
+		for q: Rect2 in obs:
+			found = found or (q.position.distance_to(m.position) < 1e-4 and q.size.distance_to(m.size) < 1e-4)
+		mirrored = mirrored and found
+	for sp: Vector2 in MapDef.spawns(1):
+		var found := false
+		for q: Vector2 in MapDef.spawns(1):
+			found = found or q.distance_to(size - sp) < 1e-4
+		mirrored = mirrored and found
+	for z: Rect2 in MapDef.zone_spots(1):
+		var found := false
+		for q: Rect2 in MapDef.zone_spots(1):
+			found = found or q.position.distance_to(size - z.end) < 1e-4
+		mirrored = mirrored and found
+	check("map Assembly Line: obstacles, spawn points and zone areas are point-symmetric about the centre", mirrored)
+	# no wall stands on the belt, and a wall that crosses the belt leaves its whole width open
+	var on_belt := false
+	for o: Rect2 in obs:
+		for b: Array in MapDef.BELTS:
+			on_belt = on_belt or o.grow(-0.001).intersects(b[0])
+	check("map Assembly Line: no wall stands on the belt", not on_belt)
+	var crossings := 0
+	var open_ok := true
+	for b: Array in MapDef.BELTS:
+		var br: Rect2 = b[0]
+		for x in [9.5, 22.5]:
+			if br.position.x < x and br.end.x > x:
+				crossings += 1
+				var lo := 0.0
+				var hi := size.y
+				for o: Rect2 in obs:
+					if o.position.x < x and o.end.x > x:
+						if o.end.y <= br.position.y:
+							lo = maxf(lo, o.end.y)
+						elif o.position.y >= br.end.y:
+							hi = minf(hi, o.position.y)
+				open_ok = open_ok and hi - lo >= br.size.y
+	check("map Assembly Line: the belt crosses both dividing walls through an opening as wide as the belt", crossings == 2 and open_ok)
+
 func _map_tests() -> void:
 	for id in Config.MAP_COUNT:
 		_map_geometry(id)
 	_floor_plan_rule_tests()
 	_train_set_plan_tests()
+	_assembly_plan_tests()
 	_nav_tests()
 	_bot_path_tests()
 	_spawn_spread_tests()

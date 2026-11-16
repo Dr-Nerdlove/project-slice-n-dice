@@ -776,7 +776,13 @@ SB=[
  ('0 wall rows: a long wall is one stretched block','view/playroom.gd','if short_side <= 0.0 or long_side <= WALL_ROW_RATIO * short_side:','if true:'),
  ('0 wall rows: the pieces are two long slabs','view/playroom.gd','var n := maxi(2, roundi(long_side / short_side))','var n := 2'),
  ("1 map 0: one wall is moved off the point symmetry","sim/config.gd","Rect2(22.2, 10.2, 0.8, 4.2),    # wall from the bottom wall, right","Rect2(22.6, 10.2, 0.8, 4.2),    # wall from the bottom wall, right"),
- ("1 map 0: not listed as reworked","sim/map_def.gd","const REWORKED: Array[int] = [0]","const REWORKED: Array[int] = []"),
+ ("1 map 0: not listed as reworked","sim/map_def.gd","const REWORKED: Array[int] = [0, 1]","const REWORKED: Array[int] = [0]"),
+ ("1 map 1: not listed as reworked","sim/map_def.gd","const REWORKED: Array[int] = [0, 1]","const REWORKED: Array[int] = [0]"),
+ ("1 map 1: one wall is moved off the point symmetry","sim/map_def.gd","Rect2(22.0, 4.4, 1.0, 5.0)","Rect2(22.4, 4.4, 1.0, 5.0)"),
+ ("1 map 1: a wall stands on the belt","sim/map_def.gd","Rect2(9.0, 0.0, 1.0, 2.4), Rect2(9.0, 5.0, 1.0, 5.0)","Rect2(9.0, 0.0, 1.0, 3.4), Rect2(9.0, 5.0, 1.0, 5.0)"),
+ ("1 map 1: the belt opening is too narrow","sim/map_def.gd","Rect2(9.0, 5.0, 1.0, 5.0)","Rect2(9.0, 4.8, 1.0, 5.2)"),
+ ("1 map 1: a spawn point sits on the belt","sim/map_def.gd","Vector2(1.6, 1.6), Vector2(30.4, 12.8)","Vector2(6.0, 3.6), Vector2(30.4, 12.8)"),
+ ("1 map 1: a zone area touches the belt","sim/map_def.gd","Rect2(0.8, 5.8, 8.0, 3.6)","Rect2(0.8, 4.0, 8.0, 3.6)"),
 ]
 
 def suites_for(name, full):
