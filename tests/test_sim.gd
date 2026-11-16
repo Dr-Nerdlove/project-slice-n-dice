@@ -2383,11 +2383,113 @@ func _shop_tests() -> void:
 	s.mode.offers[1] = ["warhead", "twin", "steer"]
 	Bot.shop(s, 1)
 	check("bot shop: does not waste its coins on rerolls it cannot use", s.mode.coins[1] == 1 and s.mode.shop_ready[1])
-	# texts
-	check("shop text: levels by copies", ShopPanel.level_text(0) == "New" and ShopPanel.level_text(1) == "Copy 1 of 2 for level II" and ShopPanel.level_text(2) == "Level II" and ShopPanel.level_text(3) == "Copy 1 of 3 for level III" and ShopPanel.level_text(5) == "Level III", ShopPanel.level_text(1) + " / " + ShopPanel.level_text(3))
-	var mm := MatchMode.new()
-	mm.owned[0] = {"bounce": 3, "tripwire": 1}
-	check("shop text: the build in the modifier order", ShopPanel.build_text(mm, 0) == "Build 2/5: Tripwire I, Ricochet II" and ShopPanel.build_text(mm, 1) == "Build 0/5: nothing yet", ShopPanel.build_text(mm, 0))
+	_shop_rework_tests()
+
+
+func _shop_rework_tests() -> void:
+	var M := MatchMode.Phase
+	# sell
+	var s := shop_sim([0, 1, 2], 0)
+	var m := s.mode
+	m.owned[0] = {"bounce": 3, "tripwire": 1}
+	s.apply_mods(0, m.levels_of(0))
+	var seq: int = m.shop_seq[0]
+	var bp: int = Mods.price("bounce")
+	check("sell: the refund is half the price of every copy, rounded down", m.sell_refund(0, "bounce") == 3 * bp / 2 and m.sell_refund(0, "tripwire") == Mods.price("tripwire") / 2 and m.sell_refund(0, "twin") == 0)
+	check("sell: a stale counter is refused", not s.shop_sell(0, "bounce", seq + 1) and m.owned[0].size() == 2 and m.coins[0] == 0)
+	check("sell: not owned is refused", not s.shop_sell(0, "twin", seq) and not s.shop_sell(0, "nonsense", seq) and m.coins[0] == 0 and m.shop_seq[0] == seq)
+	check("sell: removes the modifier with all copies, pays, frees the slot, drops the level", s.shop_sell(0, "bounce", seq) and m.coins[0] == 3 * bp / 2 and m.owned[0] == {"tripwire": 1} and s.lv(s.players[0], "bounce") == 0 and s.lv(s.players[0], "tripwire") == 1)
+	check("sell: the same request again is refused", not s.shop_sell(0, "tripwire", seq) and m.owned[0].has("tripwire"))
+	check("sell: the freed slot can take a new modifier", m.can_take(0, "bounce"))
+	m.shop_ready[1] = true
+	check("sell: not after done, not for a slot outside the roster", not s.shop_sell(1, "bounce", m.shop_seq[1]) and not s.shop_sell(3, "bounce", 0))
+	var sold_all := shop_sim([0, 1], 0)
+	sold_all.mode.owned[0] = {"twin": 6}
+	sold_all.shop_sell(0, "twin", sold_all.mode.shop_seq[0])
+	check("sell: a top-level modifier gives the half price of six copies", sold_all.mode.coins[0] == 6 * Mods.price("twin") / 2)
+	# lock
+	s = shop_sim([0, 1, 2], 30)
+	m = s.mode
+	var o: Array = m.offers[0].duplicate()
+	check("lock: nothing is locked at the start", not m.is_locked(0, 0) and not m.is_locked(0, 1))
+	check("lock: a stale counter, an empty or out-of-range offer are refused", not s.shop_lock(0, 1, m.shop_seq[0] + 1) and not s.shop_lock(0, 3, m.shop_seq[0]) and not s.shop_lock(0, -1, m.shop_seq[0]) and not m.is_locked(0, 1))
+	var lseq: int = m.shop_seq[0]
+	check("lock: toggles on", s.shop_lock(0, 1, lseq) and m.is_locked(0, 1) and not m.is_locked(0, 0) and m.coins[0] == 30)
+	check("lock: the same request again is refused", not s.shop_lock(0, 1, lseq) and m.is_locked(0, 1))
+	var survived := true
+	for _r in 12:
+		s.shop_reroll(0, m.shop_seq[0])
+		survived = survived and m.offers[0][1] == o[1] and m.offers[0].count(o[1]) == 1 and m.offers[0].size() == 3
+	check("lock: a locked offer survives rerolls and nothing repeats it", survived, str(o) + str(m.offers[0]))
+	var changed := false
+	var o2: Array = m.offers[0].duplicate()
+	for _r in 6:
+		s.shop_reroll(0, m.shop_seq[0])
+		changed = changed or m.offers[0][0] != o2[0] or m.offers[0][2] != o2[2]
+	check("lock: the others are redrawn", changed)
+	check("lock: unlock is the same toggle", s.shop_lock(0, 1, m.shop_seq[0]) and not m.is_locked(0, 1))
+	# stays for the next shop
+	s.shop_lock(0, 2, m.shop_seq[0])
+	var keep: String = m.offers[0][2]
+	s.shop_done(0)
+	next_round(s)
+	to_play(s)
+	kill_i(s, 1); kill_i(s, 2)
+	s.step(idle4())
+	for _t in int(MatchMode.RESULT_TIME * 60.0) + 2:
+		if m.phase == M.SHOP: break
+		s.step(idle4())
+	check("lock: a locked offer is still there in the next shop, the others are new", m.phase == M.SHOP and m.offers[0][2] == keep and m.is_locked(0, 2) and not m.is_locked(0, 0) and m.offers[0].size() == 3, str(m.offers[0]))
+	# buying clears the lock
+	s.mode.coins[0] = 30
+	check("lock: buying a locked offer clears the lock", s.shop_buy(0, 2, m.shop_seq[0]) and not m.is_locked(0, 2) and m.offers[0][2] == "")
+	check("lock: a bought (empty) offer cannot be locked", not s.shop_lock(0, 2, m.shop_seq[0]) and not m.is_locked(0, 2))
+	s.shop_reroll(0, m.shop_seq[0])
+	check("lock: after the buy the slot is redrawn", m.offers[0][2] != "")
+	# a locked offer that cannot be taken any more is redrawn
+	s = shop_sim([0, 1], 30)
+	m = s.mode
+	var lid: String = m.offers[0][0]
+	s.shop_lock(0, 0, m.shop_seq[0])
+	m.owned[0][lid] = 6
+	s.shop_reroll(0, m.shop_seq[0])
+	check("lock: a locked offer that can no longer be taken is dropped", m.offers[0][0] != lid and not m.is_locked(0, 0))
+	# the lock is in the snapshot, a new match clears it
+	s = shop_sim([0, 1], 30)
+	s.shop_lock(0, 1, s.mode.shop_seq[0])
+	var twin := mk([0, 1]); twin.load_state(s.save_state())
+	check("lock: the lock is in the snapshot", twin.mode.is_locked(0, 1) and twin.mode.locked == s.mode.locked)
+	s.mode.phase = M.MATCH_OVER
+	s.start_match(10)
+	check("lock: a new match clears the locks", not s.mode.is_locked(0, 1) and not s.mode.is_locked(0, 0) and not s.mode.is_locked(0, 1))
+	# bots never sell
+	s = shop_sim([0, 1, 2], 20)
+	s.mode.owned[1] = {"bounce": 1}
+	s.mode.phase_t = Economy.BOT_SHOP_DELAY
+	Bot.shop(s, 1)
+	check("bot shop: never sells", s.mode.owned[1].has("bounce"))
+	# texts and panel
+	var short_ok := true
+	for id in Mods.ORDER:
+		short_ok = short_ok and Mods.short(id) != "" and Mods.short(id).split(" ").size() <= 8
+		short_ok = short_ok and ModIcon.COLORS.has(id)
+	check("shop text: every modifier has a short text (at most 8 words) and an icon colour", short_ok)
+	check("shop text: pips towards the next level", ShopPanel.pips(1) == Vector2i(0, 2) and ShopPanel.pips(2) == Vector2i(1, 2) and ShopPanel.pips(3) == Vector2i(0, 3) and ShopPanel.pips(5) == Vector2i(2, 3) and ShopPanel.pips(6) == Vector2i(3, 3) and ShopPanel.pips(9) == Vector2i(3, 3), str(ShopPanel.pips(2)) + str(ShopPanel.pips(5)))
+	check("shop text: what a buy gives", ShopPanel.gain_text(0) == "New · I" and ShopPanel.gain_text(1) == "Pip 1/2" and ShopPanel.gain_text(2) == "→ II" and ShopPanel.gain_text(3) == "Pip 1/3" and ShopPanel.gain_text(5) == "→ III")
+	s = shop_sim([0, 1], 50)
+	for k in Economy.SLOTS:
+		s.mode.owned[0][Mods.ORDER[k]] = 1 + k
+	var panel := ShopPanel.new()
+	panel.theme = UiKit.theme()
+	panel.refresh(s, 0)
+	var ms := panel.get_combined_minimum_size()
+	check("shop panel: five slots and three offers fit 960x540 without scrolling", ms.x <= 920.0 and ms.y <= 500.0 and Economy.SLOTS == 5 and Economy.OFFERS == 3, str(ms))
+	var shown := 0
+	for sl in panel.slots:
+		if sl["id"] != "":
+			shown += 1
+	check("shop panel: the slots show the build in order", shown == 5 and panel.slots[0]["id"] == Mods.ORDER[0] and panel.slots[4]["level"].text == "II")
+	panel.free()
 
 
 func _rm(path: String) -> void:

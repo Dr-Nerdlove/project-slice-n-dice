@@ -43,9 +43,12 @@ var underdog: Array = []
 var leader: Array = []
 ## The shop, per slot: `owned` modifier id -> copies (kept for the match); `offers` the current offers (ids, ""
 ## for one already bought); `shop_ready` done shopping; `shop_seq` counts shop actions, so a repeated request
-## (a double tap, a resent message) is refused instead of buying or rerolling twice.
+## (a double tap, a resent message) is refused instead of buying or rerolling twice. `locked` is a bool per offer index
+## (empty or shorter than `offers` = unlocked): a locked offer survives a reroll and the next shop; buying clears it.
+## The build slots are the keys of `owned` in insertion order (the sell command names the id as well).
 var owned: Array = []
 var offers: Array = []
+var locked: Array = []
 var shop_ready: Array = []
 var shop_seq: Array = []
 
@@ -62,6 +65,7 @@ func _init() -> void:
 		leader.append(false)
 		owned.append({})
 		offers.append([])
+		locked.append([])
 		shop_ready.append(false)
 		shop_seq.append(0)
 
@@ -90,6 +94,15 @@ func can_take(i: int, id: String) -> bool:
 	if copies >= Mods.COPIES_FOR_LEVEL[Mods.MAX_LEVEL - 1]:
 		return false
 	return copies > 0 or owned[i].size() < Economy.SLOTS
+
+
+func is_locked(i: int, k: int) -> bool:
+	return k >= 0 and k < locked[i].size() and locked[i][k]
+
+
+## Coins selling modifier `id` of slot `i` gives back (half the price of every copy, rounded down); 0 if not owned.
+func sell_refund(i: int, id: String) -> int:
+	return int(owned[i].get(id, 0)) * Mods.price(id) / 2
 
 
 ## Rule hook: has the round ended?

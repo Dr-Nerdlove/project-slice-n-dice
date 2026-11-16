@@ -11,7 +11,8 @@ extends RefCounted
 ##   [T_MODS, {modifier id: level}]          reliable, whenever the chosen modifier levels change
 ##   [T_SKIN, figure]                        reliable, whenever the chosen figure changes (int 0..SKIN_COUNT-1)
 ##   [T_PING, time]                          unreliable
-##   [T_SHOP, action, arg, seq]              reliable, a shop action (SHOP_BUY offer index / SHOP_REROLL / SHOP_DONE);
+##   [T_SHOP, action, arg, seq]              reliable, a shop action (SHOP_BUY offer index / SHOP_REROLL / SHOP_DONE /
+##                                           SHOP_SELL index in Mods.ORDER / SHOP_LOCK offer index);
 ##                                           seq is the slot's `MatchMode.shop_seq` the client saw (repeats are refused)
 ## server -> client
 ##   [T_WELCOME, version, slot, config]      reliable
@@ -20,7 +21,7 @@ extends RefCounted
 ##   snapshot packet (see snapshot_packet)  unreliable
 ## input = [move.x, move.y, aim.x, aim.y, flags]   flags: bit 0 aim_held, bit 1 dash
 
-const VERSION := 6
+const VERSION := 7
 const DEFAULT_PORT := 24565
 
 const T_HELLO := 1
@@ -32,6 +33,8 @@ const T_SHOP := 6
 const SHOP_BUY := 0
 const SHOP_REROLL := 1
 const SHOP_DONE := 2
+const SHOP_SELL := 3   # arg: index of the modifier in Mods.ORDER
+const SHOP_LOCK := 4   # arg: offer index; toggles the lock
 const T_WELCOME := 10
 const T_REJECT := 11
 const T_PONG := 12

@@ -128,6 +128,7 @@ func start_match(target: int) -> bool:
 		mode.earned[i] = 0
 		mode.owned[i] = {}
 		mode.offers[i] = []
+		mode.locked[i] = []
 		mode.shop_ready[i] = false
 		mode.shop_seq[i] = 0
 		apply_mods(i, {})
@@ -208,9 +209,11 @@ func _open_shop() -> void:
 	m.phase_t = 0.0
 	for i in players.size():
 		m.shop_ready[i] = false
-		m.offers[i] = []
 		if m.roster[i]:
-			_roll_offers(i)
+			_roll_offers(i)   # keeps the locked offers
+		else:
+			m.offers[i] = []
+			m.locked[i] = []
 	events.append({"type": "shop_open", "round": m.round})
 
 
@@ -222,16 +225,34 @@ func _all_shopped() -> bool:
 	return true
 
 
-## Draws up to Economy.OFFERS different modifiers slot `i` can take, from the sim's rng (deterministic).
+## Draws up to Economy.OFFERS different modifiers slot `i` can take, from the sim's rng (deterministic). Locked offers
+## that can still be taken stay where they are; the rest is redrawn without repeating a kept one.
 func _roll_offers(i: int) -> void:
+	var m := mode
+	var out: Array = []
+	var lock: Array = []
+	var used: Array[String] = []
+	for k in Economy.OFFERS:
+		var id := ""
+		if m.is_locked(i, k) and k < m.offers[i].size():
+			id = m.offers[i][k]
+		var keep: bool = id != "" and m.can_take(i, id)
+		out.append(id if keep else null)
+		lock.append(keep)
+		if keep:
+			used.append(id)
 	var pool: Array[String] = []
 	for id in Mods.ORDER:
-		if mode.can_take(i, id):
+		if m.can_take(i, id) and not used.has(id):
 			pool.append(id)
-	var out: Array = []
-	while out.size() < Economy.OFFERS and not pool.is_empty():
-		out.append(pool.pop_at(rng.randi_range(0, pool.size() - 1)))
-	mode.offers[i] = out
+	for k in out.size():
+		if out[k] == null:
+			out[k] = pool.pop_at(rng.randi_range(0, pool.size() - 1)) if not pool.is_empty() else ""
+	while not out.is_empty() and out[out.size() - 1] == "":
+		out.pop_back()
+	lock.resize(out.size())
+	m.offers[i] = out
+	m.locked[i] = lock
 
 
 func _shop_open_for(i: int, seq: int) -> bool:
@@ -249,6 +270,8 @@ func shop_buy(i: int, k: int, seq: int) -> bool:
 	mode.coins[i] -= Mods.price(id)
 	mode.owned[i][id] = int(mode.owned[i].get(id, 0)) + 1
 	mode.offers[i][k] = ""
+	if k < mode.locked[i].size():
+		mode.locked[i][k] = false
 	mode.shop_seq[i] += 1
 	apply_mods(i, mode.levels_of(i))
 	return true
@@ -261,6 +284,29 @@ func shop_reroll(i: int, seq: int) -> bool:
 	mode.coins[i] -= Economy.REROLL_PRICE
 	mode.shop_seq[i] += 1
 	_roll_offers(i)
+	return true
+
+
+## Sells modifier `id` of slot `i` with all its copies for half the price of each (rounded down); the build slot is free.
+func shop_sell(i: int, id: String, seq: int) -> bool:
+	if not _shop_open_for(i, seq) or not mode.owned[i].has(id):
+		return false
+	mode.coins[i] += mode.sell_refund(i, id)
+	mode.owned[i].erase(id)
+	mode.shop_seq[i] += 1
+	apply_mods(i, mode.levels_of(i))
+	return true
+
+
+## Toggles the (free) lock of offer `k`: a locked offer survives rerolls and stays for the next shop.
+func shop_lock(i: int, k: int, seq: int) -> bool:
+	if not _shop_open_for(i, seq) or k < 0 or k >= mode.offers[i].size() or mode.offers[i][k] == "":
+		return false
+	var lock: Array = mode.locked[i]
+	lock.resize(mode.offers[i].size())
+	lock[k] = not mode.is_locked(i, k)
+	mode.locked[i] = lock
+	mode.shop_seq[i] += 1
 	return true
 
 

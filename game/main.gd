@@ -151,6 +151,8 @@ func _ready() -> void:
 	overlay.shop_buy.connect(func(k: int) -> void: _shop(NetProto.SHOP_BUY, k))
 	overlay.shop_reroll.connect(func() -> void: _shop(NetProto.SHOP_REROLL))
 	overlay.shop_done.connect(func() -> void: _shop(NetProto.SHOP_DONE))
+	overlay.shop_sell.connect(func(n: int) -> void: _shop(NetProto.SHOP_SELL, n))
+	overlay.shop_lock.connect(func(k: int) -> void: _shop(NetProto.SHOP_LOCK, k))
 
 	bots = _make_bots()
 	_apply_bot_mode()
@@ -296,6 +298,11 @@ func _shop(action: int, arg := 0) -> void:
 				sim.shop_reroll(0, sim.mode.shop_seq[0])
 			NetProto.SHOP_DONE:
 				sim.shop_done(0)
+			NetProto.SHOP_SELL:
+				if arg >= 0 and arg < Mods.ORDER.size():
+					sim.shop_sell(0, Mods.ORDER[arg], sim.mode.shop_seq[0])
+			NetProto.SHOP_LOCK:
+				sim.shop_lock(0, arg, sim.mode.shop_seq[0])
 
 
 func _can_rematch() -> bool:
