@@ -13,6 +13,7 @@ signal join_local_requested(ip: String, port: int)
 signal join_code_requested(code: String)
 signal stop_requested
 signal figure_chosen(index: int)
+signal color_chosen(index: int)
 signal target_chosen(points: int)
 signal start_match_requested
 signal rejoin_requested
@@ -20,13 +21,14 @@ signal rejoin_requested
 ## Games listed at most (the page has no room to scroll).
 const MAX_FOUND := 2
 
-var cfg: Config                 # the saved config; only `character` is touched
+var cfg: Config                 # the saved config; only `character`, `player_color` and the game settings are touched
 ## How the figure choice is persisted (a test replaces this so it never writes the real settings file).
 var save_fn: Callable = TuningStore.save
 var back_btn: Button
 var solo_btn: Button
 var mode_card: PanelContainer
 var figure_buttons: Array[Button] = []
+var color_buttons: Array[Button] = []    # the eight palette swatches
 var target_buttons: Array[Button] = []   # First to 10 / 15 / 20
 var player_buttons: Array[Button] = []   # 2 .. 8 players
 var start_btn: Button           # host only: begins the match for everybody in the lobby
@@ -167,7 +169,7 @@ func _build_figures() -> Control:
 	panel.add_child(box)
 	box.add_child(UiKit.eyebrow("Your figure"))
 	figure_preview = FigurePreview.new()
-	figure_preview.custom_minimum_size = Vector2(0, 150)
+	figure_preview.custom_minimum_size = Vector2(0, 120)
 	figure_preview.mouse_filter = Control.MOUSE_FILTER_PASS
 	box.add_child(figure_preview)
 	var grid := GridContainer.new()
@@ -183,7 +185,35 @@ func _build_figures() -> Control:
 		b.pressed.connect(func() -> void: _choose_figure(i))
 		grid.add_child(b)
 		figure_buttons.append(b)
+	var swatches := HBoxContainer.new()
+	swatches.name = "Colours"
+	swatches.alignment = BoxContainer.ALIGNMENT_CENTER
+	swatches.add_theme_constant_override("separation", 6)
+	box.add_child(swatches)
+	for k in Config.COLOR_COUNT:
+		var s := _swatch(ArenaView.PLAYER_COLORS[k])
+		s.name = "Colour%d" % k
+		s.pressed.connect(func() -> void: _choose_color(k))
+		swatches.add_child(s)
+		color_buttons.append(s)
 	return panel
+
+
+## A round colour swatch toggle: thin dark edge, a thick ink edge when it is the chosen one.
+func _swatch(col: Color) -> Button:
+	var b := Button.new()
+	b.toggle_mode = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(30, 30)
+	for state in ["normal", "hover", "pressed", "hover_pressed", "focus", "disabled"]:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = col
+		sb.set_corner_radius_all(15)
+		var on: bool = state.contains("pressed")
+		sb.set_border_width_all(5 if on else 1)
+		sb.border_color = UiKit.INK if on else UiKit.INK.lerp(col, 0.4)
+		b.add_theme_stylebox_override(state, sb)
+	return b
 
 
 func _build_solo() -> Control:
@@ -293,6 +323,13 @@ func _choose_figure(i: int) -> void:
 	figure_chosen.emit(i)
 
 
+func _choose_color(k: int) -> void:
+	cfg.player_color = k
+	_mark_figure()
+	save_fn.call(cfg)
+	color_chosen.emit(k)
+
+
 func _choose_target(points: int) -> void:
 	cfg.target_score = points
 	_mark_target()
@@ -320,8 +357,11 @@ func _mark_target() -> void:
 func _mark_figure() -> void:
 	for i in figure_buttons.size():
 		figure_buttons[i].set_pressed_no_signal(i == cfg.character)
-	if figure_preview.figure == null or figure_preview.figure.kind != cfg.character:
-		figure_preview.show_figure(cfg.character, ArenaView.PLAYER_COLORS[0], _preview_cfg)
+	for k in color_buttons.size():
+		color_buttons[k].set_pressed_no_signal(k == cfg.player_color)
+	var col: Color = ArenaView.PLAYER_COLORS[cfg.player_color]
+	if figure_preview.figure == null or figure_preview.figure.kind != cfg.character or figure_preview.figure.player_color != col:
+		figure_preview.show_figure(cfg.character, col, _preview_cfg)
 
 
 ## Shows the lobby (the figure shown follows the saved choice) / hides it.

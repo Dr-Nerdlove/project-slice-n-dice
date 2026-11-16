@@ -82,6 +82,8 @@ var _wanted_mods: Dictionary = Mods.empty_levels()
 var _mods_dirty := true
 var _wanted_skin := -1   # -1: never chosen, keep the server's default
 var _skin_dirty := false
+var _wanted_color := -1  # -1: never chosen; the server decides, its value (from the snapshots) always wins
+var _color_dirty := false
 var _time_ms := 0.0
 var _connect_elapsed := 0.0
 var _silent := 0.0                 # seconds since the last snapshot (while ONLINE)
@@ -123,6 +125,15 @@ func set_skin(k: int) -> void:
 	if clean != _wanted_skin:
 		_wanted_skin = clean
 		_skin_dirty = true
+
+
+## The colour the local player wants; sent to the server when it changes. The server may resolve a collision, so the
+## client never keeps its own wish on top of snapshots.
+func set_color(k: int) -> void:
+	var clean := posmod(k, Config.COLOR_COUNT)
+	if clean != _wanted_color:
+		_wanted_color = clean
+		_color_dirty = true
 
 
 ## Leaves the game (or gives up connecting) and releases the socket. Safe to call in any state.
@@ -547,6 +558,9 @@ func tick(local: SimInput) -> void:
 		_skin_dirty = false
 		net.send(1, NetProto.pack([NetProto.T_SKIN, _wanted_skin]), true)
 		sim.set_skin(slot, _wanted_skin)
+	if _color_dirty:
+		_color_dirty = false
+		net.send(1, NetProto.pack([NetProto.T_COLOR, _wanted_color]), true)
 	sim.step(_inputs_with(inp))
 	events = sim.events.duplicate()
 	_time_ms += 1000.0 / Config.TICK_RATE

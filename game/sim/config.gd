@@ -39,6 +39,7 @@ const MIN_PLAYERS := 2
 const DEFAULT_PLAYERS := 4
 const TRAINING_PLAYERS := 4        # Training (and `--server`) keep four players
 const MAP_COUNT := 6               # maps to choose from (`map`); must equal MapDef.NAMES.size()
+const COLOR_COUNT := 8             # player colours to choose from; must equal ArenaView.PLAYER_COLORS.size()
 const SKIN_COUNT := 8              # player figures to choose from (presentation only); must equal ToyFigure.NAMES.size()
 const MOVE_DEADZONE := 0.1
 const SUBSTEP_FACTOR := 0.5        # max movement per substep as a fraction of the radius
@@ -129,6 +130,8 @@ var mods_you: Dictionary = Mods.empty_levels()
 var mods_bots: Dictionary = Mods.empty_levels()
 ## The figure the human player chose (0..SKIN_COUNT-1). Saved with the settings, but not a tuning value: reset leaves it.
 var character := 0
+## The colour the human player chose (0..COLOR_COUNT-1). Saved like `character`, not reset by Reset.
+var player_color := 0
 ## Points that win a Play match (one of MatchMode.TARGETS). Saved with the settings like `character`, not reset.
 var target_score := MatchMode.DEFAULT_TARGET
 ## Players in a Play match (MIN_PLAYERS..NUM_PLAYERS): you plus bots in Solo, the room size when hosting. Saved with the
@@ -179,6 +182,7 @@ func to_dict() -> Dictionary:
 	d["mods_you"] = mods_you.duplicate()
 	d["mods_bots"] = mods_bots.duplicate()
 	d["character"] = character
+	d["player_color"] = player_color
 	d["target_score"] = target_score
 	d["player_count"] = player_count
 	d["map"] = map
@@ -190,6 +194,8 @@ func from_dict(d: Dictionary) -> void:
 	mods_bots = Mods.sanitize(d.get("mods_bots"))
 	var ch: Variant = d.get("character")
 	character = posmod(int(ch), SKIN_COUNT) if (ch is int or (ch is float and is_finite(ch))) else 0
+	var pcol: Variant = d.get("player_color")
+	player_color = posmod(int(pcol), COLOR_COUNT) if (pcol is int or (pcol is float and is_finite(pcol))) else 0
 	var ts: Variant = d.get("target_score")
 	target_score = int(ts) if (ts is int or (ts is float and is_finite(ts))) and MatchMode.TARGETS.has(int(ts)) else MatchMode.DEFAULT_TARGET
 	var pc: Variant = d.get("player_count")

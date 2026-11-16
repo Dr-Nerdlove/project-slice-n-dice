@@ -350,6 +350,11 @@ func _on_packet(peer: int, data: PackedByteArray) -> void:
 				sim.set_skin(i, msg[1])
 			else:
 				dropped_packets += 1
+		NetProto.T_COLOR:
+			if msg.size() == 2 and msg[1] is int and msg[1] >= 0 and msg[1] < Config.COLOR_COUNT:
+				sim.set_color(i, msg[1])
+			else:
+				dropped_packets += 1
 		NetProto.T_SHOP:
 			if msg.size() == 4 and msg[1] is int and msg[2] is int and msg[3] is int:
 				apply_shop(i, msg[1], msg[2], msg[3])

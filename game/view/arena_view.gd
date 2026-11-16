@@ -3,9 +3,15 @@ extends Node3D
 ## 3D presentation. Only reads sim state; interpolates between the last two ticks.
 ## Sim (x, y) maps to 3D (x, 0, y).
 
-## The first four of the eight player colours of the "Kinderzimmer" style (pink, cyan, lime, orange).
+## The eight player colours to choose from (pink, cyan, lime, orange, purple, yellow, red, blue). A player's colour is
+## `PLAYER_COLORS[SimPlayer.color]`; it marks yo-yo, string, aim line, bursts, scoreboard and the ring at the figure.
 const PLAYER_COLORS: Array[Color] = [Color("ff2e88"), Color("00c2ff"), Color("7ddc1f"), Color("ff8a00"),
-	Color("a45cff"), Color("ffd400"), Color("2fe0b0"), Color("e8e8ef")]
+	Color("a45cff"), Color("ffd400"), Color("e53935"), Color("2f4bd9")]
+
+
+## The drawn colour of a player.
+static func color_of(p: SimPlayer) -> Color:
+	return PLAYER_COLORS[posmod(p.color, PLAYER_COLORS.size())]
 ## Which toy each player slot gets (for now fixed): pink bunny, cyan robot, lime dino, orange duck.
 const FIGURE_KINDS: Array[int] = [ToyPose.Kind.BUNNY, ToyPose.Kind.ROBOT, ToyPose.Kind.DINO, ToyPose.Kind.DUCK]
 const HEAD_Y := 0.35
@@ -55,6 +61,7 @@ var _wire_glow: Array[MeshInstance3D] = []
 var _shard_nodes: Array[MeshInstance3D] = []
 var _aim_marks: Array[MeshInstance3D] = []
 var _ring: MeshInstance3D
+var _shown_color: Array[int] = []   # per player: the palette index its figure, yo-yos and aim mark are built with
 var _spin := 0.0
 var _time := 0.0
 var _shake_t := 0.0
@@ -175,7 +182,8 @@ func _rebuild_playroom() -> void:
 
 func _build_players() -> void:
 	for i in sim.players.size():
-		var col := PLAYER_COLORS[i]
+		var col := color_of(sim.players[i])
+		_shown_color.append(posmod(sim.players[i].color, PLAYER_COLORS.size()))
 		var fig := ToyFigure.new(posmod(sim.players[i].skin, ToyFigure.NAMES.size()), col)
 		add_child(fig)
 		_bodies.append(fig)
@@ -347,9 +355,9 @@ func handle_event(e: Dictionary) -> void:
 			_explosion(pos, e["radius"] as float)
 			shake(Config.SHAKE_STRENGTH * 0.5, Config.SHAKE_TIME * 0.6)
 		"wire":
-			burst(pos, PLAYER_COLORS[e["owner"] as int], 12, 4.0)
+			burst(pos, color_of(sim.players[e["owner"] as int]), 12, 4.0)
 		"pickup":
-			burst(pos, PLAYER_COLORS[e["player"] as int], 6, 2.5)
+			burst(pos, color_of(sim.players[e["player"] as int]), 6, 2.5)
 		"stun":
 			burst(pos, Color(1, 0.95, 0.3), 10, 3.5)
 		"launch":
@@ -491,10 +499,26 @@ func _make_shard_node() -> MeshInstance3D:
 	return mi
 
 
+## The player's colour changed: new yo-yo heads and aim mark in the new colour (the figure is swapped by the caller).
+func _recolor_extras(i: int) -> void:
+	var col := PLAYER_COLORS[_shown_color[i]]
+	var heads: Array = _heads[i]
+	for k in heads.size():
+		var old: Node3D = heads[k]
+		var fresh := _make_head(col)
+		fresh.visible = old.visible
+		fresh.transform = old.transform
+		remove_child(old)
+		old.queue_free()
+		add_child(fresh)
+		heads[k] = fresh
+	_aim_marks[i].material_override = _mat(col.lightened(0.4), true, 0.6)
+
+
 ## Replaces the figure of player `i` by another kind (the player chose a different one).
 func _swap_figure(i: int, skin: int) -> ToyFigure:
 	var old := _figures[i]
-	var fig := ToyFigure.new(posmod(skin, ToyFigure.NAMES.size()), PLAYER_COLORS[i])
+	var fig := ToyFigure.new(posmod(skin, ToyFigure.NAMES.size()), PLAYER_COLORS[_shown_color[i]])
 	add_child(fig)
 	if _ring.get_parent() == old:
 		old.remove_child(_ring)
@@ -544,7 +568,12 @@ func render(alpha: float, delta: float) -> void:
 		var fig := _figures[i]
 		var vis := p.enabled and p.alive
 		var pos := p.prev_pos.lerp(p.pos, a)
-		if fig.kind != posmod(p.skin, ToyFigure.NAMES.size()):
+		var ci := posmod(p.color, PLAYER_COLORS.size())
+		if ci != _shown_color[i]:
+			_shown_color[i] = ci
+			_recolor_extras(i)
+			fig = _swap_figure(i, p.skin)
+		elif fig.kind != posmod(p.skin, ToyFigure.NAMES.size()):
 			fig = _swap_figure(i, p.skin)
 		# The yo-yo arm points along the string while a yo-yo is out.
 		fig.string_dir = Vector2.ZERO
@@ -623,7 +652,7 @@ func render(alpha: float, delta: float) -> void:
 				_string_segment(prev3, Vector3(hp.x, hy + 0.05, hp.y), width, scol)
 		if p.charging:
 			var path := src.aim_path(p)
-			var acol := PLAYER_COLORS[i].lightened(0.4)
+			var acol := color_of(p).lightened(0.4)
 			acol.a = 0.8
 			for k in range(1, path.size()):
 				_aim_segment(Vector3(path[k - 1].x, 0.05, path[k - 1].y), Vector3(path[k].x, 0.05, path[k].y), Config.AIM_LINE_WIDTH, acol)
@@ -677,7 +706,7 @@ func _render_wires() -> void:
 				_place_line(core, a3, b3, core_w)
 				_place_line(glow, a3 + Vector3(0, -0.01, 0), b3 + Vector3(0, -0.01, 0), glow_w)
 			else:
-				var c := PLAYER_COLORS[w.owner_id]
+				var c := color_of(sim.players[w.owner_id])
 				cmat.albedo_color = Color(c.r, c.g, c.b, blink)
 				_place_line(core, a3, b3, core_w)
 				glow.visible = false

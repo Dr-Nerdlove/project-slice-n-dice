@@ -9,6 +9,7 @@ extends RefCounted
 ##   [T_HELLO, version, token]               reliable, first message after connecting (token: the install's identity, 8..64 chars of 0-9a-f)
 ##   [T_INPUT, seq, [input, ...]]            unreliable, newest first (seq, seq-1, ...)
 ##   [T_MODS, {modifier id: level}]          reliable, whenever the chosen modifier levels change
+##   [T_COLOR, colour]                       reliable, whenever the chosen colour changes (int 0..COLOR_COUNT-1); the server may pick another one when it is taken
 ##   [T_SKIN, figure]                        reliable, whenever the chosen figure changes (int 0..SKIN_COUNT-1)
 ##   [T_PING, time]                          unreliable
 ##   [T_SHOP, action, arg, seq]              reliable, a shop action (SHOP_BUY offer index / SHOP_REROLL / SHOP_DONE /
@@ -21,7 +22,7 @@ extends RefCounted
 ##   snapshot packet (see snapshot_packet)  unreliable
 ## input = [move.x, move.y, aim.x, aim.y, flags]   flags: bit 0 aim_held, bit 1 dash
 
-const VERSION := 7
+const VERSION := 9
 const DEFAULT_PORT := 24565
 
 const T_HELLO := 1
@@ -30,6 +31,7 @@ const T_MODS := 3
 const T_PING := 4
 const T_SKIN := 5
 const T_SHOP := 6
+const T_COLOR := 7
 const SHOP_BUY := 0
 const SHOP_REROLL := 1
 const SHOP_DONE := 2

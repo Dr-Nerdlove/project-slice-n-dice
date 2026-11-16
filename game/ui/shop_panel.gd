@@ -35,6 +35,11 @@ class Pips extends Control:
 			else:
 				draw_arc(c, r - 1.0, 0.0, TAU, 16, UiKit.MUTE, 2.0)
 
+## Width of every offer card, sold or not (wide enough for the longest modifier name next to "Locked").
+const CARD_WIDTH := 320.0
+## Font size of the modifier name under a build slot.
+const SLOT_NAME_SIZE := 14
+
 var coins_tag: PanelContainer
 var time_label: Label
 var cards_box: HBoxContainer
@@ -115,6 +120,9 @@ func _make_card(k: int) -> Control:
 	var card := PanelContainer.new()
 	card.add_theme_stylebox_override("panel", _style(UiKit.LINE, 2, 8))
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# A fixed width: otherwise a sold (empty) card shrinks and the panel changes size after every buy,
+	# and the panel's minimum width left no room for the names.
+	card.custom_minimum_size.x = CARD_WIDTH
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 4)
 	card.add_child(v)
@@ -133,16 +141,17 @@ func _make_card(k: int) -> Control:
 	names.add_child(n)
 	var g := UiKit.label("", UiKit.SMALL_SIZE - 3, UiKit.TOMATO, true)
 	names.add_child(g)
-	var lock := Button.new()
+	var lock := UiKit.compact(UiKit.button("Lock", "paper"), 44.0, 18)
 	lock.toggle_mode = true
-	lock.text = "Lock"
-	lock.focus_mode = Control.FOCUS_NONE
 	lock.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	lock.pressed.connect(func() -> void: lock_pressed.emit(k))
 	row.add_child(lock)
 	var d := UiKit.label("", UiKit.SMALL_SIZE - 2, UiKit.INK)
 	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	d.custom_minimum_size = Vector2(0, 40)
+	# exactly two lines high, so no card ever changes height
+	var df := d.get_theme_font("font")
+	var dsize := d.get_theme_font_size("font_size")
+	d.custom_minimum_size = Vector2(0, 2.0 * df.get_height(dsize) + d.get_theme_constant("line_spacing"))
 	v.add_child(d)
 	var buy_row := HBoxContainer.new()
 	buy_row.add_theme_constant_override("separation", 8)
@@ -156,6 +165,21 @@ func _make_card(k: int) -> Control:
 	buy_row.add_child(b)
 	cards.append({"icon": icon, "name": n, "gain": g, "desc": d, "price": price, "buy": b, "lock": lock, "panel": card})
 	return card
+
+
+## A locked offer's button is yellow (the shop's accent); an unlocked one is the theme's paper button.
+func _style_lock(b: Button, locked: bool) -> void:
+	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+		var base: String = "pressed" if state == "hover_pressed" else state
+		var sb := UiKit.theme().get_stylebox(base, "PaperButton").duplicate() as StyleBoxFlat
+		if locked:
+			sb.bg_color = UiKit.SUN.darkened(0.08) if base == "pressed" else UiKit.SUN
+			sb.border_color = UiKit.SUN.darkened(0.35)
+		sb.content_margin_left = 10.0
+		sb.content_margin_right = 10.0
+		sb.content_margin_top = 4.0 + (sb.content_margin_top - 14.0)
+		sb.content_margin_bottom = 4.0 + (sb.content_margin_bottom - 14.0)
+		b.add_theme_stylebox_override(state, sb)
 
 
 func _make_slot(n: int) -> Control:
@@ -173,12 +197,22 @@ func _make_slot(n: int) -> Control:
 	var lv := UiKit.heading("", 20)
 	lv.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(lv)
+	var gap := Control.new()
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(gap)
+	var sell := UiKit.price_tag("", SLOT_NAME_SIZE)
+	sell.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	sell.visible = false
+	row.add_child(sell)
+	var nm := UiKit.label("", SLOT_NAME_SIZE, UiKit.INK, true)
+	nm.name = "SlotName"
+	v.add_child(nm)
 	var pips := Pips.new()
 	v.add_child(pips)
 	p.gui_input.connect(func(ev: InputEvent) -> void:
 		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
 			_on_slot(n))
-	slots.append({"panel": p, "icon": icon, "level": lv, "pips": pips, "id": ""})
+	slots.append({"panel": p, "icon": icon, "level": lv, "name": nm, "sell": sell, "pips": pips, "id": ""})
 	return p
 
 
@@ -270,7 +304,7 @@ func refresh(sim: Sim, own: int) -> void:
 		c["icon"].id = id
 		c["name"].text = Mods.mod_name(id)
 		c["gain"].text = gain_text(copies)
-		c["desc"].text = Mods.short(id)
+		c["desc"].text = Mods.short(id, maxi(Mods.level_for_copies(copies + 1), 1))
 		(c["price"].get_node("Text") as Label).text = "%d ¢" % Mods.price(id)
 		(c["price"] as Control).visible = true
 		buy.visible = true
@@ -279,6 +313,7 @@ func refresh(sim: Sim, own: int) -> void:
 		lock.visible = not done
 		lock.set_pressed_no_signal(locked)
 		lock.text = "Locked" if locked else "Lock"
+		_style_lock(lock, locked)
 		panel.add_theme_stylebox_override("panel", _style(UiKit.SUN if locked else UiKit.LINE, 3 if locked else 2, 8))
 		panel.modulate = Color(1, 1, 1, 0.6) if not can else Color.WHITE
 	var ids := build_ids(m, own)
@@ -292,11 +327,16 @@ func refresh(sim: Sim, own: int) -> void:
 			s["id"] = ids[n]
 			s["icon"].id = ids[n]
 			s["level"].text = Mods.ROMAN[Mods.level_for_copies(copies)]
+			s["name"].text = Mods.mod_name(ids[n])
+			(s["sell"].get_node("Text") as Label).text = "+%d ¢" % m.sell_refund(own, ids[n])
+			(s["sell"] as Control).visible = true
 			s["pips"].set_pips(p.x, p.y)
 		else:
 			s["id"] = ""
 			s["icon"].id = ""
 			s["level"].text = ""
+			s["name"].text = ""
+			(s["sell"] as Control).visible = false
 			s["pips"].set_pips(0, 0)
 	_apply_selection()
 	reroll_btn.disabled = done or coins < Economy.REROLL_PRICE

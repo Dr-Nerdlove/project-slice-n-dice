@@ -4,6 +4,23 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.9.0
+
+- **Choose your colour**: the Play lobby has a row of eight colours under the figures. Your colour is used for
+  your yo-yo, its string, your aim line, a ring on the floor around your figure and your dots in the scoreboard,
+  so the scoreboard now matches what you see in the arena. Every figure keeps its own toy colour (before, all
+  figures of a player were tinted in the player's colour, e.g. always pink). No two players share a colour: if
+  yours is taken, you get the next free one. (Not looked at on a real screen yet.)
+- **A clearer shop**:
+  - All three offer cards keep the same width; buying no longer makes the shop change size, and modifier names
+    are no longer cut off.
+  - New short texts for every modifier and level, so you can tell what a modifier does (e.g. Rubber Band: "Zip to
+    your yo-yo faster and fly past it"); a card shows the text of the level you get by buying it ("EVEN bigger
+    explosions").
+  - The Lock button looks like a button now and turns yellow when an offer is locked.
+  - Your modifiers in the bottom row show their name and, top right, what you get for selling them ("+4 ¢").
+- Hosting and joining needs the same version on every phone (network protocol 8): update all phones.
+
 ## 0.8.0
 
 - **2 to 8 players in Play**: the lobby has a new **Players** row (2 to 8). Solo is you plus bots up to that
