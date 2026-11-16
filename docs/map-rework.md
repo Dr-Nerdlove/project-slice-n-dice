@@ -293,10 +293,36 @@ testers is the owners' call; a good moment is after A (the floor plans are what 
   pockets, which the 14 m sight rule needs) and two short walls on opposite sides of the vertical run; zone areas moved
   down by 0.2 to 0.4 m to clear the new walls. Old tests: none had to change, the belt tests already run on
   stripped arenas.)
-- [ ] A2 Lava Mats
-- [ ] A3 Bounce House
-- [ ] A4 Magnet Lab
-- [ ] A5 Piggy Bank
+- [x] A2 Lava Mats (built; 12 obstacles, point-symmetric, `NetProto.VERSION` 12, version 0.13.0 because 0.12.0 was
+  released with the old layout of map 2. Changes against the idea: the pinwheel is a windmill of four touching bars
+  around an open 2 m courtyard (a plus-shaped hub is impossible: two bars separated by a third closer than 2.0 m break
+  the passage rule), two long and two short bars so it does not read as a symbol; the bars are 1.0 m thick because
+  touching 0.8 m bars overlap by a float32 rounding error; walls next to a zone area sit flush against it (0.4 m off
+  the seam) because a wall centred on the seam would reach 0.4 m into the area; the zone areas moved to the
+  top-middle-right, bottom-middle-left, left and right mat pairs; four corner rooms replace the corner blocks. The
+  escape test checks the real walking distance on the NavGrid (limit speed x `LAVA_WARN` = 9 m), so layout alone
+  guarantees it. Bot: `_lava_steer` now walks the NavGrid path. Old tests: only the position of the safe player in
+  `_lava_tests` was moved off a new wall.)
+- [x] A3 Bounce House (built; 11 obstacles, mirror-symmetric about x = 16 instead of point-symmetric because the zigzag of doors (top, bottom, top) is not point-symmetric; `NetProto.VERSION` 13. Changes against the idea: the strips are 8.5, 6, 6 and 8.5 m wide, doors are 4.0 m tall so a zone area fits across the top ones; pads S1->S2, S2->S4, S4->S3, S3->S1; the bot rule is `Bot._pad_goal` (walk to a pad when it saves 10 m of walking and is within 9 m on foot, via `NavGrid.path_length`). Old tests: the pad test in `_bounce_tests` was moved to the new pad positions.)
+- [x] A4 Magnet Lab (built; 17 obstacles, point-symmetric, `NetProto.VERSION` 14. Changes against the idea: the 2.0 m
+  passage rule is measured to the magnet blocks too, and the magnets (1.6 m) plus two inner walls plus the centre
+  wall do not fit into 8.4 m with three gaps of 2.0 m on each side, so each square has three walls (outer, above,
+  below; 3.0 m, open corners) and the long middle wall is its fourth side (4.6 and 5.0 m from the magnets); the
+  walls above and below sit away from the middle so the corners are open by the passage rule; the middle wall
+  got a 3.0 m stem to the top and to the bottom wall (doors of 2.0 m), and a stem under each outer horizontal
+  wall closes the lane towards the end room: without them no set of eight starts could stay out of sight of
+  each other; the stub from the end wall was not needed; the cross walls are 3.6 m from the short walls, 5 m
+  long. Zone areas: the four corners of the two end rooms (the top and bottom of the middle are narrower than
+  3.6 m or taken by the stems), the chest and the present moved next to the middle wall's doors. Old tests: the
+  magnet bending tests and a bot path test now strip the obstacles (they test physics on open floor).)
+- [x] A5 Piggy Bank (built; 13 obstacles, point-symmetric, `NetProto.VERSION` 15. Changes against the idea: the ring is
+  1.0 m thick (exact sums), the open square is 8 x 6.4 m, entrances are 2.5 m (sides 2.4 m); the aisle walls are at
+  x 5 and 26, 6 m long; with only these walls no set of eight starts could stay out of sight of each other, so each
+  end got a short wall from the outer wall (3 m, 2.0 m from the aisle wall) that splits the aisle. Starts are not
+  exactly "two per aisle, two above, two below" (found by a search, point-symmetric); the chest and the present stay
+  on the top and bottom centre line outside the ring, 1.6 m from the outer wall. Zone areas: the four corners as
+  before. Bot: `_pig_wanted` also needs a clear line to the pig (shelves block). Old tests: none had to change.
+  "After all six" (zone times) is NOT done: it needs a decision of the owners after playing the rounds on a phone.)
 - [ ] B0 theme system
 - [ ] B1..B6 themes of maps 0 to 5
 - [ ] C tall carpet

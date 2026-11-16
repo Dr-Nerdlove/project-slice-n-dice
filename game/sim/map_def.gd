@@ -20,7 +20,7 @@ const HINTS: Array[String] = [
 
 ## Maps whose floor plan has been rebuilt (docs/map-rework.md). The stricter floor-plan rules of the tests (10 to
 ## 18 obstacles, spawn points far apart and out of sight, the 2.0 m passage rule) apply only to these.
-const REWORKED: Array[int] = [0, 1]
+const REWORKED: Array[int] = [0, 1, 2, 3, 4, 5]
 
 # --- layout per map (index = map id) ---
 const OBSTACLES: Array = [
@@ -32,15 +32,44 @@ const OBSTACLES: Array = [
 			Rect2(22.0, 12.0, 1.0, 2.4), Rect2(22.0, 4.4, 1.0, 5.0), Rect2(22.0, 0.0, 1.0, 2.0),
 			Rect2(0.0, 4.8, 6.4, 0.8), Rect2(25.6, 8.8, 6.4, 0.8), Rect2(0.0, 9.5, 5.6, 0.8), Rect2(26.4, 4.1, 5.6, 0.8),
 			Rect2(14.1, 5.4, 0.8, 2.4), Rect2(17.1, 6.6, 0.8, 2.4)],
-	[Rect2(15.2, 6.4, 1.6, 1.6), Rect2(3.0, 1.0, 2.0, 1.6), Rect2(27.0, 11.8, 2.0, 1.6), Rect2(9.0, 11.6, 1.6, 1.6),
-			Rect2(21.4, 1.2, 1.6, 1.6)],
-	[Rect2(15.4, 3.2, 1.2, 8.0), Rect2(9.6, 1.4, 1.8, 1.8), Rect2(20.6, 11.2, 1.8, 1.8)],
-	# Magnet Lab: the two magnets first (MAGNETS holds their centres), then the centre wall and two blocks.
-	[Rect2(10.2, 6.4, 1.6, 1.6), Rect2(20.2, 6.4, 1.6, 1.6), Rect2(15.6, 5.8, 0.8, 2.8), Rect2(15.1, 2.2, 1.8, 1.8),
-			Rect2(15.1, 10.4, 1.8, 1.8)],
-	# Piggy Bank: the pig first (PIG_RECT), then four blocks around it.
-	[Rect2(15.0, 6.2, 2.0, 2.0), Rect2(10.2, 3.2, 1.6, 1.6), Rect2(20.2, 3.2, 1.6, 1.6), Rect2(10.2, 9.6, 1.6, 1.6),
-			Rect2(20.2, 9.6, 1.6, 1.6)],
+	# Lava Mats: a pillow fort. A windmill of four bars (1.0 m thick so that they meet exactly in float32; two long,
+	# two short, so it does not read as a symbol) around a 2 m courtyard at the centre, and in each corner a small
+	# room with a 2 m way out (0.8 m walls). Walls stand on mat seams; where a seam borders a final zone area the
+	# wall sits flush against the area (0.4 m off the seam) so the area stays free. No wall closes the seam inside
+	# a mat pair (x = 4, 12, 20, 28). Point-symmetric about the arena centre.
+	[Rect2(17.0, 5.2, 5.0, 1.0), Rect2(17.0, 6.2, 1.0, 3.8), Rect2(10.0, 8.2, 5.0, 1.0), Rect2(14.0, 4.4, 1.0, 3.8),
+			Rect2(0.0, 3.2, 5.6, 0.8), Rect2(7.6, 0.0, 0.8, 4.4), Rect2(26.4, 10.4, 5.6, 0.8), Rect2(23.6, 10.0, 0.8, 4.4),
+			Rect2(24.0, 0.0, 0.8, 3.6), Rect2(26.8, 2.8, 5.2, 0.8), Rect2(7.2, 10.8, 0.8, 3.6), Rect2(0.0, 10.8, 5.2, 0.8)],
+	# Bounce House: three long walls (1.0 m thick) divide the room into four strips side by side, each with ONE walking
+	# door: left wall at the top, middle wall at the bottom, right wall at the top (a zigzag from one end to the other;
+	# the doors are 4.0 m tall so that a zone area fits across the top ones). Covers inside the strips hide the two
+	# starts of a strip from each other. Mirror-symmetric about x = 16 (the strips are 8.5, 6.0, 6.0 and 8.5 m wide).
+	[Rect2(8.5, 4.0, 1.0, 10.4), Rect2(15.5, 0.0, 1.0, 10.4), Rect2(22.5, 4.0, 1.0, 10.4),
+			Rect2(0.0, 6.5, 6.0, 1.0), Rect2(26.0, 6.5, 6.0, 1.0), Rect2(11.5, 6.5, 2.0, 1.0), Rect2(18.5, 6.5, 2.0, 1.0),
+			Rect2(12.5, 11.9, 1.0, 2.5), Rect2(18.5, 11.9, 1.0, 2.5), Rect2(3.0, 2.0, 1.0, 1.0), Rect2(28.0, 2.0, 1.0, 1.0)],
+	# Magnet Lab: the two magnets first (MAGNETS holds their centres). Around each magnet a broken square: an outer
+	# wall (3.0 m), a wall above and one below (3.0 m, open corners) and, on the inner side, the long middle wall. A
+	# straight throw into a square is blocked, a throw bent by the magnet goes round. The middle wall is extended to
+	# the top and bottom wall with a 2.0 m door on each side of its centre piece. The walls above and below a square
+	# end in a stem to the outer wall, a cross wall near each short side makes the end rooms. Point-symmetric about
+	# the arena centre. The 2.0 m passage rule keeps every wall 2.0 m from a magnet block, so the plan's inner walls
+	# at 2.5 to 5 m would not fit between the magnets and the middle wall.
+	[Rect2(10.2, 6.4, 1.6, 1.6), Rect2(20.2, 6.4, 1.6, 1.6), Rect2(15.6, 5.0, 0.8, 4.4),
+			Rect2(7.3, 5.7, 0.8, 3.0), Rect2(23.9, 5.7, 0.8, 3.0),
+			Rect2(8.6, 2.8, 3.0, 0.8), Rect2(8.6, 10.8, 3.0, 0.8), Rect2(20.4, 2.8, 3.0, 0.8), Rect2(20.4, 10.8, 3.0, 0.8),
+			Rect2(3.6, 4.7, 0.8, 5.0), Rect2(27.6, 4.7, 0.8, 5.0),
+			# (the bottom stems are 2.799999 tall: 11.6 + 2.8 would end one float step beyond the outer wall)
+			Rect2(8.6, 0.0, 0.8, 2.8), Rect2(8.6, 11.6, 0.8, 2.799999), Rect2(22.6, 0.0, 0.8, 2.8), Rect2(22.6, 11.6, 0.8, 2.799999),
+			Rect2(15.6, 0.0, 0.8, 3.0), Rect2(15.6, 11.4, 0.8, 3.0)],
+	# Piggy Bank: the pig first (PIG_RECT). Round it a ring of shelves with an entrance in the middle of each side:
+	# four L-shaped corners (1.0 m thick, so the pieces touch exactly), an open square of 8 x 6.4 m inside. Two aisle
+	# walls (x 5 and 26) leave the ends of the room as aisles; a short wall from the left and right wall (2.0 m
+	# from the aisle wall) splits each aisle so the two starts in it cannot see each other. Point-symmetric.
+	[Rect2(15.0, 6.2, 2.0, 2.0),
+			Rect2(11.0, 3.0, 1.0, 3.0), Rect2(12.0, 3.0, 2.75, 1.0), Rect2(17.25, 3.0, 2.75, 1.0), Rect2(20.0, 3.0, 1.0, 3.0),
+			Rect2(11.0, 8.4, 1.0, 3.0), Rect2(12.0, 10.4, 2.75, 1.0), Rect2(17.25, 10.4, 2.75, 1.0), Rect2(20.0, 8.4, 1.0, 3.0),
+			Rect2(5.0, 4.2, 1.0, 6.0), Rect2(26.0, 4.2, 1.0, 6.0),
+			Rect2(0.0, 6.7, 3.0, 1.0), Rect2(29.0, 6.7, 3.0, 1.0)],
 ]
 ## How many of a map's first obstacles the view dresses itself (magnets, the pig) instead of as building blocks.
 const SPECIAL_OBSTACLES: Array[int] = [0, 0, 0, 0, 2, 1]
@@ -48,30 +77,36 @@ const SPAWNS: Array = [
 	[],  # map 0: Config.SPAWNS
 	[Vector2(4.5, 7.8), Vector2(27.5, 6.6), Vector2(1.6, 1.6), Vector2(30.4, 12.8),
 			Vector2(1.6, 13.2), Vector2(30.4, 1.2), Vector2(12.4, 7.2), Vector2(19.6, 7.2)],
-	[Vector2(2.0, 9.0), Vector2(30.0, 5.4), Vector2(2.0, 5.4), Vector2(30.0, 9.0),
-			Vector2(10.0, 1.8), Vector2(22.0, 12.6), Vector2(14.0, 12.6), Vector2(18.0, 1.8)],
-	[Vector2(2.8, 7.2), Vector2(29.2, 7.2), Vector2(2.8, 2.2), Vector2(29.2, 12.2),
-			Vector2(8.0, 12.6), Vector2(24.0, 1.8), Vector2(10.6, 7.6), Vector2(21.4, 6.8)],
-	[Vector2(2.8, 7.2), Vector2(29.2, 7.2), Vector2(2.8, 2.0), Vector2(29.2, 12.4),
-			Vector2(2.8, 12.4), Vector2(29.2, 2.0), Vector2(12.5, 1.4), Vector2(19.5, 13.0)],
-	[Vector2(2.8, 7.2), Vector2(29.2, 7.2), Vector2(2.8, 2.2), Vector2(29.2, 12.2),
-			Vector2(2.8, 12.2), Vector2(29.2, 2.2), Vector2(12.0, 13.0), Vector2(20.0, 1.4)],
+	[Vector2(3.0, 1.6), Vector2(29.0, 12.8), Vector2(29.0, 1.2), Vector2(3.0, 13.2),
+			Vector2(10.0, 5.6), Vector2(22.0, 8.8), Vector2(20.0, 3.0), Vector2(12.0, 11.4)],
+	[Vector2(2.0, 4.8), Vector2(30.0, 4.8), Vector2(2.0, 12.4), Vector2(30.0, 12.4),
+			Vector2(12.5, 4.6), Vector2(19.5, 4.6), Vector2(11.0, 12.9), Vector2(21.0, 12.9)],
+	# Magnet Lab: four on each side of the middle wall, all out of sight of each other (the squares, the stems and
+	# the cross walls hide them); one is in each end room.
+	[Vector2(1.4, 5.2), Vector2(5.2, 12.4), Vector2(13.2, 10.6), Vector2(11.0, 1.2),
+			Vector2(30.6, 9.2), Vector2(26.8, 2.0), Vector2(18.8, 3.8), Vector2(21.0, 13.2)],
+	# Piggy Bank: spread over the ends, the sides and the top and bottom strips; the ring and the aisle walls hide
+	# them from each other (point-symmetric, so no start is better than another).
+	[Vector2(1.0, 1.0), Vector2(9.0, 6.5), Vector2(19.0, 1.0), Vector2(29.0, 5.0),
+			Vector2(31.0, 13.4), Vector2(23.0, 7.9), Vector2(13.0, 13.4), Vector2(3.0, 9.4)],
 ]
 ## Where the shrinking zone can end (each ARENA_SIZE / 4, free of blocks, chest, present, belts and trampolines).
 const ZONE_SPOTS: Array = [
 	[],  # map 0: Config.ZONE_SPOTS
 	[Rect2(0.8, 5.8, 8.0, 3.6), Rect2(23.2, 5.0, 8.0, 3.6), Rect2(0.8, 10.4, 8.0, 3.6), Rect2(23.2, 0.4, 8.0, 3.6)],
 	# Lava Mats: each is one mat pair, so a wave never takes more than half of it.
-	[Rect2(8.0, 0.0, 8.0, 3.6), Rect2(16.0, 10.8, 8.0, 3.6), Rect2(0.0, 7.2, 8.0, 3.6), Rect2(24.0, 3.6, 8.0, 3.6)],
-	[Rect2(0.8, 5.4, 8.0, 3.6), Rect2(23.2, 5.4, 8.0, 3.6), Rect2(0.8, 0.4, 8.0, 3.6), Rect2(23.2, 10.4, 8.0, 3.6)],
-	[Rect2(0.8, 5.4, 8.0, 3.6), Rect2(23.2, 5.4, 8.0, 3.6), Rect2(0.8, 0.4, 8.0, 3.6), Rect2(23.2, 10.4, 8.0, 3.6)],
+	[Rect2(16.0, 0.0, 8.0, 3.6), Rect2(8.0, 10.8, 8.0, 3.6), Rect2(0.0, 7.2, 8.0, 3.6), Rect2(24.0, 3.6, 8.0, 3.6)],
+	# Bounce House: the bottom of the two outer strips, and the top across the two upper doors.
+	[Rect2(0.25, 10.2, 8.0, 3.6), Rect2(23.75, 10.2, 8.0, 3.6), Rect2(4.75, 0.25, 8.0, 3.6), Rect2(19.25, 0.25, 8.0, 3.6)],
+	# Magnet Lab: the four corners of the two end rooms.
+	[Rect2(0.4, 0.4, 8.0, 3.6), Rect2(0.4, 10.4, 8.0, 3.6), Rect2(23.6, 0.4, 8.0, 3.6), Rect2(23.6, 10.4, 8.0, 3.6)],
 	# Piggy Bank: the four corners, never the pig.
 	[Rect2(0.8, 0.4, 8.0, 3.6), Rect2(23.2, 0.4, 8.0, 3.6), Rect2(0.8, 10.4, 8.0, 3.6), Rect2(23.2, 10.4, 8.0, 3.6)],
 ]
 const CRATE_STARTS: Array[Vector2] = [
-	Vector2.ZERO, Vector2(6.0, 3.7), Vector2(12.0, 5.4), Vector2(16.0, 1.6), Vector2(8.5, 11.8), Vector2(16.0, 2.4)]
+	Vector2.ZERO, Vector2(6.0, 3.7), Vector2(12.0, 5.4), Vector2(16.0, 12.4), Vector2(17.2, 4.6), Vector2(16.0, 1.6)]
 const BOX_POSITIONS: Array[Vector2] = [
-	Vector2.ZERO, Vector2(26.0, 13.1), Vector2(20.0, 9.0), Vector2(16.0, 12.8), Vector2(23.5, 2.6), Vector2(16.0, 12.0)]
+	Vector2.ZERO, Vector2(26.0, 13.1), Vector2(20.0, 9.0), Vector2(3.0, 9.0), Vector2(14.8, 9.8), Vector2(16.0, 12.8)]
 
 # --- 1 Assembly Line: conveyor belts ---
 const BELT_SPEED := 4.0
@@ -104,12 +139,13 @@ const PAD_RADIUS := 0.95
 const AIR_TIME := 0.75           # seconds in the air
 const AIR_HEIGHT := 3.2          # top of the arc (view only)
 const STOMP_RADIUS := 1.4        # who is this close to the landing point is squashed
-## [trampoline centre, landing spot]
+## [trampoline centre, landing spot]. Every strip (left to right: S1..S4) has one pad and one landing spot: the pad of S1
+## lands in S2, the pad of S2 in S4, and the mirrored pair: S4 to S3, S3 to S1.
 const PADS: Array = [
-	[Vector2(12.6, 5.2), Vector2(19.8, 5.2)],
-	[Vector2(19.4, 9.2), Vector2(12.2, 9.2)],
-	[Vector2(2.4, 12.2), Vector2(13.2, 12.6)],
-	[Vector2(29.6, 2.2), Vector2(18.8, 1.8)],
+	[Vector2(7.0, 5.0), Vector2(11.6, 9.6)],
+	[Vector2(25.0, 5.0), Vector2(20.4, 9.6)],
+	[Vector2(14.2, 9.4), Vector2(27.2, 10.4)],
+	[Vector2(17.8, 9.4), Vector2(4.8, 10.4)],
 ]
 
 # --- 4 Magnet Lab ---

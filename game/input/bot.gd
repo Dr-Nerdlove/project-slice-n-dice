@@ -22,6 +22,8 @@ var _urgent := false          # set by `_wander`: running from a marked mat, so 
 var _nav_t := 0.0             # seconds until the next path search (the waypoint is kept in between)
 var _nav_point := Vector2.ZERO
 var _nav_goal := Vector2.ZERO
+var _pad_t := 0.0             # seconds until the next look at the trampolines (Bounce House)
+var _pad_pick := -1           # the trampoline the bot is walking to, or -1
 var _aim_pig := false         # the throw being charged goes at the piggy bank
 
 
@@ -152,7 +154,13 @@ func _train_near(sim: Sim, me: SimPlayer, extra: float) -> bool:
 func _pig_wanted(sim: Sim, me: SimPlayer, enemy_dist: float) -> bool:
 	if sim.map_id != MapDef.Id.PIGGY or sim.pig_coins <= 0 or enemy_dist < Config.BOT_PIG_ENEMY_DIST:
 		return false
-	return me.pos.distance_to(MapDef.PIG_RECT.get_center()) < cfg.effective_max_range() * 0.95
+	var pig := MapDef.PIG_RECT.get_center()
+	var d := me.pos.distance_to(pig)
+	if d >= cfg.effective_max_range() * 0.95:
+		return false
+	# the shelves round the pig: no throw through a wall (the check stops 2.2 m short of the pig's middle, before its own block)
+	var stop := pig + (me.pos - pig).normalized() * 2.2
+	return d <= 2.2 or NavGrid.for_sim(sim).line_clear(me.pos, stop, THROW_CLEARANCE)
 
 
 ## True when a dash of length `extra` could carry the bot into trouble on this map: any marked mat (Lava Mats), a
@@ -169,9 +177,9 @@ func _map_hazard_near(sim: Sim, me: SimPlayer, extra: float) -> bool:
 	return false
 
 
-## Lava Mats. On a marked mat: straight to the nearest spot on a safe one (inside the zone if possible), at full
+## Lava Mats. On a marked mat: along the walking path to the nearest spot on a safe one (inside the zone if possible), at full
 ## speed. Next to marked mats: pushed away from their edges.
-func _lava_steer(sim: Sim, me: SimPlayer, zone: Rect2) -> Vector2:
+func _lava_steer(sim: Sim, me: SimPlayer, zone: Rect2, dt: float) -> Vector2:
 	if sim.lava_cells.is_empty():
 		return Vector2.ZERO
 	if sim.lava_cells.has(MapDef.lava_cell(me.pos)):
@@ -192,7 +200,8 @@ func _lava_steer(sim: Sim, me: SimPlayer, zone: Rect2) -> Vector2:
 				best_d = d
 				best = q
 		_urgent = true
-		return (best - me.pos).normalized() * Config.BOT_LAVA_WEIGHT
+		# around the walls of the floor plan, not straight into them
+		return (_steer_point(sim, me, best, dt) - me.pos).normalized() * Config.BOT_LAVA_WEIGHT
 	var push := Vector2.ZERO
 	for c in sim.lava_cells:
 		var r := MapDef.lava_rect(c)
@@ -228,6 +237,32 @@ func _pad_steer(sim: Sim, me: SimPlayer, zone: Rect2) -> Vector2:
 		if d < Config.BOT_PAD_AVOID_DIST and away.length() > 0.001 and _pad_bad(sim, me, k, zone):
 			push += away.normalized() * (1.0 - maxf(d, 0.0) / Config.BOT_PAD_AVOID_DIST) * Config.BOT_PAD_WEIGHT
 	return push
+
+
+## Bounce House: where to walk. Normally `goal`; when the walk to it is long and a trampoline that is not a bad idea
+## (`_pad_bad`) is close on foot and lands the bot much nearer to it, the trampoline. Decided every BOT_PAD_EVERY seconds.
+func _pad_goal(sim: Sim, me: SimPlayer, goal: Vector2, zone: Rect2, dt: float) -> Vector2:
+	if me.air_t > 0.0:
+		_pad_pick = -1
+		_pad_t = 0.0
+		return goal
+	_pad_t -= dt
+	if _pad_t <= 0.0:
+		_pad_t = Config.BOT_PAD_EVERY
+		_pad_pick = -1
+		var grid := NavGrid.for_sim(sim)
+		var best := grid.path_length(me.pos, goal) - Config.BOT_PAD_GAIN
+		for k in MapDef.PADS.size():
+			if _pad_bad(sim, me, k, zone):
+				continue
+			var to_pad := grid.path_length(me.pos, MapDef.PADS[k][0])
+			if to_pad > Config.BOT_PAD_REACH:
+				continue
+			var total := to_pad + grid.path_length(MapDef.PADS[k][1], goal)
+			if total < best:
+				best = total
+				_pad_pick = k
+	return MapDef.PADS[_pad_pick][0] if _pad_pick >= 0 else goal
 
 
 func _to_idle() -> void:
@@ -293,7 +328,10 @@ func _wander(sim: Sim, me: SimPlayer, dt: float) -> Vector2:
 		zone = sim.zone_rect().grow(-Config.BOT_ZONE_MARGIN)
 		wander_target = Vector2(clampf(wander_target.x, zone.position.x, zone.end.x), clampf(wander_target.y, zone.position.y, zone.end.y))
 	wander_target = NavGrid.for_sim(sim).snap(wander_target)   # never a spot inside a wall
-	var dir := (_steer_point(sim, me, wander_target, dt) - me.pos).normalized() * Config.BOT_MOVE_SCALE
+	var goal := wander_target
+	if sim.map_id == MapDef.Id.BOUNCE:
+		goal = _pad_goal(sim, me, goal, zone, dt)
+	var dir := (_steer_point(sim, me, goal, dt) - me.pos).normalized() * Config.BOT_MOVE_SCALE
 	for s in sim.statics:
 		var closest := Vector2(clampf(me.pos.x, s.position.x, s.end.x), clampf(me.pos.y, s.position.y, s.end.y))
 		var away := me.pos - closest
@@ -316,7 +354,7 @@ func _wander(sim: Sim, me: SimPlayer, dt: float) -> Vector2:
 	_urgent = false
 	match sim.map_id:
 		MapDef.Id.LAVA:
-			dir += _lava_steer(sim, me, zone)
+			dir += _lava_steer(sim, me, zone, dt)
 		MapDef.Id.BOUNCE:
 			dir += _pad_steer(sim, me, zone)
 	if zone != Rect2():

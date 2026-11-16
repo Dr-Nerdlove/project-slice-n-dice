@@ -182,6 +182,19 @@ func find_path(from: Vector2, to: Vector2) -> PackedVector2Array:
 	return out
 
 
+## Length in metres of the walking path from `a` to `b` (the waypoints joined by straight lines), INF when there is none.
+func path_length(a: Vector2, b: Vector2) -> float:
+	var path := find_path(a, b)
+	if path.is_empty():
+		return INF
+	var d := 0.0
+	var at := a
+	for q in path:
+		d += at.distance_to(q)
+		at = q
+	return d
+
+
 ## True when a walker can get from `a` to `b` (both snapped to the nearest free cell).
 func reachable(a: Vector2, b: Vector2) -> bool:
 	return not find_path(a, b).is_empty()

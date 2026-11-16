@@ -3044,12 +3044,278 @@ func _assembly_plan_tests() -> void:
 				open_ok = open_ok and hi - lo >= br.size.y
 	check("map Assembly Line: the belt crosses both dividing walls through an opening as wide as the belt", crossings == 2 and open_ok)
 
+## Map 4 (Magnet Lab) is rebuilt: point-symmetric, every magnet stands in a broken square (walls on three sides, open
+## corners, the long middle wall on the fourth) that blocks a straight throw from outside but not a bent one.
+func _magnet_plan_tests() -> void:
+	check("map Magnet Lab: it is marked as reworked, so the strict floor-plan rules run on it", 4 in MapDef.REWORKED)
+	var size := Config.ARENA_SIZE
+	var obs: Array = MapDef.obstacles(4)
+	var mirrored := true
+	for o: Rect2 in obs:
+		var m := Rect2(size - o.end, o.size)
+		var found := false
+		for q: Rect2 in obs:
+			found = found or (q.position.distance_to(m.position) < 1e-3 and q.size.distance_to(m.size) < 1e-3)
+		mirrored = mirrored and found
+	for sp: Vector2 in MapDef.spawns(4):
+		var found := false
+		for q: Vector2 in MapDef.spawns(4):
+			found = found or q.distance_to(size - sp) < 1e-4
+		mirrored = mirrored and found
+	for z: Rect2 in MapDef.zone_spots(4):
+		var found := false
+		for q: Rect2 in MapDef.zone_spots(4):
+			found = found or q.position.distance_to(size - z.end) < 1e-3
+		mirrored = mirrored and found
+	check("map Magnet Lab: obstacles, spawn points and zone areas are point-symmetric about the centre", mirrored)
+	# the magnets are the first two obstacles and stand where MAGNETS says
+	var at_magnets := obs.size() >= 2
+	for k in MapDef.MAGNETS.size():
+		at_magnets = at_magnets and (obs[k] as Rect2).get_center().distance_to(MapDef.MAGNETS[k]) < 1e-3
+	check("map Magnet Lab: the first two obstacles are the magnets", at_magnets)
+	# a straight throw from outside a square cannot reach its magnet (left or right of it, above and below); the
+	# inner side towards the middle wall is open
+	var s := map_sim(4)
+	var grid := NavGrid.for_sim(s)
+	var blocked := true
+	var open_inner := true
+	for k in MapDef.MAGNETS.size():
+		var m: Vector2 = MapDef.MAGNETS[k]
+		var outward := -1.0 if k == 0 else 1.0
+		for from: Vector2 in [m + Vector2(4.0 * outward, 0.0), m + Vector2(0.0, -5.0), m + Vector2(0.0, 5.0)]:
+			blocked = blocked and not grid.line_clear(from, m + (from - m).normalized() * 0.9, 0.0)
+		open_inner = open_inner and grid.line_clear(m + Vector2(-3.4 * outward, 0.0), m - Vector2(0.9 * outward, 0.0), 0.0)
+	check("map Magnet Lab: a straight throw from the outside, above or below never reaches a magnet", blocked)
+	check("map Magnet Lab: the inner side of each square is open", open_inner)
+	# three wall pieces stand within 5 m of each magnet (centre of the piece) and not near the other one
+	var near := 0
+	for k in MapDef.MAGNETS.size():
+		for i in range(2, obs.size()):
+			var c: Vector2 = (obs[i] as Rect2).get_center()
+			if c.distance_to(MapDef.MAGNETS[k]) < 5.0 and c.distance_to(MapDef.MAGNETS[1 - k]) > 5.0:
+				near += 1
+	check("map Magnet Lab: three wall pieces (outer, above, below) close in each magnet from its own side", near == 6, str(near))
+	# the middle wall has a door on each side of its centre piece, 2.0 m wide
+	var mid_ok := false
+	var tops := 0.0
+	var bottoms := 0.0
+	for o: Rect2 in obs:
+		if absf(o.get_center().x - size.x * 0.5) < 0.01 and o.position.y < 0.01:
+			tops = o.end.y
+		if absf(o.get_center().x - size.x * 0.5) < 0.01 and absf(o.end.y - size.y) < 0.01:
+			bottoms = o.position.y
+	var centre: Rect2 = obs[2]
+	mid_ok = tops > 0.0 and bottoms > 0.0 and centre.position.y - tops >= 2.0 - 1e-3 and bottoms - centre.end.y >= 2.0 - 1e-3
+	check("map Magnet Lab: the middle wall reaches both outer walls and leaves a door of at least 2 m on each side of its centre piece", mid_ok)
+
+## Map 5 (Piggy Bank) is rebuilt: point-symmetric, the pig stands in an open square inside a ring of shelves with one
+## entrance in the middle of each side, and a straight throw reaches the pig only through an entrance.
+func _piggy_plan_tests() -> void:
+	check("map Piggy Bank: it is marked as reworked, so the strict floor-plan rules run on it", 5 in MapDef.REWORKED)
+	var size := Config.ARENA_SIZE
+	var obs: Array = MapDef.obstacles(5)
+	var mirrored := true
+	for o: Rect2 in obs:
+		var m := Rect2(size - o.end, o.size)
+		var found := false
+		for q: Rect2 in obs:
+			found = found or (q.position.distance_to(m.position) < 1e-3 and q.size.distance_to(m.size) < 1e-3)
+		mirrored = mirrored and found
+	for sp: Vector2 in MapDef.spawns(5):
+		var found := false
+		for q: Vector2 in MapDef.spawns(5):
+			found = found or q.distance_to(size - sp) < 1e-4
+		mirrored = mirrored and found
+	check("map Piggy Bank: obstacles and spawn points are point-symmetric about the centre", mirrored)
+	check("map Piggy Bank: the first obstacle is the pig, in the middle of the arena", obs[0] == MapDef.PIG_RECT and MapDef.PIG_RECT.get_center().distance_to(size * 0.5) < 1e-3)
+	# the open square round the pig: at least 8 x 6 m, free of every obstacle but the pig
+	var open_square := Rect2(12.0, 4.0, 8.0, 6.4)
+	var inside := 0
+	for i in range(1, obs.size()):
+		if open_square.intersects(obs[i]):
+			inside += 1
+	check("map Piggy Bank: the open square of 8 x 6.4 m round the pig holds no wall", inside == 0, str(inside))
+	var s := map_sim(5)
+	var grid := NavGrid.for_sim(s)
+	var c := MapDef.PIG_RECT.get_center()
+	# the middle of each side is an entrance: a straight line from outside reaches the pig's side
+	var open_in := true
+	for pair: Array in [[Vector2(c.x, 1.2), Vector2(c.x, 6.0)], [Vector2(c.x, 13.2), Vector2(c.x, 8.4)],
+			[Vector2(8.0, c.y), Vector2(14.8, c.y)], [Vector2(24.0, c.y), Vector2(17.2, c.y)]]:
+		open_in = open_in and grid.line_clear(pair[0], pair[1], 0.0)
+	check("map Piggy Bank: the pig can be hit straight through the middle of each side of the ring", open_in)
+	# from beside an entrance the shelves stop the throw
+	var shut := true
+	for pair: Array in [[Vector2(12.5, 1.5), Vector2(15.2, 6.1)], [Vector2(19.5, 13.0), Vector2(16.8, 8.3)],
+			[Vector2(9.0, 3.5), Vector2(15.2, 6.3)], [Vector2(23.0, 11.0), Vector2(16.8, 8.1)]]:
+		shut = shut and not grid.line_clear(pair[0], pair[1], 0.0)
+	check("map Piggy Bank: from outside, beside an entrance, the ring blocks a throw at the pig", shut)
+	# every entrance is at least 2 m wide for walking (top and bottom between the arms, left and right too)
+	var gaps_ok: bool = obs[3].position.x - obs[2].end.x >= 2.0 - 1e-3 and obs[7].position.x - obs[6].end.x >= 2.0 - 1e-3 \
+			and obs[5].position.y - obs[1].end.y >= 2.0 - 1e-3 and obs[8].position.y - obs[4].end.y >= 2.0 - 1e-3
+	check("map Piggy Bank: every entrance of the ring is at least 2 m wide", gaps_ok)
+	# two aisle walls on the long half, parallel to the short sides
+	var aisle := 0
+	for i in range(9, obs.size()):
+		var o: Rect2 = obs[i]
+		if o.size.y > o.size.x * 3.0 and absf(o.get_center().y - size.y * 0.5) < 0.01:
+			aisle += 1
+	check("map Piggy Bank: two aisle walls stand across the ends of the room (and two short walls split the aisles)", aisle == 2 and obs.size() == 13, str(aisle))
+	# a bot throws at the pig only with a clear line: through an entrance yes, from behind a shelf no
+	var bs := map_sim(5, [0, 1])
+	bs.pig_coins = 3
+	var pbot := Bot.new(0, bs.cfg, 5)
+	place(bs, 0, Vector2(8.5, 7.2))
+	var from_entrance := pbot._pig_wanted(bs, bs.players[0], 20.0)
+	place(bs, 0, Vector2(12.6, 1.6))
+	var from_shelf := pbot._pig_wanted(bs, bs.players[0], 20.0)
+	check("map Piggy Bank: a bot throws at the pig through an entrance, not from behind a shelf", from_entrance and not from_shelf, "%s %s" % [from_entrance, from_shelf])
+
+## Map 3 (Bounce House) is rebuilt: mirror-symmetric about x = 16 (three long walls with one door each, a pad and a
+## landing spot in every strip), landing spots in the open, and a bot that takes a trampoline when the walk is long.
+func _bounce_plan_tests() -> void:
+	check("map Bounce House: it is marked as reworked, so the strict floor-plan rules run on it", 3 in MapDef.REWORKED)
+	var size := Config.ARENA_SIZE
+	var obs: Array = MapDef.obstacles(3)
+	var mirrored := true
+	for o: Rect2 in obs:
+		var m := Rect2(size.x - o.end.x, o.position.y, o.size.x, o.size.y)
+		var found := false
+		for q: Rect2 in obs:
+			found = found or (q.position.distance_to(m.position) < 1e-4 and q.size.distance_to(m.size) < 1e-4)
+		mirrored = mirrored and found
+	for sp: Vector2 in MapDef.spawns(3):
+		var found := false
+		for q: Vector2 in MapDef.spawns(3):
+			found = found or q.distance_to(Vector2(size.x - sp.x, sp.y)) < 1e-4
+		mirrored = mirrored and found
+	for z: Rect2 in MapDef.zone_spots(3):
+		var found := false
+		for q: Rect2 in MapDef.zone_spots(3):
+			found = found or q.position.distance_to(Vector2(size.x - z.end.x, z.position.y)) < 1e-4
+		mirrored = mirrored and found
+	for pd: Array in MapDef.PADS:
+		var found := false
+		for q: Array in MapDef.PADS:
+			found = found or (q[0] as Vector2).distance_to(Vector2(size.x - pd[0].x, pd[0].y)) < 1e-4 and (q[1] as Vector2).distance_to(Vector2(size.x - pd[1].x, pd[1].y)) < 1e-4
+		mirrored = mirrored and found
+	check("map Bounce House: obstacles, spawn points, zone areas and trampolines are mirror-symmetric about x = 16", mirrored)
+	# the long walls divide the room into four strips; every strip has one pad and one landing spot
+	var long_walls: Array[Rect2] = []
+	for o: Rect2 in obs:
+		if o.size.y > 8.0:
+			long_walls.append(o)
+	var strip := func(x: float) -> int:
+		var n := 0
+		for w in long_walls:
+			if x > w.end.x:
+				n += 1
+		return n
+	var pads_in := [0, 0, 0, 0]
+	var lands_in := [0, 0, 0, 0]
+	var reach_ok := long_walls.size() == 3
+	for pd: Array in MapDef.PADS:
+		var a: int = strip.call(pd[0].x)
+		var b: int = strip.call(pd[1].x)
+		pads_in[a] += 1
+		lands_in[b] += 1
+		reach_ok = reach_ok and b != a and absi(b - a) <= 2
+	check("map Bounce House: every strip has one trampoline and one landing spot, and a jump goes to another strip at most two away", pads_in == [1, 1, 1, 1] and lands_in == [1, 1, 1, 1] and reach_ok, "%s %s" % [pads_in, lands_in])
+	# a landing spot has room for the stomp circle and a player around it, and is not in a doorway of a long wall
+	var rr := Config.new().player_radius
+	var room := MapDef.STOMP_RADIUS + rr
+	var open_ok := true
+	var near_pad := true
+	for pd: Array in MapDef.PADS:
+		var land: Vector2 = pd[1]
+		for o: Rect2 in obs:
+			open_ok = open_ok and rect_dist(land, o) >= room
+		for w in long_walls:
+			open_ok = open_ok and absf(land.x - w.get_center().x) >= room + 0.5 * w.size.x
+		open_ok = open_ok and land.x >= room and land.x <= size.x - room and land.y >= room and land.y <= size.y - room
+		for sp: Vector2 in MapDef.spawns(3):
+			near_pad = near_pad and sp.distance_to(pd[0]) >= 2.0
+	check("map Bounce House: every landing spot has the stomp radius and a player of free floor around it, outside the doorways", open_ok)
+	check("map Bounce House: no trampoline lies within 2 m of a spawn point", near_pad)
+	# bots: a long walk and a trampoline close by and landing much nearer to the goal: take the trampoline
+	var s := map_sim(MapDef.Id.BOUNCE, [0], 7, true)
+	place(s, 0, MapDef.spawns(3)[0])
+	var b := Bot.new(0, s.cfg, 11)
+	b.wander_target = Vector2(28.0, 9.0)
+	b.wander_t = 1000.0
+	var launched := false
+	for _t in 60 * 4:
+		s.step([b.think(s, 1.0 / 60.0), inp(), inp(), inp()])
+		launched = launched or has_event(s.events, "launch")
+	check("bot: far from its goal behind a wall it takes the trampoline of its strip", launched and s.players[0].pos.x > MapDef.PADS[0][1].x - 1.0, str(s.players[0].pos))
+	# ... but not when the landing spot is outside the zone
+	s = map_sim(MapDef.Id.BOUNCE, [0], 7, true)
+	place(s, 0, MapDef.spawns(3)[0])
+	b = Bot.new(0, s.cfg, 11)
+	var goal := Vector2(28.0, 9.0)
+	var zone_in := Rect2(0.0, 0.0, 14.0, 14.4)
+	var zone_out := Rect2(0.0, 0.0, 9.0, 14.4)
+	check("bot: it takes the trampoline when the landing spot is inside the zone", b._pad_goal(s, s.players[0], goal, zone_in, 1.0) == MapDef.PADS[0][0])
+	b = Bot.new(0, s.cfg, 11)
+	check("bot: it does not take a trampoline whose landing spot is outside the zone", b._pad_goal(s, s.players[0], goal, zone_out, 1.0) == goal)
+	b = Bot.new(0, s.cfg, 11)
+	check("bot: it walks when the goal is close", b._pad_goal(s, s.players[0], s.players[0].pos + Vector2(1.5, 0.0), Rect2(), 1.0) != MapDef.PADS[0][0])
+
+## Map 2 (Lava Mats) is rebuilt: point-symmetric, and no wall closes the seam inside a mat pair.
+func _lava_plan_tests() -> void:
+	check("map Lava Mats: it is marked as reworked, so the strict floor-plan rules run on it", 2 in MapDef.REWORKED)
+	var size := Config.ARENA_SIZE
+	var obs: Array = MapDef.obstacles(2)
+	var mirrored := true
+	for o: Rect2 in obs:
+		var m := Rect2(size - o.end, o.size)
+		var found := false
+		for q: Rect2 in obs:
+			found = found or (q.position.distance_to(m.position) < 1e-4 and q.size.distance_to(m.size) < 1e-4)
+		mirrored = mirrored and found
+	for sp: Vector2 in MapDef.spawns(2):
+		var found := false
+		for q: Vector2 in MapDef.spawns(2):
+			found = found or q.distance_to(size - sp) < 1e-4
+		mirrored = mirrored and found
+	for z: Rect2 in MapDef.zone_spots(2):
+		var found := false
+		for q: Rect2 in MapDef.zone_spots(2):
+			found = found or q.position.distance_to(size - z.end) < 1e-4
+		mirrored = mirrored and found
+	check("map Lava Mats: obstacles, spawn points and zone areas are point-symmetric about the centre", mirrored)
+	# the seam inside a mat pair (x = 4, 12, 20, 28) stays open for at least half of every mat's edge
+	var worst := 0.0
+	for pair in MapDef.LAVA_COLS / 2:
+		var x := (pair * 2 + 1) * MapDef.LAVA_TILE.x
+		for row in MapDef.LAVA_ROWS:
+			var y0 := row * MapDef.LAVA_TILE.y
+			var covered := 0.0
+			for o: Rect2 in obs:
+				if o.position.x < x - 1e-4 and o.end.x > x + 1e-4:
+					covered += maxf(0.0, minf(o.end.y, y0 + MapDef.LAVA_TILE.y) - maxf(o.position.y, y0))
+			worst = maxf(worst, covered / MapDef.LAVA_TILE.y)
+	# no sealed pocket: every free spot of the floor can be walked to from the first spawn point
+	var t := map_sim(2, [0])
+	var grid := NavGrid.for_sim(t)
+	var sealed := 0
+	for row in NavGrid.ROWS:
+		for col in NavGrid.COLS:
+			if grid.is_free(col, row) and not grid.reachable(MapDef.spawns(2)[0], NavGrid.center(col, row)):
+				sealed += 1
+	check("map Lava Mats: no part of the floor is sealed off", sealed == 0, "sealed=%d" % sealed)
+	check("map Lava Mats: no wall closes more than half of the seam inside a mat pair", worst <= 0.5 + 1e-4, "worst=%.2f" % worst)
+
 func _map_tests() -> void:
 	for id in Config.MAP_COUNT:
 		_map_geometry(id)
 	_floor_plan_rule_tests()
 	_train_set_plan_tests()
 	_assembly_plan_tests()
+	_lava_plan_tests()
+	_bounce_plan_tests()
+	_magnet_plan_tests()
+	_piggy_plan_tests()
 	_nav_tests()
 	_bot_path_tests()
 	_spawn_spread_tests()
@@ -3154,7 +3420,7 @@ func _lava_tests() -> void:
 	# a burning mat kills, a blinking one and a safe one do not
 	var cell := 10
 	var centre := MapDef.lava_rect(cell).get_center()
-	var safe := MapDef.lava_rect(cell + 1).get_center()
+	var safe := MapDef.lava_rect(cell + 1).get_center() - Vector2(1.0, 0.0)   # clear of the wall of the new floor plan
 	s = map_sim(MapDef.Id.LAVA, [0, 1])
 	place(s, 0, centre)
 	place(s, 1, safe)
@@ -3177,20 +3443,87 @@ func _lava_tests() -> void:
 	s.lava_cells = PackedInt32Array([1, 4])
 	s.start_match(10)
 	check("lava: a new round resets the clock, the waves and the mats", s.map_t == 0.0 and s.lava_wave == 0 and s.lava_cells.is_empty())
+	_lava_escape_tests()
+	_lava_bot_wall_test()
+
+## A bot on a marked mat whose nearest safe mat lies behind a wall walks around the wall instead of pushing at it.
+func _lava_bot_wall_test() -> void:
+	var s := map_sim(MapDef.Id.LAVA, [0], 7, true)
+	s.players[0].pos = Vector2(15.4, 5.4)   # right of the short bar at x 14..15; the nearest safe mat (x 8..12) is behind it
+	s.map_t = MapDef.LAVA_CALM + 0.1
+	s.lava_cells = PackedInt32Array([3, 4, 11, 12])
+	var bot := Bot.new(0, s.cfg, 300)
+	for _t in 75:
+		s.step([bot.think(s, 1.0 / 60.0)])
+	check("lava: a bot flees around a wall to the safe mat behind it", not s.lava_cells.has(MapDef.lava_cell(s.players[0].pos)), str(s.players[0].pos))
+
+## Walking distance (metres, 8 neighbours on the NavGrid, no corner cutting) from every free cell to the nearest free
+## cell of a mat that is not marked. -1.0 where there is no way.
+func _escape_distances(grid: NavGrid, marked: PackedInt32Array) -> PackedFloat32Array:
+	var dist := PackedFloat32Array()
+	dist.resize(NavGrid.COLS * NavGrid.ROWS)
+	dist.fill(1e9)
+	for row in NavGrid.ROWS:
+		for col in NavGrid.COLS:
+			if grid.is_free(col, row) and not marked.has(MapDef.lava_cell(NavGrid.center(col, row))):
+				dist[row * NavGrid.COLS + col] = 0.0
+	var changed := true
+	while changed:
+		changed = false
+		for row in NavGrid.ROWS:
+			for col in NavGrid.COLS:
+				if not grid.is_free(col, row):
+					continue
+				var here := row * NavGrid.COLS + col
+				for k in 8:
+					var dx: int = NavGrid.NEIGHBOURS[k].x
+					var dy: int = NavGrid.NEIGHBOURS[k].y
+					if not grid.is_free(col + dx, row + dy):
+						continue
+					if dx != 0 and dy != 0 and not (grid.is_free(col + dx, row) and grid.is_free(col, row + dy)):
+						continue
+					var d: float = dist[(row + dy) * NavGrid.COLS + col + dx] + NavGrid.CELL * (1.41421 if dx != 0 and dy != 0 else 1.0)
+					if d < dist[here] - 1e-4:
+						dist[here] = d
+						changed = true
+	return dist
+
+## Whoever stands on a marked mat can walk to a safe one within the warning time, for every wave of many seeds. During
+## the warning nothing burns yet, so only the length of the way counts (walls make it longer than the straight line).
+func _lava_escape_tests() -> void:
+	var limit := Config.new().player_speed * MapDef.LAVA_WARN
+	var worst := 0.0
+	var cells := 0
+	var stuck := false
+	var grid: NavGrid = null
+	for seed_value in 12:
+		var t := map_sim(MapDef.Id.LAVA, [0], seed_value)
+		grid = NavGrid.for_sim(t)
+		for w in 8:
+			t._draw_lava()
+			var dist := _escape_distances(grid, t.lava_cells)
+			for row in NavGrid.ROWS:
+				for col in NavGrid.COLS:
+					if grid.is_free(col, row) and t.lava_cells.has(MapDef.lava_cell(NavGrid.center(col, row))):
+						var d: float = dist[row * NavGrid.COLS + col]
+						cells += 1
+						worst = maxf(worst, d)
+						stuck = stuck or d >= 1e8
+	check("lava: every free spot of a marked mat has a safe mat within reach in the warning time (worst way %.1f m, limit %.1f m)" % [worst, limit], cells > 100 and not stuck and worst <= limit, "worst=%.2f cells=%d" % [worst, cells])
 
 func _bounce_tests() -> void:
 	var pad: Array = MapDef.PADS[0]
 	var s := map_sim(MapDef.Id.BOUNCE, [0, 1, 2])
 	place(s, 0, pad[0])
 	place(s, 1, pad[1] + Vector2(1.0, 0.0))
-	place(s, 2, pad[1] + Vector2(2.6, 0.0))
+	place(s, 2, pad[1] + Vector2(0.0, 2.2))
 	var evs := step_collect(s, 2)
 	check("bounce: a player on a trampoline is launched", s.players[0].air_t > 0.0 and has_event(evs, "launch"))
 	var mid := s.players[0].pos
 	var arr := idle4()
 	arr[0] = inp(Vector2(0, 1), Vector2.ZERO, true)
 	evs = step_collect(s, 10, arr)
-	check("bounce: in the air input does nothing, the player flies towards the landing spot", s.players[0].pos.x > mid.x + 0.5 and absf(s.players[0].pos.y - 5.2) < 0.1 and s.players[0].air_t > 0.0, str(s.players[0].pos))
+	check("bounce: in the air input does nothing, the player flies towards the landing spot", s.players[0].pos.x > mid.x + 0.5 and s.players[0].pos.y > mid.y + 0.5 and s.players[0].pos.y < pad[1].y and s.players[0].air_t > 0.0, str(s.players[0].pos))
 	check("bounce: nobody is hurt while the jumper flies", s.players[1].alive and s.players[2].alive)
 	evs = step_collect(s, int(MapDef.AIR_TIME * 60.0))
 	check("bounce: the jumper lands", has_event(evs, "land") and s.players[0].air_t == 0.0)
@@ -3207,6 +3540,7 @@ func _magnet_tests() -> void:
 	var ends := []
 	for t0 in [0.0, MapDef.MAGNET_PERIOD, MapDef.MAGNET_PERIOD - MapDef.MAGNET_OFF]:
 		var s := map_sim(MapDef.Id.MAGNETS, [0])
+		s.statics.resize(s.wall_count)    # the bending is tested on open floor, the walls of the plan would stop the throw
 		place(s, 0, Vector2(6.0, 4.0))
 		s.map_t = t0
 		var path0 := s.aim_path(s.players[0])
@@ -3218,6 +3552,7 @@ func _magnet_tests() -> void:
 	check("magnets: both off, the throw flies straight", absf(ends[2].y - 4.0) < 0.05, str(ends[2]))
 	# the aim line is the real flight
 	var s := map_sim(MapDef.Id.MAGNETS, [0])
+	s.statics.resize(s.wall_count)
 	place(s, 0, Vector2(6.0, 4.0))
 	s.players[0].aim_dir = Vector2.RIGHT
 	for _t in 40:
@@ -3488,6 +3823,7 @@ func _bot_path_tests() -> void:
 	var dt := 1.0 / 60.0
 	# a bot behind a long wall reaches a goal on the other side
 	var s := map_sim(MapDef.Id.MAGNETS, [0])
+	s.statics.resize(s.wall_count)
 	s.statics.append(Rect2(8.0, 2.0, 1.0, 10.4))
 	place(s, 0, Vector2(3.0, 7.2))
 	var bot := Bot.new(0, s.cfg, 11)
