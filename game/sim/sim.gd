@@ -49,6 +49,9 @@ func _init(config: Config, seed_value: int) -> void:
 		var p := SimPlayer.new()
 		p.id = i
 		p.skin = i % Config.SKIN_COUNT
+		p.enabled = i < cfg.player_count   # the others are switched on by whoever fills the slots (bots, joiners)
+		if not p.enabled:
+			p.alive = false
 		p.pos = Config.SPAWNS[i]
 		p.dash_charges = cfg.dash_charges
 		p.prev_pos = p.pos

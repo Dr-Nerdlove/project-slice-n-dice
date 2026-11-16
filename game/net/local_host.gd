@@ -58,7 +58,7 @@ func process(delta: float) -> void:
 	if now >= _next_address_ms:
 		_next_address_ms = now + ADDRESS_REFRESH_MS
 		_address = LanCode.pick_local_address(IP.get_local_interfaces())
-	_beacon.announce(now, core.players_online(), Config.NUM_PLAYERS, port)
+	_beacon.announce(now, core.players_online(), core.cfg.player_count, port)
 
 
 func players() -> int:

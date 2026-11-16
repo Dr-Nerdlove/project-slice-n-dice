@@ -168,6 +168,29 @@ static func button(text: String, kind := "paper", hint := "") -> Button:
 	return b
 
 
+## Makes `b` a compact button for crowded screens: `height` high, narrow side margins, smaller text. Returns `b`.
+static func compact(b: Button, height := 44.0, size := 20) -> Button:
+	b.custom_minimum_size = Vector2(0, height)
+	b.add_theme_font_size_override("font_size", size)
+	var variation := String(b.theme_type_variation)
+	for state in ["normal", "hover", "pressed", "disabled"]:
+		var sb := theme().get_stylebox(state, variation).duplicate() as StyleBoxFlat
+		sb.content_margin_left = 10.0
+		sb.content_margin_right = 10.0
+		sb.content_margin_top = 4.0 + (sb.content_margin_top - 14.0)
+		sb.content_margin_bottom = 4.0 + (sb.content_margin_bottom - 14.0)
+		b.add_theme_stylebox_override(state, sb)
+	return b
+
+
+## Gives a paper or ink panel smaller inner margins (all sides `margin`).
+static func tighten(p: PanelContainer, margin := 16.0) -> PanelContainer:
+	var sb := theme().get_stylebox("panel", String(p.theme_type_variation)).duplicate() as StyleBoxFlat
+	sb.set_content_margin_all(margin)
+	p.add_theme_stylebox_override("panel", sb)
+	return p
+
+
 ## A yellow toy-shop price tag with `text` (coins); the label inside is named "Text".
 static func price_tag(text: String, size := SMALL_SIZE) -> PanelContainer:
 	var tag := PanelContainer.new()

@@ -99,7 +99,7 @@ func _init(config: Config, endpoint: NetEndpoint, seed_value := 1, with_bots := 
 	for i in Config.NUM_PLAYERS:
 		slots.append(Slot.new())
 		current_inputs.append(SimInput.new())
-		sim.set_player_enabled(i, with_bots)
+		sim.set_player_enabled(i, with_bots and i < cfg.player_count)
 		if with_bots:
 			bots.append(Bot.new(i, cfg, seed_value + 1 + i))
 
@@ -417,7 +417,7 @@ func _on_hello(peer: int, msg: Array) -> void:
 		_reject(peer, "started")
 		return
 	var free := -1
-	for k in slots.size():
+	for k in mini(slots.size(), cfg.player_count):   # the room holds `player_count` players
 		if slots[k].peer < 0 and not slots[k].away:
 			free = k
 			break

@@ -905,7 +905,7 @@ func test_view_sources() -> void:
 	var kinds := {}
 	for f in view._figures:
 		kinds[f.kind] = true
-	check("view: four players, four different toys", view._figures.size() == 4 and kinds.size() == 4)
+	check("view: every slot has its own toy", view._figures.size() == Config.NUM_PLAYERS and kinds.size() == Config.NUM_PLAYERS)
 	view.queue_free()
 	await process_frame
 
@@ -914,7 +914,7 @@ func test_view_sources() -> void:
 func test_arena_view_figures() -> void:
 	var cfg := Config.new()
 	var sm := Sim.new(cfg, 1)
-	for k in 4:
+	for k in Config.NUM_PLAYERS:
 		sm.set_player_enabled(k, k < 2)
 		sm.players[k].alive = true
 		sm.players[k].prev_pos = sm.players[k].pos
@@ -928,9 +928,12 @@ func test_arena_view_figures() -> void:
 	var old_kind: int = view._figures[1].kind
 	sm.players[1].skin = 5
 	view.render(1.0, 1.0 / 60.0)
-	check("view: a changed skin swaps the figure of that player", old_kind != 5 and view._figures[1].kind == 5 and view._figures[1].get_parent() == view and view._bodies[1] == view._figures[1] and view._figures[1].name == "Toy5")
-	var toys := view.find_children("Toy*", "Node3D", false, false).size()
-	check("view: ... and no figure is left over", toys == 4)
+	check("view: a changed skin swaps the figure of that player", old_kind != 5 and view._figures[1].kind == 5 and view._figures[1].get_parent() == view and view._bodies[1] == view._figures[1])
+	var toys := 0
+	for c in view.get_children():
+		if c is ToyFigure:
+			toys += 1
+	check("view: ... and no figure is left over", toys == Config.NUM_PLAYERS)
 	var ring := view.find_child("LocalRing", true, false)
 	check("view: the ring is on the local player's figure", ring != null and ring.get_parent() == view._figures[0])
 	sm.players[0].skin = 6
@@ -1057,6 +1060,6 @@ func test_main_scene() -> void:
 	for f: ToyFigure in main.view._figures:
 		if f.visible:
 			shown += 1
-	check("main: offline the playroom and the toy figures are there and drawn", main.view.playroom != null and shown >= 1 and main.view._figures.size() == 4, "visible=%d" % shown)
+	check("main: offline the playroom and the toy figures are there and drawn", main.view.playroom != null and shown >= 1 and main.view._figures.size() == Config.NUM_PLAYERS, "visible=%d" % shown)
 	main.queue_free()
 	await process_frame

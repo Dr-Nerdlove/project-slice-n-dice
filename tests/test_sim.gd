@@ -296,6 +296,7 @@ func _initialize() -> void:
 	_phase_dash_tests()
 	_range_tests()
 	_match_tests()
+	_eight_tests()
 	_coin_tests()
 	_shop_tests()
 	_zone_tests()
@@ -1996,7 +1997,7 @@ func _zone_tests() -> void:
 	s = mk([0, 1]); s.start_match(10); s.mode.zone_spot = 0; to_play(s)
 	s.mode.zone_t = 60.0
 	hold.call(s, 200, Vector2(20, 7.2), Vector2(24, 7.2))
-	check("zone: both outside die in the same tick: no point, round over", not s.players[0].alive and not s.players[1].alive and s.mode.points == [0, 0, 0, 0] and s.mode.phase == M.RESULT and s.mode.last_scorer == -1)
+	check("zone: both outside die in the same tick: no point, round over", not s.players[0].alive and not s.players[1].alive and s.mode.points == [0, 0, 0, 0, 0, 0, 0, 0] and s.mode.phase == M.RESULT and s.mode.last_scorer == -1)
 
 	# draining inside at the same rate, floor at zero
 	s = mk([0, 1]); s.start_match(10); s.mode.zone_spot = 0; to_play(s)
@@ -2109,7 +2110,7 @@ func _match_tests() -> void:
 	check("match: needs two players", not s.start_match(10) and s.mode.phase == M.OFF)
 	s = mk([0, 1, 2])
 	check("match: starts with three players", s.start_match(15) and s.mode.phase == M.COUNTDOWN and s.mode.round == 1 and s.mode.target == 15)
-	check("match: roster is the enabled players", s.mode.roster == [true, true, true, false])
+	check("match: roster is the enabled players", s.mode.roster == [true, true, true, false, false, false, false, false])
 	var spawned := {}
 	var all_alive := true
 	for i in 3:
@@ -2163,7 +2164,7 @@ func _match_tests() -> void:
 	s = mk([0, 1]); s.start_match(10); to_play(s)
 	kill_i(s, 0); kill_i(s, 1)
 	s.step(idle4())
-	check("match: both last players dying together scores nobody", s.mode.points == [0, 0, 0, 0] and s.mode.last_scorer == -1 and s.mode.phase == M.RESULT)
+	check("match: both last players dying together scores nobody", s.mode.points == [0, 0, 0, 0, 0, 0, 0, 0] and s.mode.last_scorer == -1 and s.mode.phase == M.RESULT)
 
 	# target reached -> match over, stays
 	s = mk([0, 1]); s.start_match(10)
@@ -2175,7 +2176,7 @@ func _match_tests() -> void:
 	for _t in 600:
 		s.step(idle4())
 	check("match: MATCH_OVER stays", s.mode.phase == M.MATCH_OVER and s.mode.round == 1)
-	check("match: rematch resets points and starts again", s.start_match(20) and s.mode.points == [0, 0, 0, 0] and s.mode.round == 1 and s.mode.winner == -1 and s.mode.target == 20 and s.mode.phase == M.COUNTDOWN)
+	check("match: rematch resets points and starts again", s.start_match(20) and s.mode.points == [0, 0, 0, 0, 0, 0, 0, 0] and s.mode.round == 1 and s.mode.winner == -1 and s.mode.target == 20 and s.mode.phase == M.COUNTDOWN)
 
 	# leaving player counts dead and keeps points
 	s = mk([0, 1, 2]); s.start_match(10); to_play(s)
@@ -2218,6 +2219,87 @@ func _match_tests() -> void:
 	check("match: restored state continues identically", var_to_bytes(s.save_state()) == var_to_bytes(twin.save_state()) and twin.mode.phase == M.RESULT)
 
 
+## Up to eight players: the count setting, the slots, the spawn points, a whole 8-player match with bots.
+func _eight_tests() -> void:
+	var M := MatchMode.Phase
+	var c := Config.new()
+	check("players: default 4, saved, slots hold 8", c.player_count == 4 and c.to_dict()["player_count"] == 4 and Config.NUM_PLAYERS == 8 and Config.SPAWNS.size() >= Config.NUM_PLAYERS and Config.SKIN_COUNT >= Config.NUM_PLAYERS)
+	c.player_count = 7
+	var c2 := Config.new()
+	c2.from_dict(JSON.parse_string(JSON.stringify(c.to_dict())))
+	check("players: survives the JSON round trip", c2.player_count == 7)
+	c2.reset()
+	check("players: reset leaves it", c2.player_count == 7)
+	c2.from_dict({"player_count": 99})
+	check("players: too large is clamped to 8", c2.player_count == 8)
+	c2.from_dict({"player_count": -5})
+	check("players: too small is clamped to 2", c2.player_count == 2)
+	for garbage in ["x", null, 1e30]:
+		c2.from_dict({"player_count": garbage})
+		check("players: garbage %s gives 4 or a clamp" % str(garbage), c2.player_count == (8 if garbage is float else 4))
+	c2.from_dict({})
+	check("players: an old file without the key gives 4", c2.player_count == 4)
+
+	# a new sim switches on only the first `player_count` slots
+	var s := Sim.new(Config.new(), 3)
+	var on := 0
+	for p in s.players:
+		on += 1 if p.enabled else 0
+	check("players: a new sim enables player_count slots", s.players.size() == 8 and on == 4 and s.players[3].enabled and not s.players[4].enabled)
+
+	# spawn points: clear of blocks, crate, box and each other
+	var rr := 0.5
+	var clear := true
+	for i in Config.SPAWNS.size():
+		for o in Config.OBSTACLES:
+			clear = clear and rect_dist(Config.SPAWNS[i], o) > rr + Config.SPAWN_NOISE
+		clear = clear and Config.SPAWNS[i].distance_to(Config.CRATE_START) > 1.0 + rr and Config.SPAWNS[i].distance_to(Config.BOX_POS) > 1.0 + rr
+		for j in range(i + 1, Config.SPAWNS.size()):
+			clear = clear and Config.SPAWNS[i].distance_to(Config.SPAWNS[j]) > 4.0 * rr
+	check("players: all 8 spawn points are clear of the blocks, the crate, the box and each other", clear)
+
+	# an 8-player match with bots runs and scores
+	var cfg := Config.new()
+	cfg.player_count = 8
+	s = Sim.new(cfg, 11)
+	var bots: Array[Bot] = []
+	for i in 8:
+		s.set_player_enabled(i, true)
+		bots.append(Bot.new(i, cfg, 100 + i))
+	check("players 8: a match starts with all eight in the roster", s.start_match(10) and s.mode.roster == [true, true, true, true, true, true, true, true])
+	var alive_start := 0
+	var spots := {}
+	for _t in int(MatchMode.COUNTDOWN_TIME * 60.0) + 2:
+		var ins0: Array = []
+		for i in 8:
+			ins0.append(SimInput.new())
+		s.step(ins0)
+	for p in s.players:
+		alive_start += 1 if p.alive else 0
+		spots[p.pos.snappedf(0.01)] = true
+	check("players 8: all eight stand alive on eight different spots", alive_start == 8 and spots.size() == 8 and s.mode.phase == M.PLAY)
+	var scored := false
+	for _t in 60 * 90:
+		var ins: Array = []
+		for i in 8:
+			ins.append(bots[i].think(s, 1.0 / 60.0))
+		if s.mode.phase == M.SHOP:
+			for i in 8:
+				s.shop_done(i)
+		s.step(ins)
+		var total := 0
+		for pt in s.mode.points:
+			total += pt
+		if total > 0 and s.mode.round >= 2:
+			scored = true
+			break
+	check("players 8: bots play rounds and points are scored", scored, "round=%d points=%s" % [s.mode.round, str(s.mode.points)])
+	var bytes: PackedByteArray = var_to_bytes(s.save_state())
+	var twin := Sim.new(cfg, 1)
+	twin.load_state(bytes_to_var(bytes))
+	check("players 8: the state with eight players survives var_to_bytes", var_to_bytes(twin.save_state()) == bytes)
+
+
 func _coin_tests() -> void:
 	var E := Economy
 	check("coins: the numbers decided in docs/PLAN.md", [E.COINS_BASE, E.COINS_KILL, E.COINS_SURVIVOR, E.COINS_UNDERDOG, E.COINS_LEADER_KILL] == [3, 1, 2, 2, 1])
@@ -2231,8 +2313,8 @@ func _coin_tests() -> void:
 	check("coins: nobody is underdog or leader while level", not s.mode.underdog.has(true) and not s.mode.leader.has(true))
 	# coins are kept into the next round, kill counts are not
 	next_round(s)
-	check("coins: kept over rounds, round kills reset", s.mode.round == 2 and s.mode.coins[1] == E.COINS_BASE and s.mode.round_kills == [0, 0, 0, 0])
-	check("coins: leader and underdog from the points at round start", s.mode.leader == [true, false, false, false] and s.mode.underdog == [false, true, true, false])
+	check("coins: kept over rounds, round kills reset", s.mode.round == 2 and s.mode.coins[1] == E.COINS_BASE and s.mode.round_kills == [0, 0, 0, 0, 0, 0, 0, 0])
+	check("coins: leader and underdog from the points at round start", s.mode.leader == [true, false, false, false, false, false, false, false] and s.mode.underdog == [false, true, true, false, false, false, false, false])
 	to_play(s)
 	s._kill(s.players[0], s.players[1])   # underdog 1 kills the leader
 	s._kill(s.players[2], null, "zone")   # no credit
@@ -2248,10 +2330,10 @@ func _coin_tests() -> void:
 	var twin := mk([0, 1, 2]); twin.load_state(snap)
 	check("coins: in the snapshot", twin.mode.coins == s.mode.coins and twin.mode.leader == s.mode.leader)
 	s.start_match(10)
-	check("coins: rematch zeroes coins", s.mode.coins == [0, 0, 0, 0] and s.mode.earned == [0, 0, 0, 0])
+	check("coins: rematch zeroes coins", s.mode.coins == [0, 0, 0, 0, 0, 0, 0, 0] and s.mode.earned == [0, 0, 0, 0, 0, 0, 0, 0])
 	s = mk([0, 1])
 	s._kill(s.players[1], s.players[0])
-	check("coins: free play counts no round kills", s.mode.round_kills == [0, 0, 0, 0])
+	check("coins: free play counts no round kills", s.mode.round_kills == [0, 0, 0, 0, 0, 0, 0, 0])
 	s = mk([0, 1, 2]); s.start_match(10); to_play(s)
 	s._kill(s.players[0], s.players[0])
 	check("coins: a self-kill counts nothing", s.mode.round_kills[0] == 0)

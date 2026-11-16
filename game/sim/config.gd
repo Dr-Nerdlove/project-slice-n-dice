@@ -34,7 +34,10 @@ const SPAWNS: Array[Vector2] = [
 
 # --- Sim constants (fixed) ---
 const TICK_RATE := 60.0
-const NUM_PLAYERS := 4
+const NUM_PLAYERS := 8             # player slots in the sim (the most a match can hold); how many play: `player_count`
+const MIN_PLAYERS := 2
+const DEFAULT_PLAYERS := 4
+const TRAINING_PLAYERS := 4        # Training (and `--server`) keep four players
 const SKIN_COUNT := 8              # player figures to choose from (presentation only); must equal ToyFigure.NAMES.size()
 const MOVE_DEADZONE := 0.1
 const SUBSTEP_FACTOR := 0.5        # max movement per substep as a fraction of the radius
@@ -120,6 +123,9 @@ var mods_bots: Dictionary = Mods.empty_levels()
 var character := 0
 ## Points that win a Play match (one of MatchMode.TARGETS). Saved with the settings like `character`, not reset.
 var target_score := MatchMode.DEFAULT_TARGET
+## Players in a Play match (MIN_PLAYERS..NUM_PLAYERS): you plus bots in Solo, the room size when hosting. Saved with the
+## settings like `character`, not reset by Reset.
+var player_count := DEFAULT_PLAYERS
 
 const DEFAULTS := {
 	"player_radius": 0.5,
@@ -164,6 +170,7 @@ func to_dict() -> Dictionary:
 	d["mods_bots"] = mods_bots.duplicate()
 	d["character"] = character
 	d["target_score"] = target_score
+	d["player_count"] = player_count
 	return d
 
 
@@ -174,6 +181,8 @@ func from_dict(d: Dictionary) -> void:
 	character = posmod(int(ch), SKIN_COUNT) if (ch is int or (ch is float and is_finite(ch))) else 0
 	var ts: Variant = d.get("target_score")
 	target_score = int(ts) if (ts is int or (ts is float and is_finite(ts))) and MatchMode.TARGETS.has(int(ts)) else MatchMode.DEFAULT_TARGET
+	var pc: Variant = d.get("player_count")
+	player_count = clampi(int(clampf(float(pc), -1000.0, 1000.0)), MIN_PLAYERS, NUM_PLAYERS) if (pc is int or (pc is float and is_finite(pc))) else DEFAULT_PLAYERS
 	for k: String in DEFAULTS:
 		if not d.has(k):
 			continue
