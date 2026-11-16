@@ -4,6 +4,28 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.8.0
+
+- **2 to 8 players in Play**: the lobby has a new **Players** row (2 to 8). Solo is you plus bots up to that
+  number; when you host, the game holds at most that many players and **Fill with bots** fills the free places up
+  to it (a friend who joins takes a bot's place). Training stays at 4. (Not tried on a phone with 8 figures yet.)
+- **The lobby fits on one screen**: no more scrolling in the Play lobby or in Settings, on any screen size. The
+  lobby is now laid out in three columns. (Not looked at on a real screen yet.)
+- **Fixed: tapping the lower part of the round result ended the match.** An invisible **Main menu** button sat
+  there. Between rounds it is gone (the pause button still leads to the main menu); at the end of a match it is
+  shown clearly.
+- **Points to win as dots**: the round result and the end of the match show a row of empty dots per player, in
+  groups of five, one per point needed; every round won fills one in the figure's colour, and the newest one pops.
+  (Not looked at on a real screen yet.)
+- **Clearer shop**: your 5 modifier places are shown at the top, empty at the start. Each modifier you have shows
+  its icon, its level (I, II, III) and dots for the copies still needed for the next level. Offers are cards with
+  an icon, a short description and what buying gives you (new, next level or one more dot).
+- **Sell modifiers**: tap one of your modifiers, then **Sell**: you get half of what you paid for all its copies
+  back (rounded down), and the place is free again.
+- **Lock offers**: the lock on an offer keeps it when you reroll and into the next shop, so you can buy it later
+  when you have more coins. Locking is free; buying it unlocks it.
+- Players with an older version cannot join a game of this version.
+
 ## 0.7.0
 
 - **Shop between rounds in Play**: after the round result, everybody shops at the same time for up to 20 seconds
