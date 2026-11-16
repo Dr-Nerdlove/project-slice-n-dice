@@ -667,6 +667,12 @@ SB=[
  ("8 touch: editor in Floating moves the sticks too","ui/touch_layout_editor.gd",'\treturn ["dash"]','\treturn ["move", "aim", "dash"]'),
  ("8 touch: editor drag picks nothing","ui/touch_layout_editor.gd","if d <= _s.radius_of(k) * 1.2 and d < best:","if false:"),
  ("8 touch: editor drag is not clamped","input/touch_settings.gd","return to_screen(pos / size, size, radius_of(key)) / size","return pos / size"),
+ ("1 pips: the filled count is not clamped","ui/score_pips.gd","return clampi(p, 0, maxi(tgt, 0))","return p"),
+ ("1 pips: no wider gap between groups","ui/score_pips.gd","+ (i / GROUP) * (GROUP_GAP - GAP)","+ 0.0"),
+ ("1 pips: the row is too narrow","ui/score_pips.gd","pip_x(n - 1) + D","pip_x(n - 1)"),
+ ("8 pips: the newest pip never pulses","ui/match_overlay.gd","pop_now and not over and i == m.last_scorer","false"),
+ ("8 pips: the scoreboard shows no pips","ui/match_overlay.gd","pips.setup(target, pts, accent)","pips.setup(target, 0, accent)"),
+ ("8 pips: the panel grows too tall for 8 players","ui/match_overlay.gd",'\tbox.add_theme_constant_override("separation", 6)','\tbox.add_theme_constant_override("separation", 24)'),
 ]
 
 def suites_for(name, full):

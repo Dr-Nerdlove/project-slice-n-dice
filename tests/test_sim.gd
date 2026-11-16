@@ -2243,6 +2243,9 @@ func _coin_tests() -> void:
 	var parts := s.mode.coin_parts(1, s.mode.last_scorer)
 	check("coins: parts add up to earned", parts["kills"] + parts["base"] + parts["survivor"] + parts["underdog"] + parts["leader"] == s.mode.earned[1] and parts["leader"] == E.COINS_LEADER_KILL)
 	check("coins: coin text names the parts", MatchOverlay.coin_text(s.mode, 1).begins_with("+%d coins" % s.mode.earned[1]) and MatchOverlay.coin_text(s.mode, 1).contains("leader kill") and MatchOverlay.coin_text(s.mode, 3) == "")
+	check("pips: filled count is the points, clamped to 0..target", ScorePips.filled_count(3, 10) == 3 and ScorePips.filled_count(-2, 10) == 0 and ScorePips.filled_count(25, 20) == 20 and ScorePips.filled_count(20, 20) == 20)
+	check("pips: groups of five with a wider gap between groups", is_equal_approx(ScorePips.pip_x(1) - ScorePips.pip_x(0), ScorePips.D + ScorePips.GAP) and is_equal_approx(ScorePips.pip_x(5) - ScorePips.pip_x(4), ScorePips.D + ScorePips.GROUP_GAP) and is_equal_approx(ScorePips.pip_x(10) - ScorePips.pip_x(9), ScorePips.D + ScorePips.GROUP_GAP) and is_equal_approx(ScorePips.pip_x(6) - ScorePips.pip_x(5), ScorePips.D + ScorePips.GAP))
+	check("pips: the row width covers every pip", is_equal_approx(ScorePips.total_width(10), ScorePips.pip_x(9) + ScorePips.D) and ScorePips.total_width(0) == 0.0 and ScorePips.total_width(20) > ScorePips.total_width(15))
 	# no coins outside a match, a rematch zeroes them, snapshot carries them
 	var snap := s.save_state()
 	var twin := mk([0, 1, 2]); twin.load_state(snap)
