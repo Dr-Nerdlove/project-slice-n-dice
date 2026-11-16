@@ -186,7 +186,29 @@ func start_match(target: int) -> bool:
 	return true
 
 
-## Fresh arena for the next round: roster players alive on shuffled spawn points, everybody else out.
+## The spawn point for the next starting player and its index added to `given`: the first one is drawn with the
+## sim's rng, every further one is the free point farthest from all points already given (ties: lowest index), so
+## players start as far apart as the map allows.
+func _next_spawn(spawns: Array, given: Array[int]) -> int:
+	var pick := 0
+	if given.is_empty():
+		pick = rng.randi_range(0, spawns.size() - 1)
+	else:
+		var best_d := -1.0
+		for k in spawns.size():
+			if given.has(k):
+				continue
+			var d := INF
+			for g in given:
+				d = minf(d, (spawns[k] as Vector2).distance_to(spawns[g]))
+			if d > best_d + 1e-9:
+				best_d = d
+				pick = k
+	given.append(pick)
+	return pick
+
+
+## Fresh arena for the next round: roster players alive on spread-out spawn points, everybody else out.
 func _start_round() -> void:
 	if cfg.map == Config.MAP_ROTATE:
 		var next_map := _next_rotation_map()
@@ -204,14 +226,9 @@ func _start_round() -> void:
 	mode.zone_t = 0.0
 	mode.zone_spot = rng.randi_range(0, MapDef.zone_spots(map_id).size() - 1)
 	mode.begin_round_coins()
-	var spawns: Array = MapDef.spawns(map_id).duplicate()
-	for k in range(spawns.size() - 1, 0, -1):
-		var j := rng.randi_range(0, k)
-		var tmp: Vector2 = spawns[k]
-		spawns[k] = spawns[j]
-		spawns[j] = tmp
+	var spawns: Array = MapDef.spawns(map_id)
+	var given: Array[int] = []   # indices of the spawn points handed out so far
 	var centre := Config.ARENA_SIZE * 0.5
-	var next := 0
 	for i in players.size():
 		var p := players[i]
 		if not (mode.roster[i] and p.enabled):
@@ -219,8 +236,7 @@ func _start_round() -> void:
 			p.respawn_t = 0.0
 			_reset_yoyo(p)
 			continue
-		var at: Vector2 = spawns[next]
-		next += 1
+		var at: Vector2 = spawns[_next_spawn(spawns, given)]
 		p.alive = true
 		p.zone_t = 0.0
 		p.air_t = 0.0

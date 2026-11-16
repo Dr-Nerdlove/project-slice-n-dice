@@ -2894,10 +2894,98 @@ func _map_geometry(id: int) -> void:
 	check("map %s: four free zone areas" % nm, zok)
 	var s := map_sim(id)
 	check("map %s: the sim has the statics of the map" % nm, s.map_id == id and s.statics.size() == s.wall_count + obs.size())
+	# Floor-plan rules (docs/map-rework.md, step F). Walking connectivity holds for every map; the stricter rules
+	# only for the maps whose plan has been rebuilt (MapDef.REWORKED).
+	var grid := NavGrid.for_sim(s)
+	var points: Array = []
+	points.append_array(spawns)
+	for z: Rect2 in zones:
+		points.append(z.get_center())
+	points.append(crate)
+	points.append(box)
+	var linked := true
+	for q: Vector2 in points:
+		linked = linked and grid.reachable(points[0], q)
+	check("map %s: spawn points, zone areas, chest and present can all be reached from each other" % nm, linked)
+	if id in MapDef.REWORKED:
+		var fails := _passage_failures(obs)
+		check("map %s: every passage is at least %.1f m wide" % [nm, PASSAGE_MIN], fails.is_empty(), str(fails))
+		fails = _plan_failures(obs, spawns, s.statics)
+		check("map %s: floor-plan rules (obstacle count, spawn spacing, hidden starts, free floor)" % nm, fails.is_empty(), str(fails))
+
+const PASSAGE_MIN := 2.0
+
+## Distance between two rectangles (0 when they touch or overlap).
+func rect_gap(a: Rect2, b: Rect2) -> float:
+	var dx := maxf(0.0, maxf(a.position.x - b.end.x, b.position.x - a.end.x))
+	var dy := maxf(0.0, maxf(a.position.y - b.end.y, b.position.y - a.end.y))
+	return Vector2(dx, dy).length()
+
+## Pairs (and obstacle/outer wall) that leave a gap narrower than PASSAGE_MIN without closing it. Touching is fine.
+func _passage_failures(obs: Array) -> Array:
+	var out := []
+	var arena := Rect2(Vector2.ZERO, Config.ARENA_SIZE)
+	for i in obs.size():
+		var o: Rect2 = obs[i]
+		for edge in [o.position.x, o.position.y, arena.end.x - o.end.x, arena.end.y - o.end.y]:
+			if edge > 0.0 and edge < PASSAGE_MIN - 1e-6:
+				out.append(["wall", o])
+		for j in range(i + 1, obs.size()):
+			var g := rect_gap(o, obs[j])
+			if g > 0.0 and g < PASSAGE_MIN - 1e-6:
+				out.append([o, obs[j], g])
+	return out
+
+## The rules of a rebuilt floor plan: 10..18 obstacles, spawn points 6 m apart, none closer than 14 m in sight of
+## another, 1.5 m of free floor around each. Returns what is broken.
+func _plan_failures(obs: Array, spawns: Array, statics: Array[Rect2]) -> Array:
+	var out := []
+	if obs.size() < 10 or obs.size() > 18:
+		out.append("obstacle count %d" % obs.size())
+	var grid := NavGrid.new()
+	grid.build(statics, Config.new().player_radius)
+	for i in spawns.size():
+		var a: Vector2 = spawns[i]
+		for o: Rect2 in obs:
+			if rect_dist(a, o) < 1.5:
+				out.append(["floor around spawn", i])
+		for j in range(i + 1, spawns.size()):
+			var d := a.distance_to(spawns[j])
+			if d < 6.0:
+				out.append(["spawns too close", i, j])
+			elif d < 14.0 and grid.line_clear(a, spawns[j], 0.0):
+				out.append(["spawns see each other", i, j])
+	return out
+
+func _floor_plan_rule_tests() -> void:
+	# a synthetic layout that follows the rules, and variants that each break one
+	var good: Array = []
+	for k in 10:
+		good.append(Rect2(4.0 + 2.8 * k, 5.0 + (k % 2) * 2.0, 0.8, 2.4))
+	var spawns: Array = [Vector2(2.0, 2.0), Vector2(30.0, 12.0)]
+	var st: Array[Rect2] = [Rect2(-2, -2, 36, 2), Rect2(-2, 14.4, 36, 2), Rect2(-2, 0, 2, 14.4), Rect2(32, 0, 2, 14.4)]
+	var all: Array[Rect2] = st.duplicate()
+	for o: Rect2 in good:
+		all.append(o)
+	check("floor-plan rules: a good layout passes both", _passage_failures(good).is_empty() and _plan_failures(good, spawns, all).is_empty(), str(_plan_failures(good, spawns, all)))
+	check("floor-plan rules: a gap of 1.0 m between two obstacles fails", not _passage_failures([Rect2(5, 5, 1, 3), Rect2(7, 5, 1, 3)]).is_empty())
+	check("floor-plan rules: touching obstacles (an L) pass", _passage_failures([Rect2(5, 5, 1, 3), Rect2(6, 5, 3, 1)]).is_empty())
+	check("floor-plan rules: an obstacle 1.0 m from the outer wall fails", not _passage_failures([Rect2(5, 1, 1, 3)]).is_empty())
+	check("floor-plan rules: an obstacle against the outer wall passes", _passage_failures([Rect2(5, 0, 1, 3)]).is_empty())
+	check("floor-plan rules: too few obstacles fail", not _plan_failures(good.slice(0, 5), spawns, st).is_empty())
+	check("floor-plan rules: spawn points 4 m apart fail", not _plan_failures(good, [Vector2(2, 2), Vector2(6, 2)], all).is_empty())
+	check("floor-plan rules: two starts in sight of each other 10 m apart fail", not _plan_failures(good, [Vector2(2, 1), Vector2(12, 1)], st).is_empty())
+	check("floor-plan rules: a start with no free floor around it fails", not _plan_failures(good, [Vector2(4.4, 4.0), Vector2(30, 13)], all).is_empty())
+	var seen := _plan_failures(good, [Vector2(1.0, 1.0), Vector2(31.0, 13.4)], all)
+	check("floor-plan rules: far apart starts need no wall between them", not seen.any(func(f: Variant) -> bool: return f is Array and f[0] == "spawns see each other"))
 
 func _map_tests() -> void:
 	for id in Config.MAP_COUNT:
 		_map_geometry(id)
+	_floor_plan_rule_tests()
+	_nav_tests()
+	_bot_path_tests()
+	_spawn_spread_tests()
 	check("maps: the counts agree", Config.MAP_COUNT == MapDef.NAMES.size() and MapDef.HINTS.size() == Config.MAP_COUNT and MapDef.OBSTACLES.size() == Config.MAP_COUNT and MapDef.SPAWNS.size() == Config.MAP_COUNT and MapDef.ZONE_SPOTS.size() == Config.MAP_COUNT)
 	# the config value
 	var c := Config.new()
@@ -3258,3 +3346,197 @@ func _rotation_tests() -> void:
 		next_round(t)
 		all_lava = all_lava and t.map_id == MapDef.Id.LAVA
 	check("rotation: a fixed map (Training, --server) is never changed", all_lava and t.mode.map_bag.is_empty())
+
+
+# ---------------------------------------------------------------- NavGrid, bots around walls, spread-out starts
+
+func _nav_walls() -> Array[Rect2]:
+	var st: Array[Rect2] = [Rect2(-2, -2, 36, 2), Rect2(-2, 14.4, 36, 2), Rect2(-2, 0, 2, 14.4), Rect2(32, 0, 2, 14.4)]
+	return st
+
+func _nav_tests() -> void:
+	var rr := Config.new().player_radius
+	var st := _nav_walls()
+	st.append(Rect2(15.5, 2.0, 1.0, 10.4))   # a long wall with a 2 m gap above and below
+	var g := NavGrid.new()
+	g.build(st, rr)
+	var a := Vector2(3.0, 7.2)
+	var b := Vector2(29.0, 7.2)
+	var path := g.find_path(a, b)
+	check("nav: a path around the wall exists and ends at the goal", not path.is_empty() and path[path.size() - 1] == b)
+	var free := true
+	var dir_ok := true
+	var corner_ok := true
+	var through_gap := false
+	var prev_cell := NavGrid.cell_of(a)
+	for i in path.size():
+		var c := NavGrid.cell_of(path[i])
+		free = free and g.is_free(c.x, c.y)
+		for r in st:
+			free = free and rect_dist(path[i], r) >= rr - 1e-6
+		if i > 0 or c != prev_cell:
+			var dlt := c - prev_cell
+			dir_ok = dir_ok and absi(dlt.x) <= 1 and absi(dlt.y) <= 1
+			if dlt.x != 0 and dlt.y != 0:
+				corner_ok = corner_ok and g.is_free(prev_cell.x + dlt.x, prev_cell.y) and g.is_free(prev_cell.x, prev_cell.y + dlt.y)
+		prev_cell = c
+		if absf(path[i].x - 16.0) < 0.5 and (path[i].y < 2.0 or path[i].y > 12.4):
+			through_gap = true
+	check("nav: every waypoint is free floor, steps are single cells, no corner is cut", free and dir_ok and corner_ok)
+	check("nav: the path goes through a gap, not through the wall", through_gap)
+	check("nav: the way around is longer than the straight line", _path_len(a, path) > a.distance_to(b) + 3.0)
+	check("nav: a walking line through the wall is not clear, one above it is", not g.line_clear(a, b) and g.line_clear(Vector2(3, 1.0), Vector2(29, 1.0)) and g.line_clear(Vector2(3, 13.4), Vector2(29, 13.4)))
+	check("nav: a line grazing the wall closer than the player radius is not clear", not g.line_clear(Vector2(10, 1.7), Vector2(20, 1.7)) and g.line_clear(Vector2(10, 1.2), Vector2(20, 1.2)))
+	check("nav: segment test sees a hit and a miss", NavGrid.segment_hits_rect(Vector2(0, 0), Vector2(10, 10), Rect2(4, 4, 2, 2)) and not NavGrid.segment_hits_rect(Vector2(0, 0), Vector2(10, 0), Rect2(4, 4, 2, 2)))
+	check("nav: next_point is the goal on a clear line and a corner of the way otherwise", g.next_point(Vector2(3, 1), Vector2(29, 1)) == Vector2(29, 1) and g.next_point(a, b).y < a.y - 1.0)
+	var sealed := st.duplicate()
+	sealed.append(Rect2(15.5, 0.0, 1.0, 2.0))
+	sealed.append(Rect2(15.5, 12.4, 1.0, 2.0))
+	var gs := NavGrid.new()
+	gs.build(sealed, rr)
+	check("nav: a sealed wall leaves no path", gs.find_path(a, b).is_empty() and not gs.reachable(a, b) and g.reachable(a, b))
+	check("nav: a start inside a wall is snapped to free floor", g.reachable(Vector2(16.0, 7.0), a) and g.snap(Vector2(16.0, 7.0)) != Vector2(16.0, 7.0))
+	var g2 := NavGrid.new()
+	g2.build(st, rr)
+	check("nav: same grid, same path (deterministic)", g2.find_path(a, b) == path)
+	var s := map_sim(MapDef.Id.MAGNETS, [0, 1])
+	var c1 := NavGrid.for_sim(s)
+	var cached := NavGrid.for_sim(s) == c1
+	s.statics.append(Rect2(8.0, 2.0, 1.0, 10.4))
+	check("nav: the cache holds a grid per map and rebuilds it when the statics change", cached and NavGrid.for_sim(s) != c1 and not NavGrid.for_sim(s).line_clear(Vector2(3, 7.2), Vector2(13, 7.2)))
+	var chest := map_sim(MapDef.Id.BELTS, [0, 1])
+	var cg := NavGrid.for_sim(chest)
+	var cc := NavGrid.cell_of(MapDef.crate_start(MapDef.Id.BELTS))
+	check("nav: the chest is not a wall (its cell is free)", cg.is_free(cc.x, cc.y))
+
+func _path_len(from: Vector2, path: PackedVector2Array) -> float:
+	var d := 0.0
+	var at := from
+	for q in path:
+		d += at.distance_to(q)
+		at = q
+	return d
+
+func _bot_path_tests() -> void:
+	var dt := 1.0 / 60.0
+	# a bot behind a long wall reaches a goal on the other side
+	var s := map_sim(MapDef.Id.MAGNETS, [0])
+	s.statics.append(Rect2(8.0, 2.0, 1.0, 10.4))
+	place(s, 0, Vector2(3.0, 7.2))
+	var bot := Bot.new(0, s.cfg, 11)
+	var goal := Vector2(13.5, 3.0)
+	bot.wander_target = goal
+	bot.wander_t = 1e9
+	var best := 1e9
+	var t := 0
+	while t < 60 * 15 and best > 1.0:
+		var ins := idle4()
+		ins[0] = bot.think(s, dt)
+		s.step(ins)
+		bot.wander_t = 1e9
+		best = minf(best, s.players[0].pos.distance_to(goal))
+		t += 1
+	check("bot: placed behind a long wall it walks around it to a goal on the other side", best <= 1.0, "closest %.2f after %d ticks" % [best, t])
+	# the same on every map's own layout: from each spawn to the opposite zone area, no sticking
+	var stuck := []
+	for id in Config.MAP_COUNT:
+		var ms := map_sim(id, [0], 7, true)
+		ms.cfg.train_speed = 0.0
+		var sp: Array = MapDef.spawns(id)
+		var zc: Vector2 = MapDef.zone_spots(id)[2].get_center()
+		place(ms, 0, sp[0])
+		var mb := Bot.new(0, ms.cfg, 5)
+		mb.wander_target = zc
+		var bestd := 1e9
+		for _t in 60 * 25:
+			var ins := idle4()
+			ins[0] = mb.think(ms, dt)
+			ms.step(ins)
+			mb.wander_t = 1e9
+			mb.wander_target = zc
+			bestd = minf(bestd, ms.players[0].pos.distance_to(zc))
+			if not ms.players[0].alive:
+				break
+		if bestd > 1.5:
+			stuck.append([MapDef.NAMES[id], snappedf(bestd, 0.1)])
+	check("bot: walks from a spawn point to a zone area on every map", stuck.is_empty(), str(stuck))
+	# a throw needs a clear line
+	var ts := map_sim(MapDef.Id.MAGNETS, [0, 1])
+	ts.statics.append(Rect2(8.0, 2.0, 1.0, 10.4))
+	place(ts, 0, Vector2(6.0, 4.0))
+	place(ts, 1, Vector2(11.0, 4.0))
+	var tb := Bot.new(0, ts.cfg, 3)
+	var charged := false
+	for _t in 60 * 12:
+		tb.wander_target = Vector2(6.0, 4.0)
+		tb.wander_t = 1e9
+		tb.think(ts, dt)
+		charged = charged or tb.phase != Bot.Phase.IDLE
+	check("bot: does not throw at an enemy behind a wall", not charged)
+	ts.statics.pop_back()
+	var charged2 := false
+	for _t in 60 * 12:
+		tb.wander_target = Vector2(6.0, 4.0)
+		tb.wander_t = 1e9
+		tb.think(ts, dt)
+		charged2 = charged2 or tb.phase != Bot.Phase.IDLE
+	check("bot: throws at the same enemy once the wall is gone", charged2)
+
+func _spawn_spread_tests() -> void:
+	var bad := []
+	var spread_ok := true
+	var firsts := {}
+	for id in Config.MAP_COUNT:
+		var spawns: Array = MapDef.spawns(id)
+		for n in [2, 3, 4, 8]:
+			for sd in 25:
+				var cfg := Config.new()
+				cfg.map = id
+				cfg.train_speed = 0.0
+				var s := Sim.new(cfg, sd)
+				for i in Config.NUM_PLAYERS:
+					s.set_player_enabled(i, i < n)
+				s.start_match(10)
+				var used: Array[int] = []
+				var ok := true
+				for i in n:
+					var idx := spawns.find(s.players[i].pos)
+					if idx < 0:
+						ok = false
+						break
+					if i == 0:
+						firsts[id * 100 + idx] = true
+					else:
+						# independent greedy: the free point whose nearest given point is farthest, ties lowest index
+						var want := -1
+						var want_d := -1.0
+						for k in spawns.size():
+							if used.has(k):
+								continue
+							var d := 1e9
+							for u in used:
+								d = minf(d, (spawns[k] as Vector2).distance_to(spawns[u]))
+							if d > want_d + 1e-9:
+								want_d = d
+								want = k
+						ok = ok and idx == want
+					used.append(idx)
+				if not ok:
+					bad.append([MapDef.NAMES[id], n, sd])
+				if n == 2:
+					var far := 0.0
+					for k in spawns.size():
+						far = maxf(far, (spawns[k] as Vector2).distance_to(s.players[0].pos))
+					spread_ok = spread_ok and is_equal_approx(s.players[0].pos.distance_to(s.players[1].pos), far)
+	check("spawns: after the first (drawn) point every player gets the free point farthest from all given ones", bad.is_empty(), str(bad.slice(0, 3)))
+	check("spawns: two players start as far apart as the map allows, from any first point", spread_ok)
+	check("spawns: the first point is drawn at random (many different first points over the seeds)", firsts.size() >= 3 * Config.MAP_COUNT, str(firsts.size()))
+	# the same seed gives the same starts
+	var starts := []
+	for _r in 2:
+		var cfg2 := Config.new()
+		cfg2.map = 1
+		var s2 := Sim.new(cfg2, 42)
+		s2.start_match(10)
+		starts.append([s2.players[0].pos, s2.players[1].pos, s2.players[2].pos, s2.players[3].pos])
+	check("spawns: same seed, same starts", starts[0] == starts[1])

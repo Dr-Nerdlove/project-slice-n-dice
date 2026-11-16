@@ -21,6 +21,7 @@ const BLOCK_WOOD := Color("f0dcb4")
 const BLOCK_COLORS: Array[Color] = [Color("ff9e4d"), Color("4dcccc"), Color("b88fff"), Color("ff8cc7")]
 const BLOCK_LETTERS := "JOYO"
 const BLOCK_HEIGHT := 1.2
+const WALL_ROW_RATIO := 1.5   # an obstacle longer than this times its short side is drawn as a row of blocks
 const CHEST_WOOD := Color("b8803f")
 const CHEST_BAND := Color("4dbfd9")
 const PRESENT := Color("cc4db3")
@@ -170,14 +171,47 @@ func _on_beam(a: Vector2, t: float, beam: int, off: float) -> Vector3:
 	return Vector3(a.x + off, 0, a.y * t)
 
 
-## A wooden building block filling the obstacle exactly: coloured faces and a letter on top.
+## The pieces an obstacle is drawn as: the rectangle itself when it is about as wide as long, otherwise (long side
+## more than WALL_ROW_RATIO times the short side) a row of equal near-square blocks that fills it exactly.
+static func block_pieces(r: Rect2) -> Array[Rect2]:
+	var long_side := maxf(r.size.x, r.size.y)
+	var short_side := minf(r.size.x, r.size.y)
+	var out: Array[Rect2] = []
+	if short_side <= 0.0 or long_side <= WALL_ROW_RATIO * short_side:
+		out.append(r)
+		return out
+	var n := maxi(2, roundi(long_side / short_side))
+	for k in n:
+		if r.size.x >= r.size.y:
+			var w := r.size.x / n
+			out.append(Rect2(r.position.x + w * k, r.position.y, w, r.size.y))
+		else:
+			var h := r.size.y / n
+			out.append(Rect2(r.position.x, r.position.y + h * k, r.size.x, h))
+	return out
+
+
+## An obstacle as wooden building blocks: one block, or a row of them for a long wall (alternating colours and letters).
 func _build_block(r: Rect2, idx: int) -> void:
+	var pieces := block_pieces(r)
+	if pieces.size() == 1:
+		_build_piece(self, pieces[0], idx, "Block%d" % idx, idx == 0)
+		return
+	var row := Node3D.new()
+	row.name = "Block%d" % idx
+	add_child(row)
+	for k in pieces.size():
+		_build_piece(row, pieces[k], idx + k, "Piece%d" % k, false)
+
+
+## A wooden building block filling `r` exactly: coloured faces and a letter on top. `style` picks colour and letter.
+func _build_piece(parent: Node3D, r: Rect2, style: int, node_name: String, tall: bool) -> void:
 	var n := Node3D.new()
-	n.name = "Block%d" % idx
+	n.name = node_name
 	n.position = Vector3(r.get_center().x, 0, r.get_center().y)
-	add_child(n)
-	var col := BLOCK_COLORS[idx % BLOCK_COLORS.size()]
-	var h := BLOCK_HEIGHT + (0.3 if idx == 0 else 0.0)
+	parent.add_child(n)
+	var col := BLOCK_COLORS[style % BLOCK_COLORS.size()]
+	var h := BLOCK_HEIGHT + (0.3 if tall else 0.0)
 	var shadow := ToyKit.shadow(maxf(r.size.x, r.size.y) * 1.55)
 	shadow.position = Vector3(0.25, 0.02, 0.2)
 	n.add_child(shadow)
@@ -187,7 +221,7 @@ func _build_block(r: Rect2, idx: int) -> void:
 	_part(n, rbox, ToyKit.matte(col), Vector3(0, h, 0), Vector3(r.size.x - inset * 2.0, 0.06, r.size.y - inset * 2.0))
 	_part(n, rbox, ToyKit.matte(col), Vector3(0, h * 0.5, r.size.y * 0.5), Vector3(r.size.x - inset * 2.0, h - inset * 2.0, 0.06))
 	var label := Label3D.new()
-	label.text = BLOCK_LETTERS[idx % BLOCK_LETTERS.length()]
+	label.text = BLOCK_LETTERS[style % BLOCK_LETTERS.length()]
 	label.font_size = 160
 	label.pixel_size = minf(r.size.x, r.size.y) * 0.0045
 	label.outline_size = 0

@@ -274,7 +274,10 @@ testers is the owners' call; a good moment is after A (the floor plans are what 
 
 ## Progress
 
-- [ ] F foundations
+- [x] F foundations (built as written. Notes: the bots already threw without looking for a wall, so point 2 added the
+  line test; the 2.0 m passage rule fails on the old layouts of maps 0 to 4 (map 5 passes), so it is behind
+  `REWORKED` with the other strict rules, only connectivity runs for every map; `NetProto.VERSION` stays 9 because
+  neither a layout nor the snapshot changed. `REWORKED` lives in `MapDef`.)
 - [ ] A0 Train Set
 - [ ] A1 Assembly Line
 - [ ] A2 Lava Mats

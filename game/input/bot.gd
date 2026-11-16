@@ -4,6 +4,9 @@ extends RefCounted
 
 enum Phase { IDLE, CHARGING, WAIT_OUT, TAP, HOLD }
 
+const THROW_CLEARANCE := 0.2   # half width of a yo-yo's line of flight when the bot checks for a wall in the way
+const NAV_EVERY := 0.2         # seconds between two path searches
+
 var idx := 0
 var cfg: Config
 var rng := RandomNumberGenerator.new()
@@ -16,6 +19,9 @@ var wander_target := Vector2.ZERO
 var wander_t := 0.0
 var _last_alive := true
 var _urgent := false          # set by `_wander`: running from a marked mat, so no slow walking while charging
+var _nav_t := 0.0             # seconds until the next path search (the waypoint is kept in between)
+var _nav_point := Vector2.ZERO
+var _nav_goal := Vector2.ZERO
 var _aim_pig := false         # the throw being charged goes at the piggy bank
 
 
@@ -36,12 +42,14 @@ func think(sim: Sim, dt: float) -> SimInput:
 		_last_alive = true
 		phase = Phase.IDLE
 		attack_wait = rng.randf_range(Config.BOT_ATTACK_WAIT.x, Config.BOT_ATTACK_WAIT.y)
-	var target := _nearest_enemy(sim, me)
+	var nearest := _nearest_enemy(sim, me)
+	var dist := me.pos.distance_to(nearest.pos) if nearest != null else 1000.0
+	# A throw goes only at an enemy with a clear line: a wall in between makes the bot walk instead.
+	var target := _nearest_visible_enemy(sim, me)
 	var to_target := Vector2.ZERO
-	var dist := 1000.0
 	if target != null:
 		to_target = target.pos - me.pos
-		dist = to_target.length()
+		dist = minf(dist, to_target.length())
 
 	var walk := _wander(sim, me, dt)
 	inp.move = walk * (0.3 if phase == Phase.CHARGING and not _urgent else 1.0)
@@ -242,6 +250,36 @@ func _nearest_enemy(sim: Sim, me: SimPlayer) -> SimPlayer:
 	return best
 
 
+## The nearest enemy that a yo-yo can fly to in a straight line (no wall between), or null.
+func _nearest_visible_enemy(sim: Sim, me: SimPlayer) -> SimPlayer:
+	var grid := NavGrid.for_sim(sim)
+	var best: SimPlayer = null
+	var best_d := 1e9
+	for o in sim.players:
+		if o == me or not (o.enabled and o.alive):
+			continue
+		var d := o.pos.distance_to(me.pos)
+		if d < best_d and grid.line_clear(me.pos, o.pos, THROW_CLEARANCE):
+			best_d = d
+			best = o
+	return best
+
+
+## Where to walk to reach `goal`: the goal itself with a clear walking line, else the next waypoint of a path
+## around the walls (searched again every NAV_EVERY seconds or when the goal moves to another cell).
+func _steer_point(sim: Sim, me: SimPlayer, goal: Vector2, dt: float) -> Vector2:
+	var grid := NavGrid.for_sim(sim)
+	if grid.line_clear(me.pos, goal):
+		_nav_t = 0.0
+		return goal
+	_nav_t -= dt
+	if _nav_t <= 0.0 or NavGrid.cell_of(goal) != NavGrid.cell_of(_nav_goal) or me.pos.distance_to(_nav_point) < 0.3:
+		_nav_t = NAV_EVERY
+		_nav_goal = goal
+		_nav_point = grid.next_point(me.pos, goal)
+	return _nav_point
+
+
 func _wander(sim: Sim, me: SimPlayer, dt: float) -> Vector2:
 	wander_t -= dt
 	if wander_t <= 0.0 or me.pos.distance_to(wander_target) < 1.0:
@@ -254,7 +292,8 @@ func _wander(sim: Sim, me: SimPlayer, dt: float) -> Vector2:
 		# The target stays inside the (shrinking) zone with a margin, because its edges move in.
 		zone = sim.zone_rect().grow(-Config.BOT_ZONE_MARGIN)
 		wander_target = Vector2(clampf(wander_target.x, zone.position.x, zone.end.x), clampf(wander_target.y, zone.position.y, zone.end.y))
-	var dir := (wander_target - me.pos).normalized() * Config.BOT_MOVE_SCALE
+	wander_target = NavGrid.for_sim(sim).snap(wander_target)   # never a spot inside a wall
+	var dir := (_steer_point(sim, me, wander_target, dt) - me.pos).normalized() * Config.BOT_MOVE_SCALE
 	for s in sim.statics:
 		var closest := Vector2(clampf(me.pos.x, s.position.x, s.end.x), clampf(me.pos.y, s.position.y, s.end.y))
 		var away := me.pos - closest

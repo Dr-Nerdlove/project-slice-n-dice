@@ -18,6 +18,10 @@ const HINTS: Array[String] = [
 	"Hit the pig to take its coins.",
 ]
 
+## Maps whose floor plan has been rebuilt (docs/map-rework.md). The stricter floor-plan rules of the tests (10 to
+## 18 obstacles, spawn points far apart and out of sight, the 2.0 m passage rule) apply only to these.
+const REWORKED: Array[int] = []
+
 # --- layout per map (index = map id) ---
 const OBSTACLES: Array = [
 	[],  # map 0: Config.OBSTACLES
