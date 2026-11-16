@@ -3595,6 +3595,91 @@ func test_screens_fit() -> void:   # async
 	await process_frame
 	await process_frame
 	check("screens fit: the shop fits", main.overlay.shop.visible and first_outside(main.overlay, vp) == "", first_outside(main.overlay, vp))
+	# the shop's cards keep their width when offers are sold, and every modifier name fits its label
+	var shop_ui: ShopPanel = main.overlay.shop
+	var ids3: Array = [Mods.ORDER[0], Mods.ORDER[1], Mods.ORDER[2]]
+	m.offers[0] = ids3.duplicate()
+	m.locked[0] = [false, false, false]
+	m.shop_ready[0] = false
+	for _i in 3:
+		await process_frame
+	var w_full: Array = shop_ui.cards.map(func(c: Dictionary) -> float: return (c["panel"] as Control).size.x)
+	var shop_w_full: float = shop_ui.get_combined_minimum_size().x
+	m.offers[0] = ["", ids3[1], ""]
+	for _i in 3:
+		await process_frame
+	var w_sold: Array = shop_ui.cards.map(func(c: Dictionary) -> float: return (c["panel"] as Control).size.x)
+	var shop_w_sold: float = shop_ui.get_combined_minimum_size().x
+	check("shop width: all three cards are equally wide, whether sold or not", w_full[0] > 0.0 and w_full[0] == w_full[1] and w_full[1] == w_full[2] and w_sold == w_full, "%s %s" % [w_full, w_sold])
+	check("shop width: the panel does not change width when offers are sold", shop_w_full == shop_w_sold and first_outside(main.overlay, vp) == "", "%s %s" % [shop_w_full, shop_w_sold])
+	m.locked[0] = [true, true, true]
+	m.offers[0] = ids3.duplicate()
+	for _i in 3:
+		await process_frame
+	var name_label: Label = shop_ui.cards[0]["name"]
+	var worst := ""
+	for id in Mods.ORDER:
+		name_label.text = Mods.mod_name(id)
+		var tw := name_label.get_theme_font("font").get_string_size(name_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, name_label.get_theme_font_size("font_size")).x
+		if tw > name_label.size.x:
+			worst += "%s %.0f>%.0f; " % [id, tw, name_label.size.x]
+	check("shop width: every modifier name fits its label, even next to Locked", worst == "" and (shop_ui.cards[0]["lock"] as Button).text == "Locked" and name_label.size.x > 0.0, worst)
+	# card text: the level the buy gives; every short text fits two lines at the card's real width
+	m.locked[0] = [false, false, false]
+	m.owned[0] = {}
+	m.offers[0] = ids3.duplicate()
+	for _i in 3:
+		await process_frame
+	var d0: Label = shop_ui.cards[0]["desc"]
+	var card_h0: float = (shop_ui.cards[0]["panel"] as Control).size.y
+	var lvl_ok: bool = d0.text == Mods.short(ids3[0], 1)
+	m.owned[0] = {ids3[0]: 2}
+	for _i in 3:
+		await process_frame
+	lvl_ok = lvl_ok and d0.text == Mods.short(ids3[0], Mods.level_for_copies(3)) and Mods.level_for_copies(3) == 2 and d0.text != Mods.short(ids3[0], 1)
+	m.owned[0] = {ids3[0]: 5}
+	for _i in 3:
+		await process_frame
+	lvl_ok = lvl_ok and d0.text == Mods.short(ids3[0], 3)
+	check("shop text: the card shows the text of the level the buy gives", lvl_ok, d0.text)
+	var long_worst := ""
+	var min_h: float = d0.get_combined_minimum_size().y
+	for id in Mods.ORDER:
+		for lv in range(1, Mods.MAX_LEVEL + 1):
+			d0.text = Mods.short(id, lv)
+			await process_frame
+			if d0.get_line_count() > 2 or d0.get_combined_minimum_size().y != min_h or d0.size.x < 100.0:
+				long_worst += "%s/%d (%d lines) " % [id, lv, d0.get_line_count()]
+	check("shop text: every short text fits the card in two lines, the card keeps its height", long_worst == "" and (shop_ui.cards[0]["panel"] as Control).size.y == card_h0, long_worst)
+	# build slots: names fit, sell tags show the refund
+	m.owned[0] = {}
+	for k in Economy.SLOTS:
+		m.owned[0][Mods.ORDER[k]] = k + 1
+	m.shop_ready[0] = false
+	for _i in 3:
+		await process_frame
+	var slot_worst := ""
+	var slot_name: Label = shop_ui.slots[0]["name"]
+	var slot_tag: Control = shop_ui.slots[0]["sell"]
+	for id in Mods.ORDER:
+		slot_name.text = Mods.mod_name(id)
+		var sw := slot_name.get_theme_font("font").get_string_size(slot_name.text, HORIZONTAL_ALIGNMENT_LEFT, -1, slot_name.get_theme_font_size("font_size")).x
+		if sw > slot_name.size.x:
+			slot_worst += "%s %.0f>%.0f; " % [id, sw, slot_name.size.x]
+	check("shop slots: every modifier name fits under the icon", slot_worst == "" and slot_name.size.x > 0.0, slot_worst)
+	var tag_ok := true
+	for n in Economy.SLOTS:
+		var sl: Dictionary = shop_ui.slots[n]
+		var want := "+%d ¢" % m.sell_refund(0, Mods.ORDER[n])
+		tag_ok = tag_ok and (sl["sell"] as Control).visible and (sl["sell"].get_node("Text") as Label).text == want and m.sell_refund(0, Mods.ORDER[n]) > 0
+		var sp: Control = sl["panel"]
+		var tr: Rect2 = (sl["sell"] as Control).get_global_rect()
+		tag_ok = tag_ok and sp.get_global_rect().encloses(tr) and tr.get_center().x > sp.get_global_rect().get_center().x
+	check("shop slots: the sell tag shows the refund, top right, inside the slot", tag_ok and first_outside(main.overlay, vp) == "", first_outside(main.overlay, vp))
+	m.owned[0] = {Mods.ORDER[0]: 1}
+	for _i in 3:
+		await process_frame
+	check("shop slots: empty slots have no sell tag", (shop_ui.slots[0]["sell"] as Control).visible and not (shop_ui.slots[1]["sell"] as Control).visible and shop_ui.slots[1]["name"].text == "")
 	check("screens fit: no scroll container in the menus, the lobby and the overlays", main.main_menu.find_children("*", "ScrollContainer", true, false).is_empty() and main.lobby.find_children("*", "ScrollContainer", true, false).is_empty() and main.overlay.find_children("*", "ScrollContainer", true, false).is_empty() and main.pause.find_children("*", "ScrollContainer", true, false).is_empty())
 	main.queue_free()
 	await process_frame

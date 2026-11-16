@@ -39,7 +39,7 @@ const ORDER: Array[String] = [
 ## "n" holds one array of 3 values (level 1..3) per key. In descriptions {key} is replaced by that value.
 const TABLE := {
 	"tripwire": {
-		"name": "Tripwire", "short": "Retracting leaves a trip wire", "tier": Tier.CHEAP,
+		"name": "Tripwire", "short": ["Your string leaves a trip wire", "Longer wires, up to 2 at once", "Wires now KILL, up to 3"], "tier": Tier.CHEAP,
 		"desc": [
 			"When you retract, the string stays on the ground as a wire for {wire_time} s. Anyone who runs over it stumbles for {stun_time} s (max. {max_wires} wire).",
 			"Wires last {wire_time} s, up to {max_wires} at once, stumble {stun_time} s.",
@@ -51,7 +51,7 @@ const TABLE := {
 		},
 	},
 	"bighead": {
-		"name": "Big Chunk", "short": "Much bigger yo-yo head", "tier": Tier.CHEAP,
+		"name": "Big Chunk", "short": ["Bigger yo-yo, easier hits", "Even bigger yo-yo", "Giant yo-yo, hard to miss"], "tier": Tier.CHEAP,
 		"desc": [
 			"The yo-yo head is {radius_mult}x as big, so it hits much more easily.",
 			"The yo-yo head is {radius_mult}x as big.",
@@ -60,7 +60,7 @@ const TABLE := {
 		"n": {"radius_mult": [1.5, 2.0, 2.8]},
 	},
 	"elastic": {
-		"name": "Rubber Band", "short": "Pull in faster, then fling", "tier": Tier.MEDIUM,
+		"name": "Rubber Band", "short": ["Zip to your yo-yo faster and fly past it", "Zip faster, your body kills on the way", "Even faster, bigger deadly body"], "tier": Tier.MEDIUM,
 		"desc": [
 			"You pull yourself to the yo-yo {pull_mult}x faster and get flung {fling_dist} m onward.",
 			"Pull {pull_mult}x faster, fling {fling_dist} m. Your body is deadly while pulling and flung.",
@@ -73,7 +73,7 @@ const TABLE := {
 		},
 	},
 	"extradash": {
-		"name": "Extra Dash", "short": "More dash charges", "tier": Tier.MEDIUM,
+		"name": "Extra Dash", "short": ["+1 dash", "+2 dashes, faster recharge", "+3 dashes, dash through blocks"], "tier": Tier.MEDIUM,
 		"desc": [
 			"+{charges} dash charge.",
 			"+{charges} dash charges and cooldown ×{cooldown_mult}.",
@@ -84,7 +84,7 @@ const TABLE := {
 		},
 	},
 	"bounce": {
-		"name": "Ricochet", "short": "Yo-yo bounces off walls", "tier": Tier.MEDIUM,
+		"name": "Ricochet", "short": ["Yo-yo bounces off walls once", "Up to 3 bounces, flies further", "Up to 5 bounces, speeds up"], "tier": Tier.MEDIUM,
 		"desc": [
 			"The flying yo-yo bounces off walls {bounces} time(s); each bounce adds {bonus_dist} m of flight. The string bends at the bounce points.",
 			"Up to {bounces} bounces, each +{bonus_dist} m of flight. The string follows the path through every bounce point.",
@@ -95,7 +95,7 @@ const TABLE := {
 		},
 	},
 	"steer": {
-		"name": "Steered Throw", "short": "Steer the yo-yo in flight", "tier": Tier.MEDIUM,
+		"name": "Steered Throw", "short": ["Steer your flying yo-yo", "Sharper steering, more range", "Drag your yo-yo anywhere"], "tier": Tier.MEDIUM,
 		"desc": [
 			"Pull the aim stick during the flight to steer the yo-yo that way.",
 			"Steers harder, range +{range_pct} %.",
@@ -108,7 +108,7 @@ const TABLE := {
 		},
 	},
 	"pierce": {
-		"name": "Piercing", "short": "Yo-yo flies through blocks", "tier": Tier.EXPENSIVE,
+		"name": "Piercing", "short": ["Yo-yo flies through blocks", "Also through the crate, more range", "Knocks enemy yo-yos aside"], "tier": Tier.EXPENSIVE,
 		"desc": [
 			"The yo-yo passes through obstacle blocks in flight and when retracting (but not through the outer walls).",
 			"Also through the crate, range +{range_pct} %.",
@@ -120,7 +120,7 @@ const TABLE := {
 		},
 	},
 	"shards": {
-		"name": "Shards", "short": "Hits burst into shards", "tier": Tier.MEDIUM,
+		"name": "Shards", "short": ["Retracting fires 3 deadly shards", "6 shards, further", "10 shards that bounce off walls"], "tier": Tier.MEDIUM,
 		"desc": [
 			"When you retract, {count} deadly shards fly away from the yo-yo ({range} m).",
 			"{count} shards, {range} m far.",
@@ -132,7 +132,7 @@ const TABLE := {
 		},
 	},
 	"warhead": {
-		"name": "Warhead", "short": "Yo-yo explodes on impact", "tier": Tier.EXPENSIVE,
+		"name": "Warhead", "short": ["Yo-yo explodes where it lands (you too!)", "Bigger blast, also on retract", "EVEN bigger explosions"], "tier": Tier.EXPENSIVE,
 		"desc": [
 			"The yo-yo explodes where it lands (radius {radius} m). You too!",
 			"Radius {radius} m, plus a second explosion on retract. You too!",
@@ -141,7 +141,7 @@ const TABLE := {
 		"n": {"radius": [1.6, 2.4, 3.4], "retract_blast": [0, 1, 1]},
 	},
 	"twin": {
-		"name": "Twin", "short": "Throw two yo-yos at once", "tier": Tier.EXPENSIVE,
+		"name": "Twin", "short": ["Throw two yo-yos at once", "Both cross on return, deadly", "Faster return, zip to a lying yo-yo"], "tier": Tier.EXPENSIVE,
 		"desc": [
 			"You have {heads} yo-yos. A short tap retracts both, holding pulls you to the yo-yo in your running direction.",
 			"Crossfire: on retract both yo-yos meet in the middle (deadly!) and then come back together.",
@@ -209,8 +209,8 @@ static func mod_name(id: String) -> String:
 
 
 ## A few words for the shop cards (the long texts per level are for Training).
-static func short(id: String) -> String:
-	return TABLE[id]["short"]
+static func short(id: String, level: int = 1) -> String:
+	return TABLE[id]["short"][clampi(level, 1, MAX_LEVEL) - 1]
 
 
 static func tier(id: String) -> int:
