@@ -120,6 +120,7 @@ func refresh() -> void:
 	for i in _labels.size():
 		var p := _sim.players[i]
 		_labels[i].visible = p.enabled
+		_labels[i].add_theme_color_override("font_color", ArenaView.color_of(p))
 		var who := "You" if i == _local else ("Player %d" % (i + 1) if online else "Bot %d" % i)
 		_labels[i].text = "%s %d : %d" % [who, p.kills, p.deaths]
 

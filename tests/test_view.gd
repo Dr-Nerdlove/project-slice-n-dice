@@ -943,6 +943,29 @@ func test_arena_view_figures() -> void:
 	sm.players[0].skin = 9
 	view.render(1.0, 1.0 / 60.0)
 	check("view: a skin out of range wraps", view._figures[0].kind == 1)
+	# Player colour: the body keeps the toy's own colour, the ring on the floor carries the player colour.
+	var f1: ToyFigure = view._figures[1]
+	var ring1: MeshInstance3D = f1.get_node("ColorRing")
+	var ring_col: Color = (ring1.material_override as StandardMaterial3D).albedo_color
+	var want: Color = ArenaView.PLAYER_COLORS[sm.players[1].color]
+	check("view colour: the body uses the toy's body colour, not the player colour", f1.body_mat.albedo_color == ToyFigure.BODY_COLORS[f1.kind] and f1.body_mat.albedo_color != want)
+	check("view colour: the ring uses the player colour", is_equal_approx(ring_col.r, want.r) and is_equal_approx(ring_col.g, want.g) and is_equal_approx(ring_col.b, want.b))
+	check("view colour: the ring lies flat around the feet (1.1 to 1.4 radii)", ring1.scale.x >= 2.2 and ring1.scale.x <= 2.8 and ring1.scale.y < ring1.scale.x * 0.5)
+	var new_k := (sm.players[1].color + 1) % Config.COLOR_COUNT
+	sm.players[1].color = new_k
+	view.render(1.0, 1.0 / 60.0)
+	var f1b: ToyFigure = view._figures[1]
+	var ring_col2: Color = ((f1b.get_node("ColorRing") as MeshInstance3D).material_override as StandardMaterial3D).albedo_color
+	var want2: Color = ArenaView.PLAYER_COLORS[new_k]
+	check("view colour: a colour change rebuilds the figure with the new ring", f1b != f1 and is_equal_approx(ring_col2.r, want2.r) and is_equal_approx(ring_col2.g, want2.g) and is_equal_approx(ring_col2.b, want2.b))
+	var aim_col: Color = (view._aim_marks[1].material_override as StandardMaterial3D).albedo_color
+	check("view colour: ... and the aim mark follows", is_equal_approx(aim_col.r, want2.lightened(0.4).r) and is_equal_approx(aim_col.b, want2.lightened(0.4).b))
+	var head_node: Node3D = view._heads[1][0]
+	var head_mats := head_node.find_children("*", "MeshInstance3D", true, false).map(func(m: MeshInstance3D) -> Color: return (m.material_override as StandardMaterial3D).albedo_color if m.material_override is StandardMaterial3D else Color.BLACK)
+	var want_half := want2.lightened(0.15)
+	check("view colour: ... and the yo-yo halves", head_mats.any(func(c: Color) -> bool: return is_equal_approx(c.r, want_half.r) and is_equal_approx(c.g, want_half.g) and is_equal_approx(c.b, want_half.b)))
+	check("view colour: ArenaView.color_of reads the player's colour", ArenaView.color_of(sm.players[1]) == want2)
+	check("view colour: every toy has a body colour", ToyFigure.BODY_COLORS.size() == ToyFigure.NAMES.size())
 	# The yo-yo in the hand and out.
 	var p := sm.players[0]
 	p.pos = Vector2(10, 7)

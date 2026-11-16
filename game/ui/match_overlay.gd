@@ -188,8 +188,7 @@ func _fill(sim: Sim, own: int, over: bool, bots_offline: bool) -> void:
 	if not over:
 		_pop_round = m.round
 	for i: int in slots:
-		var skin: int = sim.players[i].skin
-		rows_box.add_child(make_row(player_name(sim, i, own, bots_offline), ToyFigure.ACCENTS[posmod(skin, ToyFigure.ACCENTS.size())],
+		rows_box.add_child(make_row(player_name(sim, i, own, bots_offline), ArenaView.color_of(sim.players[i]),
 				m.points[i], m.target, i == own, pop_now and not over and i == m.last_scorer, m.coins[i], m.earned[i]))
 	coins_label.text = coin_text(m, own)
 	target_label.text = ("First to %d" % m.target).to_upper()
@@ -199,8 +198,14 @@ func _fill(sim: Sim, own: int, over: bool, bots_offline: bool) -> void:
 func make_row(pname: String, accent: Color, pts: int, target: int, is_own: bool, pop: bool, total: int, gained: int) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
-	var dot := ColorRect.new()
-	dot.color = accent
+	var dot := Panel.new()   # a filled circle with a thin dark edge (readable on the paper panel)
+	var dot_box := StyleBoxFlat.new()
+	dot_box.bg_color = accent
+	dot_box.set_corner_radius_all(11)
+	dot_box.set_border_width_all(2)
+	dot_box.border_color = UiKit.INK
+	dot.add_theme_stylebox_override("panel", dot_box)
+	dot.set_meta("swatch_color", accent)
 	dot.custom_minimum_size = Vector2(22, 22)
 	dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(dot)

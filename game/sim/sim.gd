@@ -49,6 +49,7 @@ func _init(config: Config, seed_value: int) -> void:
 		var p := SimPlayer.new()
 		p.id = i
 		p.skin = i % Config.SKIN_COUNT
+		p.color = i % Config.COLOR_COUNT
 		p.enabled = i < cfg.player_count   # the others are switched on by whoever fills the slots (bots, joiners)
 		if not p.enabled:
 			p.alive = false
@@ -92,6 +93,8 @@ func set_player_enabled(i: int, on: bool) -> void:
 	if p.enabled == on:
 		return
 	p.enabled = on
+	if on:
+		_resolve_color(i)
 	_reset_yoyo(p)
 	p.alive = false
 	p.respawn_t = 0.0
@@ -100,6 +103,39 @@ func set_player_enabled(i: int, on: bool) -> void:
 ## Sets which figure a player shows (presentation only; never read by the simulation).
 func set_skin(i: int, k: int) -> void:
 	players[i].skin = posmod(k, Config.SKIN_COUNT)
+
+
+## Sets a player's colour (presentation only). k wraps into range; when another ENABLED player has it, the next free
+## colour is taken instead (k+1, k+2 ... wrapping), so enabled players never share a colour.
+func set_color(i: int, k: int) -> void:
+	players[i].color = posmod(k, Config.COLOR_COUNT)
+	_resolve_color(i)
+
+
+func _resolve_color(i: int) -> void:
+	var p := players[i]
+	for step in Config.COLOR_COUNT:
+		var c := posmod(p.color + step, Config.COLOR_COUNT)
+		var taken := false
+		for o in players:
+			if o != p and o.enabled and o.color == c:
+				taken = true
+				break
+		if not taken:
+			p.color = c
+			return
+
+
+## Offline: player 0 gets colour k, every other slot the remaining colours in order (idempotent, all unique).
+func assign_colors(k: int) -> void:
+	var mine := posmod(k, Config.COLOR_COUNT)
+	players[0].color = mine
+	var c := 0
+	for i in range(1, players.size()):
+		if c == mine:
+			c += 1
+		players[i].color = c % Config.COLOR_COUNT
+		c += 1
 
 
 ## Sets the modifier levels of a player (id -> 0..3). Cheap to call every frame.

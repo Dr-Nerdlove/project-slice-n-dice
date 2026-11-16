@@ -167,6 +167,7 @@ func _ready() -> void:
 func _make_play_cfg() -> Config:
 	var c := Config.new()
 	c.character = train_cfg.character
+	c.player_color = train_cfg.player_color
 	c.target_score = train_cfg.target_score
 	c.player_count = train_cfg.player_count
 	c.bot_mode = Config.BotMode.ACTIVE
@@ -374,6 +375,7 @@ func _sync_mods() -> void:
 		if free:
 			sim.apply_mods(i, cfg.mods_bots)
 		sim.set_skin(i, cfg.character + i)
+	sim.assign_colors(cfg.player_color)
 
 
 func _process(delta: float) -> void:
@@ -396,6 +398,7 @@ func _process(delta: float) -> void:
 		slot = client.slot
 		client.set_mods(cfg.mods_you)
 		client.set_skin(cfg.character)
+		client.set_color(cfg.player_color)
 		# Online the world does not wait: no hit-stop, and the sim keeps running while a menu is open.
 		_acc = minf(_acc + delta, Config.MAX_ACCUMULATED_TIME)
 		while _acc >= dt and _online:
@@ -557,6 +560,7 @@ func _start_client(host: String, port: int) -> bool:
 	client.smooth_others = _smooth
 	client.set_mods(cfg.mods_you)
 	client.set_skin(cfg.character)
+	client.set_color(cfg.player_color)
 	_set_status("connecting", true)
 	return true
 
