@@ -65,8 +65,17 @@ func warm_up(rig: Dictionary, max_ticks := 240) -> bool:
 			if c.state != ClientCore.State.ONLINE:
 				all = false
 		if all:
+			open_arena(rig["server"].sim)
+			for c: ClientCore in rig["clients"]:
+				open_arena(c.sim)
 			return true
 	return false
+
+
+## Map 0 has walls now. Scenarios that were set up for open floor (hard-coded positions and throw lines) run in an
+## arena with only the outer walls left, like `mk()` in test_sim.gd. The map itself is checked in test_sim.gd.
+func open_arena(s: Sim) -> void:
+	s.statics.resize(s.wall_count)
 
 
 ## A looping 5 s routine: walk, charge, throw, tap (retract), walk, charge, throw, hold (pull), dash.
@@ -265,6 +274,7 @@ func test_prediction() -> void:
 	check("net: gets slot 0 and the server config", cl.slot == 0 and cl.cfg != null and is_equal_approx(cl.cfg.player_speed, 6.0))
 	var ref := Sim.new(cl.cfg, 1)
 	ref.load_state(cl.sim.save_state())
+	open_arena(ref)
 	ref.apply_mods(0, Mods.empty_levels())
 	var slot := cl.slot
 	# This tests the prediction itself, not the server's adaptive input buffer (which starts small and may run dry
@@ -344,6 +354,13 @@ func test_two_clients() -> void:
 	var cs: Array = rig["clients"]
 	var server: ServerCore = rig["server"]
 	check("net: they get different slots", cs[0].slot != cs[1].slot and server.players_online() == 2)
+	# the duel script is timed for the old start places, 26.4 m apart (the floor plan of map 0 starts them closer)
+	for k in 2:
+		var sp: SimPlayer = server.sim.players[cs[k].slot]
+		sp.pos = Vector2(2.8 if k == 0 else 29.2, 7.2)
+		sp.prev_pos = sp.pos
+	for _t in 60:    # the clients take the teleport (a big correction) before the measuring starts
+		step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
 	var sum_corr := 0.0
 	var max_corr := 0.0
 	var n := 0
@@ -543,7 +560,7 @@ func test_color() -> void:
 	check("colour net: out-of-range choices on the client wrap into range", (func() -> bool:
 		a.set_color(Config.COLOR_COUNT * 4 + 2)
 		return a._wanted_color == 2).call())
-	check("map net: the protocol version is 9", NetProto.VERSION == 9)
+	check("map net: the protocol version is 10", NetProto.VERSION == 10)
 
 
 func test_skin_delayed() -> void:
@@ -649,6 +666,8 @@ func interp_setup() -> Dictionary:
 	s.crate_pos = Vector2(-50, -50)
 	s.box_active = false
 	s.box_timer = 9999.0
+	open_arena(s)
+	open_arena(fs["client"].sim)
 	fs["sim"] = s
 	return fs
 

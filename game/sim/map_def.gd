@@ -20,7 +20,7 @@ const HINTS: Array[String] = [
 
 ## Maps whose floor plan has been rebuilt (docs/map-rework.md). The stricter floor-plan rules of the tests (10 to
 ## 18 obstacles, spawn points far apart and out of sight, the 2.0 m passage rule) apply only to these.
-const REWORKED: Array[int] = []
+const REWORKED: Array[int] = [0]
 
 # --- layout per map (index = map id) ---
 const OBSTACLES: Array = [

@@ -1,6 +1,6 @@
 # Maps
 
-Six maps: the original playroom with the toy train (map 0, unchanged) and five new ones. Every map is the same
+Six maps: the playroom with the toy train (map 0, new floor plan since 0.11.0) and five new ones. Every map is the same
 room (32 x 14.4 m, same walls, same camera) with other toys on the carpet, and every map has ONE twist of a
 different kind. All rules below live in the pure simulation (`game/sim`), are part of the snapshot and are
 deterministic; the view only reads them.
@@ -34,6 +34,42 @@ On Lava Mats the lines are the borders of the mat pairs. Where the shrinking zon
 - Nothing is shown as UI. Every twist announces itself in the world: belts stop before they turn, mats blink
   before they burn, the landing spot of a trampoline is painted on the floor, the magnets change colour, the
   coins lie on the pig's back.
+
+## 0. Train Set
+
+```
+...........#................#zzzzzzzzzz.
+...........#....3...........#zzzzzzzzzz.
+..5........#.......CC.......#zzzzzzzz8z.
+...........#.......CC.......#zzzzzzzzzz.
+...........#..tttttttttttt..#zzzzzzzzzz.
+########.....t............t.....########
+.............t............t.............
+.zzzzzzzzzz..t....#######.t..zzzzzzzzzz.
+.zzzz1zzzzz..t....####....t..zzzzz2zzzz.
+.zzzzzzzzzz..t....####....t..zzzzzzzzzz.
+.zzzzzzzzzz..t.#######....t..zzzzzzzzzz.
+.............t............t.............
+########.....t............t.....########
+.zzzzzzzzzz#.tttttttttttttt.#...........
+.zzzzzzzzzz#.......PP.......#...........
+.zzzzzzzzzz#.......PP.......#...........
+.z7zzzzzzzz#...........4....#........6..
+...........#................#...........
+```
+(`#` wall or block, `t` the rails, `z` the four final zone areas, `C` chest, `P` present, `1`-`8` spawn points; one
+character is 0.8 m.)
+
+**Twist.** The toy train circles the centre on its loop of rails (x 10.5 to 21.5, y 3.6 to 10.8) and runs over
+anyone on it (a death, no kill for anyone). The floor plan (step A0 of `docs/map-rework.md`) makes the rails the
+main road: four walls grow from the top and bottom walls towards the track and four more close the left and right
+side rooms off from the four corner rooms, so the rooms are connected along the track. Inside the loop the centre
+block has a wall on each side (a pinwheel): the yard behind it is a hiding place that has to be reached across the
+rails.
+
+**Numbers.** 11 obstacles (`Config.OBSTACLES`, point-symmetric about the arena centre), walls 0.8 m thick,
+every passage at least 2.0 m, spawn points at least 6 m apart and out of sight of each other below 14 m, four
+free zone areas (left middle, right middle, bottom left, top right).
 
 ## 1. Assembly Line
 
