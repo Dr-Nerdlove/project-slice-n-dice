@@ -163,7 +163,7 @@ func setup(c: Config) -> void:
 
 	grid.add_child(_selector("Yo-yo behaviour while it lies out", VARIANT_NAMES, "out_variant"))
 	grid.add_child(_selector("Practice opponents", BOT_NAMES, "bot_mode"))
-	grid.add_child(_selector("Map (also used by Play for now)", MapDef.NAMES, "map"))
+	grid.add_child(_selector("Map", MapDef.NAMES, "map"))
 	grid.add_child(Control.new())   # keeps the two-column grid even
 	for def: Array in SLIDERS:
 		grid.add_child(_slider_row(def))

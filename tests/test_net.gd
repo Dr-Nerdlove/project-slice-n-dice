@@ -1642,6 +1642,60 @@ func hello_reason(rig: Dictionary, token: Variant = "0123456789abcdef0123456789a
 	return ""
 
 
+func test_maps() -> void:
+	var M := MatchMode.Phase
+	# rotation: the client and the server show the same map after every round change
+	var rig := make_rig(40.0, 0.0, 2, 14)
+	var server: ServerCore = rig["server"]
+	server.cfg.map = Config.MAP_ROTATE
+	check("maps net: two clients join a rotating server", warm_up(rig))
+	var c0: ClientCore = rig["clients"][0]
+	var c1: ClientCore = rig["clients"][1]
+	check("maps net: the rotation reaches the client in the welcome config", c0.sim.cfg.map == Config.MAP_ROTATE and c1.sim.cfg.map == Config.MAP_ROTATE)
+	server.start_match(20)
+	var idle := func(_k: int) -> SimInput: return SimInput.new()
+	var maps_seen := {}
+	var agree := true
+	var info := ""
+	for _r in 4:
+		for _t in 260:
+			step_rig(rig, idle)
+		server.sim._kill(server.sim.players[1], null)
+		for _t in 300:
+			if server.sim.mode.phase == M.SHOP:
+				server.sim.shop_done(0)
+				server.sim.shop_done(1)
+			step_rig(rig, idle)
+			if server.sim.mode.phase == M.COUNTDOWN:
+				break
+		for _t in 60:
+			step_rig(rig, idle)
+		maps_seen[server.sim.map_id] = true
+		c0.prepare_display(0.5)
+		var same: bool = c0.sim.map_id == server.sim.map_id and c1.sim.map_id == server.sim.map_id and c0.display_sim.map_id == server.sim.map_id and c0.sim.mode.map_bag == server.sim.mode.map_bag
+		agree = agree and same
+		info += "%d/%d/%d " % [server.sim.map_id, c0.sim.map_id, c1.sim.map_id]
+	check("maps net: after every round change both clients draw the server's map and have its bag", agree and maps_seen.size() >= 3, info)
+	check("maps net: the clients' statics follow the map", c0.sim.statics.size() == c0.sim.wall_count + MapDef.obstacles(c0.sim.map_id).size())
+	# a fixed twist map: the twist clock and the pig agree between client and server
+	var rig2 := make_rig(40.0, 0.0, 2, 15)
+	var s2: ServerCore = rig2["server"]
+	warm_up(rig2)
+	s2.sim.set_map(MapDef.Id.PIGGY)   # the server's map: the clients (built for map 0) follow the snapshots
+	for _t in 60 * 12:
+		step_rig(rig2, idle)
+	var cl: ClientCore = rig2["clients"][0]
+	check("maps net: the client sim runs on the fixed map, its twist state follows the server", cl.sim.map_id == MapDef.Id.PIGGY and absf(cl.sim.map_t - s2.sim.map_t) < 1.0 and absf(cl.sim.pig_coins - s2.sim.pig_coins) <= 1 and cl.sim.pig_coins > 0, "%.2f %.2f %d %d" % [cl.sim.map_t, s2.sim.map_t, cl.sim.pig_coins, s2.sim.pig_coins])
+	var rig3 := make_rig(40.0, 0.0, 2, 16)
+	var s3: ServerCore = rig3["server"]
+	warm_up(rig3)
+	s3.sim.set_map(MapDef.Id.LAVA)
+	for _t in 60 * 6:
+		step_rig(rig3, idle)
+	var cl3: ClientCore = rig3["clients"][0]
+	check("maps net: the lava mats of the server are the client's too", cl3.sim.map_id == MapDef.Id.LAVA and s3.sim.lava_wave >= 1 and cl3.sim.lava_wave == s3.sim.lava_wave and cl3.sim.lava_cells == s3.sim.lava_cells, "%d %d" % [cl3.sim.lava_wave, s3.sim.lava_wave])
+
+
 func test_match_lock() -> void:
 	var M := MatchMode.Phase
 	var rig := make_rig(0.0, 0.0, 2, 6)
@@ -3247,6 +3301,7 @@ func test_main_menu() -> void:   # async
 	main.train_cfg.mods_bots["pierce"] = 2
 	main.train_cfg.bot_mode = Config.BotMode.DUMMY
 	main.train_cfg.character = 3
+	main.train_cfg.map = MapDef.Id.PIGGY   # the Training map choice: Play must not use it
 	main.main_menu.play_btn.pressed.emit()
 	await process_frame
 	check("menu: Play opens the lobby, the sim still stands", main.screen == main.Screen.LOBBY and main.lobby.visible and not main.main_menu.visible and main.sim.tick == 0)
@@ -3256,6 +3311,7 @@ func test_main_menu() -> void:   # async
 	var pcfg: Config = main.sim.cfg
 	check("play: a solo game runs on the default values, not the tuned ones", main.screen == main.Screen.GAME and not main.training and main.cfg == main.play_cfg and pcfg == main.play_cfg and main.play_cfg != main.train_cfg
 			and pcfg.player_speed == Config.DEFAULTS["player_speed"] and pcfg.dash_distance == Config.DEFAULTS["dash_distance"] and main.sim.tick > 10, str(pcfg.player_speed))
+	check("play: the maps rotate, the map saved for Training is not used", pcfg.map == Config.MAP_ROTATE and main._make_play_cfg().map == Config.MAP_ROTATE and main.train_cfg.map == MapDef.Id.PIGGY and main.sim.mode.map_bag.size() == Config.MAP_COUNT and main.sim.map_id == main.sim.mode.map_bag[0])
 	check("play: no modifier levels, for the player or the bots", Mods.ORDER.all(func(id: String) -> bool: return pcfg.mods_you[id] == 0 and pcfg.mods_bots[id] == 0 and main.sim.players[0].mods.get(id, 0) == 0 and main.sim.players[1].mods.get(id, 0) == 0))
 	check("play: bots are active whatever the saved bot mode, and the chosen figure counts", pcfg.bot_mode == Config.BotMode.ACTIVE and main.sim.players[1].enabled and main.sim.players[0].skin == 3 and main.sim.players[1].skin == 4)
 	check("play: the HUD shows only the pause button", main.hud.visible and main.hud.play_mode and not main.hud._score_box.visible and not main.hud._chip_box.visible and not main.hud._net_label.visible and not main.router.blocked)
@@ -3284,6 +3340,14 @@ func test_main_menu() -> void:   # async
 		await process_frame
 	check("training: runs on the tuned values and the sandbox modifiers", main.screen == main.Screen.GAME and main.training and main.cfg == main.train_cfg and main.sim.cfg.player_speed == 9.0 and main.sim.cfg.dash_distance == 7.0
 			and main.sim.players[0].mods.get("twin", 0) == 3 and main.sim.players[1].mods.get("pierce", 0) == 2 and main.sim.tick > 10)
+	check("training: uses the chosen map and does not rotate", main.sim.cfg.map == MapDef.Id.PIGGY and main.sim.map_id == MapDef.Id.PIGGY and main.sim.mode.phase == MatchMode.Phase.OFF)
+	main.train_cfg.map = MapDef.Id.BOUNCE   # the selector of the tuning menu changes the map of the standing Training sim at once
+	for _i in 3:
+		await process_frame
+	check("training: a map chosen in the tuning menu acts at once", main.sim.map_id == MapDef.Id.BOUNCE and main.sim.statics.size() == main.sim.wall_count + MapDef.obstacles(MapDef.Id.BOUNCE).size())
+	main.train_cfg.map = 0
+	for _i in 3:
+		await process_frame
 	check("training: keeps the saved bot mode, the figure and today's HUD", main.sim.players[1].enabled == (main.train_cfg.bot_mode != Config.BotMode.OFF) and not main.sim.cfg.bot_mode == Config.BotMode.ACTIVE and main.sim.players[0].skin == 3 and main.hud.visible and not main.hud.play_mode and main.hud._score_box.visible)
 	main.hud.gear_pressed.emit()
 	check("training: the pause button opens the tuning menu, not the pause panel", main.menu.visible and not main.pause.visible and main.router.blocked)
@@ -3762,7 +3826,7 @@ func _initialize() -> void:
 		test_lan_code, test_pick_address, test_lan_beacon, test_local_host, test_menu_local, test_main_local,
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_color, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
-		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_zone, test_shop, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
+		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_maps, test_zone, test_shop, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
 		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_touch_menu, test_match_flow, test_score_panel_fit, test_main_rejoin, test_eight, test_main_eight, test_lobby_fits, test_screens_fit,
 	]
 	for g in groups:

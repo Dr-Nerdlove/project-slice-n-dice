@@ -38,6 +38,7 @@ const NUM_PLAYERS := 8             # player slots in the sim (the most a match c
 const MIN_PLAYERS := 2
 const DEFAULT_PLAYERS := 4
 const TRAINING_PLAYERS := 4        # Training (and `--server`) keep four players
+const MAP_ROTATE := -1             # `map` value: the map changes between rounds (Play); Training never uses it
 const MAP_COUNT := 6               # maps to choose from (`map`); must equal MapDef.NAMES.size()
 const COLOR_COUNT := 8             # player colours to choose from; must equal ArenaView.PLAYER_COLORS.size()
 const SKIN_COUNT := 8              # player figures to choose from (presentation only); must equal ToyFigure.NAMES.size()
@@ -137,7 +138,8 @@ var target_score := MatchMode.DEFAULT_TARGET
 ## Players in a Play match (MIN_PLAYERS..NUM_PLAYERS): you plus bots in Solo, the room size when hosting. Saved with the
 ## settings like `character`, not reset by Reset.
 var player_count := DEFAULT_PLAYERS
-## The map (0..MAP_COUNT-1, see MapDef). Saved with the settings like `character`, not reset by Reset.
+## The map (0..MAP_COUNT-1, see MapDef), or MAP_ROTATE (-1): the maps take turns between rounds of a match. Training saves
+## a chosen map with the settings like `character` (not reset by Reset); Play always rotates.
 var map := 0
 
 const DEFAULTS := {
@@ -201,7 +203,7 @@ func from_dict(d: Dictionary) -> void:
 	var pc: Variant = d.get("player_count")
 	player_count = clampi(int(clampf(float(pc), -1000.0, 1000.0)), MIN_PLAYERS, NUM_PLAYERS) if (pc is int or (pc is float and is_finite(pc))) else DEFAULT_PLAYERS
 	var mp: Variant = d.get("map")
-	map = int(mp) if (mp is int or (mp is float and is_finite(mp))) and int(mp) >= 0 and int(mp) < MAP_COUNT else 0
+	map = int(mp) if (mp is int or (mp is float and is_finite(mp))) and int(mp) >= MAP_ROTATE and int(mp) < MAP_COUNT else 0
 	for k: String in DEFAULTS:
 		if not d.has(k):
 			continue

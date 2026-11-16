@@ -56,6 +56,7 @@ func _initialize() -> void:
 	await test_view_sources()
 	await test_arena_view_figures()
 	await test_playroom_details()
+	await test_map_views()
 	await test_main_scene()
 	quit(fails)
 
@@ -1086,3 +1087,29 @@ func test_main_scene() -> void:
 	check("main: offline the playroom and the toy figures are there and drawn", main.view.playroom != null and shown >= 1 and main.view._figures.size() == Config.NUM_PLAYERS, "visible=%d" % shown)
 	main.queue_free()
 	await process_frame
+
+
+func test_map_views() -> void:
+	var sm := Sim.new(Config.new(), 1)
+	var view := ArenaView.new()
+	root.add_child(view)
+	await process_frame
+	view.setup(sm)
+	var ok := true
+	var info := ""
+	for id in Config.MAP_COUNT:
+		sm.set_map(id)
+		view.render(1.0, 0.016)   # another map: the playroom is rebuilt
+		ok = ok and view.playroom.map_id == id
+		for _t in 120:
+			sm.step([SimInput.new(), SimInput.new(), SimInput.new(), SimInput.new()])
+			view.render(1.0, 0.016)
+		# Lava Mats: draw the three phases
+		sm.map_t = MapDef.LAVA_CALM + 0.2
+		view.render(1.0, 0.016)
+		sm.map_t = MapDef.LAVA_CALM + MapDef.LAVA_WARN + 0.2
+		view.render(1.0, 0.016)
+		if not ok:
+			info += " " + str(id)
+	check("maps view: the playroom is built and updated for every map and follows a change of map", ok, info)
+	view.queue_free()

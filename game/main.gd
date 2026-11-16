@@ -170,7 +170,7 @@ func _make_play_cfg() -> Config:
 	c.player_color = train_cfg.player_color
 	c.target_score = train_cfg.target_score
 	c.player_count = train_cfg.player_count
-	c.map = train_cfg.map   # until the lobby has its own picker: the map chosen in the Training menu
+	c.map = Config.MAP_ROTATE   # Play rotates the maps; the map chosen in Training is never used here
 	c.bot_mode = Config.BotMode.ACTIVE
 	return c
 

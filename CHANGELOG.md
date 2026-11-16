@@ -4,6 +4,23 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.10.0
+
+- **Five new maps**, each with its own twist (plus the old playroom, now called Train Set):
+  - **Assembly Line**: conveyor belts carry players, the toy chest and yo-yos lying on the floor, and stop and
+    reverse every few seconds.
+  - **Lava Mats**: the floor is lava. More and more mats blink, then burn; stand on a burning one and you are out.
+  - **Bounce House**: trampolines fling you across the arena; land on somebody to squash them.
+  - **Magnet Lab**: two magnets bend flying yo-yos and pull or push lying ones, and swap roles.
+  - **Piggy Bank**: the pig in the middle saves up coins; hit it with a yo-yo to take them all (paid at the end
+    of the round).
+- **The map changes between rounds** in every Play game (Solo and together): the maps come in a shuffled order,
+  each map once before any repeats.
+- **Training**: the "Map" selector on the values page picks the map for Training only; Play ignores it.
+- Bots know about the maps (they run from burning mats, avoid trampolines and go for a full pig).
+- Update all phones: this version changes the network protocol (protocol 9), so older versions cannot join.
+  (The look and feel of the new maps is not checked on a phone yet.)
+
 ## 0.9.0
 
 - **Choose your colour**: the Play lobby has a row of eight colours under the figures. Your colour is used for

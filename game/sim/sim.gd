@@ -178,6 +178,8 @@ func start_match(target: int) -> bool:
 		mode.shop_seq[i] = 0
 		apply_mods(i, {})
 	mode.round = 1
+	mode.map_bag = []
+	mode.map_bag_i = 0
 	mode.last_scorer = -1
 	mode.winner = -1
 	_start_round()
@@ -186,6 +188,10 @@ func start_match(target: int) -> bool:
 
 ## Fresh arena for the next round: roster players alive on shuffled spawn points, everybody else out.
 func _start_round() -> void:
+	if cfg.map == Config.MAP_ROTATE:
+		var next_map := _next_rotation_map()
+		if next_map != map_id:
+			set_map(next_map)
 	wires.clear()
 	shards.clear()
 	crate_pos = MapDef.crate_start(map_id)
@@ -1808,6 +1814,30 @@ func set_map(id: int) -> void:
 		for h in p.heads:
 			h.pos = p.pos
 			h.prev_pos = p.pos
+
+
+## The next map of the rotation: every map once in a shuffled order (sim rng), then a new shuffle; the first map of a
+## new shuffle is never the one just played.
+func _next_rotation_map() -> int:
+	var bag: Array = mode.map_bag
+	if mode.map_bag_i >= bag.size():
+		bag = []
+		for m in Config.MAP_COUNT:
+			bag.append(m)
+		for k in range(bag.size() - 1, 0, -1):
+			var j := rng.randi_range(0, k)
+			var tmp: int = bag[k]
+			bag[k] = bag[j]
+			bag[j] = tmp
+		if bag[0] == map_id and mode.round > 1:
+			var t: int = bag[0]
+			bag[0] = bag[1]
+			bag[1] = t
+		mode.map_bag = bag
+		mode.map_bag_i = 0
+	var id: int = bag[mode.map_bag_i]
+	mode.map_bag_i += 1
+	return id
 
 
 func _reset_map_state() -> void:

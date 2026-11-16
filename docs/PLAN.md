@@ -174,7 +174,7 @@ More maps with their own design follow later (decided by the owner on 2026-11-15
 rotation**: the map changes between rounds (confirmed by the owner on 2026-11-15: the next map in a shuffled list,
 each map once before any repeats). A map is therefore its own data unit: size, walls, obstacles, crate, train track, spawn
 points, free areas for the final zone, and its look in `game/view`. Today the geometry of the one playroom lives in
-`game/sim/config.gd` and `game/sim/train_track.gd`; it moves into such a map unit when the second map is built.
+`game/sim/config.gd` and `game/sim/train_track.gd`; it moved into such a map unit (`MapDef`) when the other maps were built. **Built (0.10.0):** Play always rotates; the map choice exists only in Training.
 
 ### Shop between rounds
 
@@ -449,7 +449,7 @@ Step order (decided by the owner on 2026-11-15):
 7. Touch control settings.
    **Done (version 0.7.0).** `TouchSettings` (`game/input/touch_settings.gd`, saved per device in `user://touch.json`, not part of `Config`, not touched by the tuning Reset) holds stick mode (Floating = default, a stick appears under the thumb in its half; Fixed = sticks at placed positions), size (0.8 / 1 / 1.25 / 1.5), opacity (0.5 / 1 / 1.6) and Swap sides (move stick right, aim stick left, dash button on the left). The Settings page has a Touch controls panel; "Place controls" opens `TouchLayoutEditor` (drag, Save / Reset to default / Cancel): all three controls in Fixed mode, only the Dash button in Floating mode (one dash position for both modes). Positions are stored relative to the screen and clamped onto it. Applies to Play and Training. Not done: looked at on a real screen or phone (no display here).
 
-Map rotation waits until a second map exists.
+Map rotation is built (version 0.10.0, `feature/new-maps`): see "Maps" in `AGENTS.md`.
 
 Contents:
 - Rounds, points, target score, winner screen.

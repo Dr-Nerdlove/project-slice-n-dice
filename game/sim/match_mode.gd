@@ -53,6 +53,10 @@ var offers: Array = []
 var locked: Array = []
 var shop_ready: Array = []
 var shop_seq: Array = []
+## Map rotation (`Config.map == MAP_ROTATE`): a shuffled list of all map ids, `map_bag_i` the next to play. Each map
+## comes once before any repeats; the list is reshuffled when used up (Sim does the drawing).
+var map_bag: Array = []
+var map_bag_i := 0
 
 
 func _init() -> void:
