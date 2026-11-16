@@ -2556,9 +2556,13 @@ func _shop_rework_tests() -> void:
 	# texts and panel
 	var short_ok := true
 	for id in Mods.ORDER:
-		short_ok = short_ok and Mods.short(id) != "" and Mods.short(id).split(" ").size() <= 8
+		var texts := {}
+		for lv in range(1, Mods.MAX_LEVEL + 1):
+			short_ok = short_ok and Mods.short(id, lv) != "" and Mods.short(id, lv).split(" ").size() <= 9
+			texts[Mods.short(id, lv)] = true
+		short_ok = short_ok and texts.size() == Mods.MAX_LEVEL and Mods.short(id, 0) == Mods.short(id, 1) and Mods.short(id, 9) == Mods.short(id, 3) and Mods.short(id) == Mods.short(id, 1)
 		short_ok = short_ok and ModIcon.COLORS.has(id)
-	check("shop text: every modifier has a short text (at most 8 words) and an icon colour", short_ok)
+	check("shop text: every modifier has three distinct short texts (at most 9 words) and an icon colour", short_ok)
 	check("shop text: pips towards the next level", ShopPanel.pips(1) == Vector2i(0, 2) and ShopPanel.pips(2) == Vector2i(1, 2) and ShopPanel.pips(3) == Vector2i(0, 3) and ShopPanel.pips(5) == Vector2i(2, 3) and ShopPanel.pips(6) == Vector2i(3, 3) and ShopPanel.pips(9) == Vector2i(3, 3), str(ShopPanel.pips(2)) + str(ShopPanel.pips(5)))
 	check("shop text: what a buy gives", ShopPanel.gain_text(0) == "New · I" and ShopPanel.gain_text(1) == "Pip 1/2" and ShopPanel.gain_text(2) == "→ II" and ShopPanel.gain_text(3) == "Pip 1/3" and ShopPanel.gain_text(5) == "→ III")
 	s = shop_sim([0, 1], 50)
@@ -2568,7 +2572,7 @@ func _shop_rework_tests() -> void:
 	panel.theme = UiKit.theme()
 	panel.refresh(s, 0)
 	var ms := panel.get_combined_minimum_size()
-	check("shop panel: five slots and three offers fit 960x540 without scrolling", ms.x <= 920.0 and ms.y <= 500.0 and Economy.SLOTS == 5 and Economy.OFFERS == 3, str(ms))
+	check("shop panel: five slots and three offers fit the 1280x576 base screen without scrolling", ms.x <= 1240.0 and ms.y <= 540.0 and Economy.SLOTS == 5 and Economy.OFFERS == 3, str(ms))
 	var shown := 0
 	for sl in panel.slots:
 		if sl["id"] != "":
