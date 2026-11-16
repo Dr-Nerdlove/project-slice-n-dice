@@ -297,6 +297,7 @@ func _initialize() -> void:
 	_range_tests()
 	_match_tests()
 	_eight_tests()
+	_color_tests()
 	_coin_tests()
 	_shop_tests()
 	_zone_tests()
@@ -2711,3 +2712,100 @@ func _touch_tests() -> void:
 	check("touch: a stick reads full at its scaled radius", r._stick(rest, rest + Vector2(Config.STICK_RADIUS * 1.5, 0)).is_equal_approx(Vector2.RIGHT) and r._stick(rest, rest + Vector2(Config.STICK_RADIUS * 0.75, 0)).is_equal_approx(Vector2(0.5, 0)))
 	r.free()
 	TouchSettings.path = old_path
+
+
+## Player colours: the palette, the sim's uniqueness rule, the saved choice, the lobby swatches.
+func _color_tests() -> void:
+	check("colour: the palette has COLOR_COUNT (8) entries", Config.COLOR_COUNT == ArenaView.PLAYER_COLORS.size() and Config.COLOR_COUNT == 8)
+	var distinct := {}
+	for c in ArenaView.PLAYER_COLORS:
+		distinct[c.to_html()] = true
+	check("colour: the eight palette colours are distinct", distinct.size() == 8)
+	var cfg := Config.new()
+	cfg.player_count = 8
+	var s := Sim.new(cfg, 1)
+	var uniq := func(sm: Sim) -> bool:
+		var seen := {}
+		for p in sm.players:
+			if p.enabled:
+				if seen.has(p.color):
+					return false
+				seen[p.color] = true
+		return true
+	check("colour: by default every slot has its own colour (slot index)", s.players.all(func(p: SimPlayer) -> bool: return p.color == p.id) and uniq.call(s))
+	s.set_color(0, 8 + 6)
+	check("colour: set_color wraps into range (14 -> 6, taken -> next free)", s.players[0].color >= 0 and s.players[0].color < 8 and uniq.call(s))
+	var s4 := Sim.new(Config.new(), 1)   # four players: slots 4..7 are disabled
+	s4.set_color(0, 8 + 6)
+	check("colour: wrapped value 6 is free when only 4 play", s4.players[0].color == 6)
+	s4.set_color(0, 1)
+	check("colour: a taken colour gives the next free one (1, 2, 3 taken -> 4)", s4.players[0].color == 4 and uniq.call(s4))
+	s4.set_color(0, 0)
+	check("colour: the player's own colour is not a collision with itself", s4.players[0].color == 0)
+	s4.set_color(1, -1)
+	check("colour: negative wraps (-1 -> 7)", s4.players[1].color == 7)
+	s4.players[5].color = 0
+	s4.set_player_enabled(5, true)
+	check("colour: a player who gets enabled with a taken colour is moved to a free one", s4.players[5].color != 0 and uniq.call(s4))
+	for i in 8:
+		s4.set_player_enabled(i, true)
+		s4.set_color(i, 3)
+	check("colour: with all eight in, all colours stay unique", uniq.call(s4) and s4.players.size() == 8)
+	var s8 := Sim.new(cfg, 1)
+	s8.assign_colors(5)
+	check("colour: assign_colors gives player 0 its choice and the others the rest in order", s8.players[0].color == 5 and uniq.call(s8) and s8.players[1].color == 0 and s8.players[5].color == 4 and s8.players[7].color == 7)
+	var before := s8.players.map(func(p: SimPlayer) -> int: return p.color)
+	s8.assign_colors(5)
+	check("colour: assign_colors is idempotent", s8.players.map(func(p: SimPlayer) -> int: return p.color) == before)
+	var st := s8.save_state()
+	var s9 := Sim.new(cfg, 2)
+	s9.load_state(st)
+	check("colour: the colour is part of the snapshot state", s9.players[0].color == 5 and s9.players[3].color == s8.players[3].color)
+	# presentation only: another colour never changes the simulation
+	var a := Sim.new(Config.new(), 7)
+	var b := Sim.new(Config.new(), 7)
+	b.set_color(0, 5)
+	b.set_color(1, 7)
+	var same := true
+	for t in 240:
+		var ins := [inp(Vector2(1, 0.3), Vector2(1, 0), t % 90 < 40, t == 50), inp(Vector2(-1, 0.1), Vector2(-1, 0), t % 70 < 30, t == 80), inp(), inp()]
+		a.step(ins)
+		b.step(ins)
+		for i in 4:
+			same = same and a.players[i].pos == b.players[i].pos and a.players[i].kills == b.players[i].kills
+	check("colour: the colour does not change the simulation", same and a.players[0].pos != Config.SPAWNS[0])
+	# the saved choice
+	var c := Config.new()
+	check("colour: default choice 0, saved in the dict", c.player_color == 0 and c.to_dict()["player_color"] == 0)
+	c.player_color = 6
+	var c2 := Config.new()
+	c2.from_dict(JSON.parse_string(JSON.stringify(c.to_dict())))
+	check("colour: the choice survives the JSON round trip", c2.player_color == 6)
+	c2.reset()
+	check("colour: reset leaves the choice", c2.player_color == 6)
+	c2.from_dict({"player_color": 9})
+	check("colour: too large wraps into range", c2.player_color == 1)
+	c2.from_dict({"player_color": -1})
+	check("colour: negative wraps into range", c2.player_color == 7)
+	for garbage in ["x", null, [1]]:
+		c2.from_dict({"player_color": garbage})
+		check("colour: garbage %s gives 0" % str(garbage), c2.player_color == 0)
+	# the lobby swatches
+	var lob := PlayLobby.new()
+	root.add_child(lob)
+	var saved := Config.new()
+	var saves: Array = []
+	var chosen: Array = []
+	lob.save_fn = func(cc: Config) -> void: saves.append(cc.player_color)
+	lob.color_chosen.connect(func(k: int) -> void: chosen.append(k))
+	lob.setup(saved)
+	lob.open()
+	check("lobby colour: eight swatches, the first is chosen", lob.color_buttons.size() == 8 and lob.color_buttons[0].button_pressed and lob.color_buttons.filter(func(x: Button) -> bool: return x.button_pressed).size() == 1)
+	lob.color_buttons[3].pressed.emit()
+	check("lobby colour: a swatch sets the choice, saves it, reports it and is the only one pressed", saved.player_color == 3 and saves == [3] and chosen == [3] and lob.color_buttons[3].button_pressed and not lob.color_buttons[0].button_pressed)
+	check("lobby colour: the preview shows the chosen colour", lob.figure_preview.figure.player_color == ArenaView.PLAYER_COLORS[3])
+	saved.player_color = 5
+	lob.open()
+	check("lobby colour: opening again shows the colour of the config", lob.color_buttons[5].button_pressed and not lob.color_buttons[3].button_pressed and lob.figure_preview.figure.player_color == ArenaView.PLAYER_COLORS[5])
+	lob.queue_free()
+

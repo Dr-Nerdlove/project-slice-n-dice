@@ -15,8 +15,15 @@ const NAMES: Array[String] = [
 ## The second colour of each toy (spikes, metal and dials, muzzle, beak, horns and ruff, pips, face, band). None
 ## of them is a player colour.
 const ACCENTS: Array[Color] = [
-	Color("ffe14d"), Color("c9d2dc"), Color("fff4ea"), Color("ffd21f"), Color("fff1c9"), Color("fbfbf7"),
+	Color("ffe14d"), Color("c9d2dc"), Color("fff4ea"), Color("ff9a1f"), Color("fff1c9"), Color("fbfbf7"),
 	Color("ffe9d2"), Color("ffe14d")]
+## The fixed body colour of each toy (its own typical look; the player colour is only the ring on the floor, the
+## ghosts and the confetti). Same order as NAMES.
+const BODY_COLORS: Array[Color] = [
+	Color("4fb83f"), Color("8497ac"), Color("efe3cf"), Color("ffd21f"), Color("2a9d8f"), Color("3a3f5c"),
+	Color("6aa0d8"), Color("e8604c")]
+## Radius of the player-colour ring on the floor, in player radii.
+const RING_RADIUS := 1.3
 const BLUSH := Color("ff8fa8")
 ## Where the yo-yo hand goes, in the figure's units: holding the yo-yo in front of the belly, wound up behind the
 ## shoulder, and how far it reaches along the string. The arm only points there; the yo-yo sits in the real hand.
@@ -34,7 +41,9 @@ const GHOSTS := 3
 const DIE_SIDE := ToyMotion.DIE_SIDE
 
 var kind := 0
-var color := Color.WHITE
+var color := Color.WHITE          # the body colour (BODY_COLORS)
+var player_color := Color.WHITE   # the player colour: floor ring, ghosts, confetti
+var _ring: MeshInstance3D
 var motion: ToyMotion
 var body_mat: StandardMaterial3D
 var pose_node: Node3D
@@ -73,9 +82,10 @@ var _rng := RandomNumberGenerator.new()
 var _pr := 0.5
 
 
-func _init(figure_kind: int, body_color: Color) -> void:
+func _init(figure_kind: int, colour_of_player: Color) -> void:
 	kind = figure_kind
-	color = body_color
+	color = BODY_COLORS[posmod(figure_kind, BODY_COLORS.size())]
+	player_color = colour_of_player
 	name = "Toy%d" % figure_kind
 	motion = ToyMotion.new(figure_kind)
 	_rng.seed = 1234 + figure_kind
@@ -119,6 +129,7 @@ func _init(figure_kind: int, body_color: Color) -> void:
 	_shadow = ToyKit.shadow(2.7)
 	_shadow.position.y = 0.03
 	add_child(_shadow)
+	_build_ring()
 	_build_stars()
 	_build_ghosts()
 	_build_confetti()
@@ -579,6 +590,18 @@ func _build_top() -> void:
 	_foot_r = _piece("FootR", Vector3(0.3, 0.12, 0.1))
 
 
+## The player colour as a flat ring on the floor around the feet (shared material, part of the figure).
+func _build_ring() -> void:
+	_ring = MeshInstance3D.new()
+	_ring.name = "ColorRing"
+	_ring.mesh = ToyKit.torus()
+	_ring.material_override = ToyKit.overlay(Color(player_color.r, player_color.g, player_color.b, 0.9))
+	_ring.scale = Vector3(RING_RADIUS * 2.0, 0.5, RING_RADIUS * 2.0)
+	_ring.position.y = 0.05
+	_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_ring)
+
+
 func _build_stars() -> void:
 	_stars = Node3D.new()
 	_stars.name = "Stars"
@@ -595,7 +618,7 @@ func _build_ghosts() -> void:
 	_ghost_mat = StandardMaterial3D.new()
 	_ghost_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_ghost_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_ghost_mat.albedo_color = Color(color.r, color.g, color.b, 0.35)
+	_ghost_mat.albedo_color = Color(player_color.r, player_color.g, player_color.b, 0.35)
 	for k in GHOSTS:
 		var g := MeshInstance3D.new()
 		g.mesh = ToyKit.sphere()
@@ -640,9 +663,9 @@ func _build_confetti() -> void:
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	c.material_override = m
 	var g := Gradient.new()
-	g.set_color(0, color)
+	g.set_color(0, player_color)
 	g.set_color(1, Color.WHITE)
-	g.add_point(0.6, color.lightened(0.35))
+	g.add_point(0.6, player_color.lightened(0.35))
 	c.color_initial_ramp = g
 	add_child(c)
 	_confetti = c
@@ -858,6 +881,7 @@ func _pop() -> void:
 		_cube.transform = Transform3D.IDENTITY
 	_stars.visible = false
 	_shadow.visible = false
+	_ring.visible = false
 	for k in pieces.size():
 		var pc := pieces[k]
 		pc.transform = _home[k]
@@ -903,6 +927,7 @@ func _step_debris(dt: float) -> void:
 func _reset_pieces() -> void:
 	_debris_t = -1.0
 	_shadow.visible = true
+	_ring.visible = true
 	pose_node.transform = Transform3D.IDENTITY
 	if _cube != null:
 		_cube.transform = Transform3D.IDENTITY

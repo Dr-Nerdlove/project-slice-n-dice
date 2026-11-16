@@ -16,6 +16,9 @@ var kills := 0
 var deaths := 0
 ## Which figure is drawn (index into the view's figure list). Presentation only: the simulation never reads it.
 var skin := 0
+## Which palette colour identifies the player (index into the view's palette). Presentation only: the simulation never
+## reads it. Colours of enabled players are unique (`Sim.set_color`).
+var color := 0
 
 var pos := Vector2.ZERO
 var prev_pos := Vector2.ZERO

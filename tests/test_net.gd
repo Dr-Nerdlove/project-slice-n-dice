@@ -517,6 +517,35 @@ func test_skin() -> void:
 		return a._wanted_skin == 3).call())
 
 
+func test_color() -> void:
+	var rig := make_rig(0.0, 0.0, 2, 3)
+	var a: ClientCore = rig["clients"][0]
+	var b: ClientCore = rig["clients"][1]
+	a.set_color(5)
+	warm_up(rig)
+	for _t in 30:
+		step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
+	var server: ServerCore = rig["server"]
+	check("colour net: the choice reaches the server's slot", server.sim.players[a.slot].color == 5)
+	check("colour net: the chooser and the other client see it through the snapshots", a.sim.players[a.slot].color == 5 and b.sim.players[a.slot].color == 5)
+	check("colour net: a client that never chose keeps its default (slot)", server.sim.players[b.slot].color == b.slot and b.sim.players[b.slot].color == b.slot)
+	b.set_color(5)   # taken by a: the server picks the next free one
+	for _t in 30:
+		step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
+	var got: int = server.sim.players[b.slot].color
+	check("colour net: a collision is resolved by the server (b wanted 5, got %d)" % got, got != 5 and server.sim.players[a.slot].color == 5)
+	check("colour net: the client shows the server's value, not its own wish", b.sim.players[b.slot].color == got and a.sim.players[b.slot].color == got and b._wanted_color == 5)
+	var seen := {}
+	for p in server.sim.players:
+		if p.enabled:
+			seen[p.color] = true
+	check("colour net: the enabled players' colours are unique", seen.size() == server.sim.players.filter(func(p: SimPlayer) -> bool: return p.enabled).size())
+	check("colour net: out-of-range choices on the client wrap into range", (func() -> bool:
+		a.set_color(Config.COLOR_COUNT * 4 + 2)
+		return a._wanted_color == 2).call())
+	check("colour net: the protocol version is 8", NetProto.VERSION == 8)
+
+
 func test_skin_delayed() -> void:
 	# with a slow link the own choice must show at once and survive snapshots that still carry the old one
 	var rig := make_rig(200.0, 0.0, 1, 3)
@@ -1506,6 +1535,23 @@ func test_robustness() -> void:
 	server.pump()
 	check("server: invalid figure choices are dropped and change nothing", server.sim.players[slot_i].skin == skin_pick and server.dropped_packets == d_skin + bad_skins.size() + 2 and skin_before != skin_pick)
 
+	# the chosen colour is validated
+	var col_pick := (server.sim.players[slot_i].color + 3) % Config.COLOR_COUNT
+	var d_col := server.dropped_packets
+	raw.send(1, NetProto.pack([NetProto.T_COLOR, col_pick]), true)
+	hub.advance(1.0)
+	server.pump()
+	var col_now: int = server.sim.players[slot_i].color
+	check("server: a valid colour choice is applied", col_now == col_pick or col_now != (col_pick + Config.COLOR_COUNT - 3) % Config.COLOR_COUNT and server.dropped_packets == d_col)
+	var bad_cols: Array = [Config.COLOR_COUNT, -1, 1 << 40, 2.0, "3", null, [1], true]
+	for bad: Variant in bad_cols:
+		raw.send(1, NetProto.pack([NetProto.T_COLOR, bad]), true)
+	raw.send(1, NetProto.pack([NetProto.T_COLOR]), true)
+	raw.send(1, NetProto.pack([NetProto.T_COLOR, 1, 2]), true)
+	hub.advance(1.0)
+	server.pump()
+	check("server: invalid colour choices are dropped and change nothing", server.sim.players[slot_i].color == col_now and server.dropped_packets == d_col + bad_cols.size() + 2)
+
 	# a ping gets a pong
 	raw.poll()
 	raw.send(1, NetProto.pack([NetProto.T_PING, 1234]), false)
@@ -1745,7 +1791,7 @@ func test_shop() -> void:
 		step_rig(rig, idle_input)
 	check("shop net: a repeated request is refused (one reroll paid)", srv.sim.mode.coins[0] == coins_before - Economy.REROLL_PRICE, "%d -> %d" % [coins_before, srv.sim.mode.coins[0]])
 	# lock and sell over the wire
-	check("shop net: the lock toggle is part of the state", NetProto.VERSION == 7)
+	check("shop net: the lock toggle is part of the state", NetProto.VERSION == 8)
 	c0.send_shop(NetProto.SHOP_LOCK, 1)
 	for _t in 5:
 		step_rig(rig, idle_input)
@@ -1796,6 +1842,7 @@ func test_rejoin() -> void:
 	var srv: ServerCore = rig["server"]
 	var c1: ClientCore = rig["clients"][1]
 	var tok1 := c1.token
+	var col1 := srv.sim.players[1].color
 	check("rejoin: the match is in PLAY", srv.sim.mode.phase == M.PLAY and srv.sim.mode.roster[1])
 	srv.sim.mode.points[1] = 3
 	c1.close()
@@ -1812,6 +1859,7 @@ func test_rejoin() -> void:
 	for _t in 60:
 		step_rig(rig, idle_input)
 	check("rejoin: the same token gets the same slot back during PLAY", re.state == ClientCore.State.ONLINE and re.slot == 1 and not srv.slots[1].away and srv.players_online() == 2, "state=%d slot=%d" % [re.state, re.slot])
+	check("rejoin: the returning player keeps the colour", srv.sim.players[1].color == col1 and re.sim.players[1].color == col1)
 	check("rejoin: the points are intact for the returning player", re.sim.mode.points[1] == 3 and srv.sim.mode.points[1] == 3 and srv.sim.mode.phase == M.PLAY)
 	check("rejoin: a new token is still refused with 'started'", hello_reason(rig, "ffffffffffffffffffffffffffffffff") == "started")
 
@@ -2300,6 +2348,12 @@ func test_main_scene() -> void:
 	main.cfg.character = 2
 	await process_frame
 	check("main: offline the player shows the chosen figure and the bots the following ones", main.sim.players[0].skin == 2 and main.sim.players[1].skin == 3 % Config.SKIN_COUNT and main.sim.players[3].skin == 5 % Config.SKIN_COUNT)
+	main.cfg.player_color = 3
+	await process_frame
+	var seen_colors := {}
+	for p in main.sim.players:
+		seen_colors[p.color] = true
+	check("main: offline the player shows the chosen colour and the bots the free ones, all unique", main.sim.players[0].color == 3 and seen_colors.size() == 8 and main.sim.players[1].color == 0 and main.sim.players[4].color == 4)
 	main.menu.set_online_status("x", false)
 	main.menu.connect_requested.emit("a b")
 	check("main: an unusable address is refused with a message", main.menu._online_status.text == "Invalid address" and main.client == null)
@@ -2329,6 +2383,12 @@ func test_main_scene() -> void:
 		OS.delay_msec(10)
 		await process_frame
 	check("main: a changed figure choice reaches the server while online", server.sim.players[0].skin == 3 and main.client.sim.players[0].skin == 3)
+	main.cfg.player_color = 6
+	for _i in 60:
+		server.tick()
+		OS.delay_msec(10)
+		await process_frame
+	check("main: a changed colour choice reaches the server while online", server.sim.players[0].color == 6 and main.client.sim.players[0].color == 6)
 	check("main: the HUD shows ping and correction", main.hud._net_label.visible and main.hud._net_label.text.begins_with("Ping "), main.hud._net_label.text)
 	check("main: the HUD shows the interpolation delay", main.hud._net_label.text.contains("Others ") and main.hud._net_label.text.contains(" ms behind"), main.hud._net_label.text)
 	check("main: smoothing is on and the view gets the display sim", main.client.smooth_others and main.view.others_sim != null and main.view.others_sim == main.client.display_sim)
@@ -3050,6 +3110,12 @@ func test_match_flow() -> void:   # async
 	check("match: between rounds there is no Main menu button (it was invisible on the paper and ended matches by accident)", not ov.main_menu_btn.visible)
 	check("match: the scoreboard lists every player, the leader first with its point and the marker", ov.rows_box.get_child_count() == main.play_cfg.player_count and row0.get_child(1).text == bot2 and row0.get_child(2) is ScorePips and row0.get_child(2).points == 1 and row0.get_child(2).target == 15 and ov.target_label.text == "FIRST TO 15",
 			"%d %s %s" % [ov.rows_box.get_child_count(), row0.get_child(1).text, ov.target_label.text])
+	main.cfg.player_color = 4   # offline the colours are rearranged: player 2 no longer has colour 2
+	await process_frame
+	await process_frame
+	row0 = ov.rows_box.get_child(0)
+	var dot_col: Color = (row0.get_child(0) as Control).get_theme_stylebox("panel").bg_color
+	check("match: the scoreboard swatch is the colour the view draws that player in (not the slot's)", main.sim.players[2].color == 1 and dot_col == ArenaView.PLAYER_COLORS[1] and dot_col == ArenaView.color_of(main.sim.players[2]) and ov.rows_box.get_children().all(func(r: Node) -> bool: return r.get_child(0) is Panel))
 	check("match: the point just won pulses on the scorer's row only", row0.get_child(2).pop_index == 0 and ov.rows_box.get_child(1).get_child(2).pop_index == -1)
 	m.coins[2] = 9; m.earned[2] = 6; m.earned[0] = 3; m.round_kills[2] = 1
 	ov._shown_key = ""
@@ -3434,6 +3500,9 @@ func test_main_eight() -> void:   # async
 	await process_frame
 	check("eight main: the picker offers 2 to 8 with 4 chosen", main.lobby.player_buttons.size() == 7 and main.lobby.player_buttons[2].button_pressed and main.lobby.player_buttons[0].text == "2" and main.lobby.player_buttons[6].text == "8" and main.train_cfg.player_count == 4)
 	main.lobby.player_buttons[6].pressed.emit()
+	main.train_cfg.player_color = 4
+	check("eight main: the colour choice is copied into the Play config", main._make_play_cfg().player_color == 4)
+	main.train_cfg.player_color = 0
 	check("eight main: choosing 8 is kept, saved and copied into the Play config", main.train_cfg.player_count == 8 and saved == [8] and main.lobby.player_buttons[6].button_pressed and not main.lobby.player_buttons[2].button_pressed and main._make_play_cfg().player_count == 8)
 	main.lobby.player_buttons[3].pressed.emit()
 	main.lobby.player_buttons[6].pressed.emit()
@@ -3606,7 +3675,7 @@ func _initialize() -> void:
 	var stop_early := OS.get_environment("TEST_STOP_ON_FAIL") == "1"
 	var groups: Array[Callable] = [
 		test_lan_code, test_pick_address, test_lan_beacon, test_local_host, test_menu_local, test_main_local,
-		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_skin_delayed, test_interpolation, test_view_others,
+		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_color, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
 		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_zone, test_shop, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
 		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_touch_menu, test_match_flow, test_score_panel_fit, test_main_rejoin, test_eight, test_main_eight, test_lobby_fits, test_screens_fit,
