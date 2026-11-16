@@ -6,19 +6,24 @@ there is none. Write it for testers, in plain words.
 
 ## 0.13.0
 
-- **Magnet Lab has a new floor plan**: each magnet stands in a broken square of short walls (open at the corners), so
-  a straight throw into it is blocked and only a throw bent by the magnet gets round. A long middle wall with a
-  door at each end splits the room in two, and a cross wall near each short side makes the two end rooms. Starts
-  are spread so that nobody starts in sight of another player. (Players on different versions can no longer play
-  together.)
-- **Bounce House has a new floor plan**: three long walls divide the room into four strips side by side, each wall
-  with only one walking door (top, bottom, top), so walking across is a long zigzag. Every strip has one
-  trampoline that throws you over a wall into another strip, and bots take a trampoline when it saves them a long
-  walk. Short walls inside the strips give cover. (Players on different versions can no longer play together.)
-- **Lava Mats has a new floor plan**: a windmill of walls around a small courtyard in the middle, and a small
-  room with a way out in every corner. The walls give cover, and a mat that is about to burn is still never more
-  than a short walk from a safe one. Bots walk around the walls when they flee from the lava. (Players on
-  different versions can no longer play together.)
+Four more maps have a new floor plan, the same way Train Set and Assembly Line got one earlier. Every plan is
+symmetrical, so no start is better than another, and nobody starts in sight of another player. Players on
+different versions can no longer play together.
+
+- **Piggy Bank**: the pig stands in an open square in the middle, inside a ring of shelves with an entrance in the
+  middle of each side. From outside, the pig can only be hit through an entrance, so taking the coins means
+  showing yourself. Two long walls make the ends of the room into aisles, and a short wall in each aisle splits
+  it. Bots only throw at the pig when no shelf is in the way.
+- **Magnet Lab**: each magnet stands in a broken square of short walls (open at the corners), so a straight throw
+  into it is blocked and only a throw bent by the magnet gets round. A long middle wall with a door at each end
+  splits the room in two, and a cross wall near each short side makes the two end rooms.
+- **Bounce House**: three long walls divide the room into four strips side by side, each wall with only one walking
+  door (top, bottom, top), so walking across is a long zigzag. Every strip has one trampoline that throws you over
+  a wall into another strip, and bots take a trampoline when it saves them a long walk. Short walls inside the
+  strips give cover.
+- **Lava Mats**: a windmill of walls around a small courtyard in the middle, and a small room with a way out in
+  every corner. The walls give cover, and a mat that is about to burn is still never more than a short walk from a
+  safe one. Bots walk around the walls when they flee from the lava.
 
 ## 0.12.0
 

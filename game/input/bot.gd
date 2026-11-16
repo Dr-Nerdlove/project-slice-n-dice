@@ -154,7 +154,13 @@ func _train_near(sim: Sim, me: SimPlayer, extra: float) -> bool:
 func _pig_wanted(sim: Sim, me: SimPlayer, enemy_dist: float) -> bool:
 	if sim.map_id != MapDef.Id.PIGGY or sim.pig_coins <= 0 or enemy_dist < Config.BOT_PIG_ENEMY_DIST:
 		return false
-	return me.pos.distance_to(MapDef.PIG_RECT.get_center()) < cfg.effective_max_range() * 0.95
+	var pig := MapDef.PIG_RECT.get_center()
+	var d := me.pos.distance_to(pig)
+	if d >= cfg.effective_max_range() * 0.95:
+		return false
+	# the shelves round the pig: no throw through a wall (the check stops 2.2 m short of the pig's middle, before its own block)
+	var stop := pig + (me.pos - pig).normalized() * 2.2
+	return d <= 2.2 or NavGrid.for_sim(sim).line_clear(me.pos, stop, THROW_CLEARANCE)
 
 
 ## True when a dash of length `extra` could carry the bot into trouble on this map: any marked mat (Lava Mats), a

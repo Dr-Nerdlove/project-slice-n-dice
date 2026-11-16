@@ -315,7 +315,14 @@ testers is the owners' call; a good moment is after A (the floor plans are what 
   long. Zone areas: the four corners of the two end rooms (the top and bottom of the middle are narrower than
   3.6 m or taken by the stems), the chest and the present moved next to the middle wall's doors. Old tests: the
   magnet bending tests and a bot path test now strip the obstacles (they test physics on open floor).)
-- [ ] A5 Piggy Bank
+- [x] A5 Piggy Bank (built; 13 obstacles, point-symmetric, `NetProto.VERSION` 15. Changes against the idea: the ring is
+  1.0 m thick (exact sums), the open square is 8 x 6.4 m, entrances are 2.5 m (sides 2.4 m); the aisle walls are at
+  x 5 and 26, 6 m long; with only these walls no set of eight starts could stay out of sight of each other, so each
+  end got a short wall from the outer wall (3 m, 2.0 m from the aisle wall) that splits the aisle. Starts are not
+  exactly "two per aisle, two above, two below" (found by a search, point-symmetric); the chest and the present stay
+  on the top and bottom centre line outside the ring, 1.6 m from the outer wall. Zone areas: the four corners as
+  before. Bot: `_pig_wanted` also needs a clear line to the pig (shelves block). Old tests: none had to change.
+  "After all six" (zone times) is NOT done: it needs a decision of the owners after playing the rounds on a phone.)
 - [ ] B0 theme system
 - [ ] B1..B6 themes of maps 0 to 5
 - [ ] C tall carpet

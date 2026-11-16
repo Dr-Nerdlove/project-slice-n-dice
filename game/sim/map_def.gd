@@ -20,7 +20,7 @@ const HINTS: Array[String] = [
 
 ## Maps whose floor plan has been rebuilt (docs/map-rework.md). The stricter floor-plan rules of the tests (10 to
 ## 18 obstacles, spawn points far apart and out of sight, the 2.0 m passage rule) apply only to these.
-const REWORKED: Array[int] = [0, 1, 2, 3, 4]
+const REWORKED: Array[int] = [0, 1, 2, 3, 4, 5]
 
 # --- layout per map (index = map id) ---
 const OBSTACLES: Array = [
@@ -61,9 +61,15 @@ const OBSTACLES: Array = [
 			# (the bottom stems are 2.799999 tall: 11.6 + 2.8 would end one float step beyond the outer wall)
 			Rect2(8.6, 0.0, 0.8, 2.8), Rect2(8.6, 11.6, 0.8, 2.799999), Rect2(22.6, 0.0, 0.8, 2.8), Rect2(22.6, 11.6, 0.8, 2.799999),
 			Rect2(15.6, 0.0, 0.8, 3.0), Rect2(15.6, 11.4, 0.8, 3.0)],
-	# Piggy Bank: the pig first (PIG_RECT), then four blocks around it.
-	[Rect2(15.0, 6.2, 2.0, 2.0), Rect2(10.2, 3.2, 1.6, 1.6), Rect2(20.2, 3.2, 1.6, 1.6), Rect2(10.2, 9.6, 1.6, 1.6),
-			Rect2(20.2, 9.6, 1.6, 1.6)],
+	# Piggy Bank: the pig first (PIG_RECT). Round it a ring of shelves with an entrance in the middle of each side:
+	# four L-shaped corners (1.0 m thick, so the pieces touch exactly), an open square of 8 x 6.4 m inside. Two aisle
+	# walls (x 5 and 26) leave the ends of the room as aisles; a short wall from the left and right wall (2.0 m
+	# from the aisle wall) splits each aisle so the two starts in it cannot see each other. Point-symmetric.
+	[Rect2(15.0, 6.2, 2.0, 2.0),
+			Rect2(11.0, 3.0, 1.0, 3.0), Rect2(12.0, 3.0, 2.75, 1.0), Rect2(17.25, 3.0, 2.75, 1.0), Rect2(20.0, 3.0, 1.0, 3.0),
+			Rect2(11.0, 8.4, 1.0, 3.0), Rect2(12.0, 10.4, 2.75, 1.0), Rect2(17.25, 10.4, 2.75, 1.0), Rect2(20.0, 8.4, 1.0, 3.0),
+			Rect2(5.0, 4.2, 1.0, 6.0), Rect2(26.0, 4.2, 1.0, 6.0),
+			Rect2(0.0, 6.7, 3.0, 1.0), Rect2(29.0, 6.7, 3.0, 1.0)],
 ]
 ## How many of a map's first obstacles the view dresses itself (magnets, the pig) instead of as building blocks.
 const SPECIAL_OBSTACLES: Array[int] = [0, 0, 0, 0, 2, 1]
@@ -79,8 +85,10 @@ const SPAWNS: Array = [
 	# the cross walls hide them); one is in each end room.
 	[Vector2(1.4, 5.2), Vector2(5.2, 12.4), Vector2(13.2, 10.6), Vector2(11.0, 1.2),
 			Vector2(30.6, 9.2), Vector2(26.8, 2.0), Vector2(18.8, 3.8), Vector2(21.0, 13.2)],
-	[Vector2(2.8, 7.2), Vector2(29.2, 7.2), Vector2(2.8, 2.2), Vector2(29.2, 12.2),
-			Vector2(2.8, 12.2), Vector2(29.2, 2.2), Vector2(12.0, 13.0), Vector2(20.0, 1.4)],
+	# Piggy Bank: spread over the ends, the sides and the top and bottom strips; the ring and the aisle walls hide
+	# them from each other (point-symmetric, so no start is better than another).
+	[Vector2(1.0, 1.0), Vector2(9.0, 6.5), Vector2(19.0, 1.0), Vector2(29.0, 5.0),
+			Vector2(31.0, 13.4), Vector2(23.0, 7.9), Vector2(13.0, 13.4), Vector2(3.0, 9.4)],
 ]
 ## Where the shrinking zone can end (each ARENA_SIZE / 4, free of blocks, chest, present, belts and trampolines).
 const ZONE_SPOTS: Array = [
@@ -96,9 +104,9 @@ const ZONE_SPOTS: Array = [
 	[Rect2(0.8, 0.4, 8.0, 3.6), Rect2(23.2, 0.4, 8.0, 3.6), Rect2(0.8, 10.4, 8.0, 3.6), Rect2(23.2, 10.4, 8.0, 3.6)],
 ]
 const CRATE_STARTS: Array[Vector2] = [
-	Vector2.ZERO, Vector2(6.0, 3.7), Vector2(12.0, 5.4), Vector2(16.0, 12.4), Vector2(17.2, 4.6), Vector2(16.0, 2.4)]
+	Vector2.ZERO, Vector2(6.0, 3.7), Vector2(12.0, 5.4), Vector2(16.0, 12.4), Vector2(17.2, 4.6), Vector2(16.0, 1.6)]
 const BOX_POSITIONS: Array[Vector2] = [
-	Vector2.ZERO, Vector2(26.0, 13.1), Vector2(20.0, 9.0), Vector2(3.0, 9.0), Vector2(14.8, 9.8), Vector2(16.0, 12.0)]
+	Vector2.ZERO, Vector2(26.0, 13.1), Vector2(20.0, 9.0), Vector2(3.0, 9.0), Vector2(14.8, 9.8), Vector2(16.0, 12.8)]
 
 # --- 1 Assembly Line: conveyor belts ---
 const BELT_SPEED := 4.0

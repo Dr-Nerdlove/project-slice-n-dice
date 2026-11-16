@@ -3108,6 +3108,69 @@ func _magnet_plan_tests() -> void:
 	mid_ok = tops > 0.0 and bottoms > 0.0 and centre.position.y - tops >= 2.0 - 1e-3 and bottoms - centre.end.y >= 2.0 - 1e-3
 	check("map Magnet Lab: the middle wall reaches both outer walls and leaves a door of at least 2 m on each side of its centre piece", mid_ok)
 
+## Map 5 (Piggy Bank) is rebuilt: point-symmetric, the pig stands in an open square inside a ring of shelves with one
+## entrance in the middle of each side, and a straight throw reaches the pig only through an entrance.
+func _piggy_plan_tests() -> void:
+	check("map Piggy Bank: it is marked as reworked, so the strict floor-plan rules run on it", 5 in MapDef.REWORKED)
+	var size := Config.ARENA_SIZE
+	var obs: Array = MapDef.obstacles(5)
+	var mirrored := true
+	for o: Rect2 in obs:
+		var m := Rect2(size - o.end, o.size)
+		var found := false
+		for q: Rect2 in obs:
+			found = found or (q.position.distance_to(m.position) < 1e-3 and q.size.distance_to(m.size) < 1e-3)
+		mirrored = mirrored and found
+	for sp: Vector2 in MapDef.spawns(5):
+		var found := false
+		for q: Vector2 in MapDef.spawns(5):
+			found = found or q.distance_to(size - sp) < 1e-4
+		mirrored = mirrored and found
+	check("map Piggy Bank: obstacles and spawn points are point-symmetric about the centre", mirrored)
+	check("map Piggy Bank: the first obstacle is the pig, in the middle of the arena", obs[0] == MapDef.PIG_RECT and MapDef.PIG_RECT.get_center().distance_to(size * 0.5) < 1e-3)
+	# the open square round the pig: at least 8 x 6 m, free of every obstacle but the pig
+	var open_square := Rect2(12.0, 4.0, 8.0, 6.4)
+	var inside := 0
+	for i in range(1, obs.size()):
+		if open_square.intersects(obs[i]):
+			inside += 1
+	check("map Piggy Bank: the open square of 8 x 6.4 m round the pig holds no wall", inside == 0, str(inside))
+	var s := map_sim(5)
+	var grid := NavGrid.for_sim(s)
+	var c := MapDef.PIG_RECT.get_center()
+	# the middle of each side is an entrance: a straight line from outside reaches the pig's side
+	var open_in := true
+	for pair: Array in [[Vector2(c.x, 1.2), Vector2(c.x, 6.0)], [Vector2(c.x, 13.2), Vector2(c.x, 8.4)],
+			[Vector2(8.0, c.y), Vector2(14.8, c.y)], [Vector2(24.0, c.y), Vector2(17.2, c.y)]]:
+		open_in = open_in and grid.line_clear(pair[0], pair[1], 0.0)
+	check("map Piggy Bank: the pig can be hit straight through the middle of each side of the ring", open_in)
+	# from beside an entrance the shelves stop the throw
+	var shut := true
+	for pair: Array in [[Vector2(12.5, 1.5), Vector2(15.2, 6.1)], [Vector2(19.5, 13.0), Vector2(16.8, 8.3)],
+			[Vector2(9.0, 3.5), Vector2(15.2, 6.3)], [Vector2(23.0, 11.0), Vector2(16.8, 8.1)]]:
+		shut = shut and not grid.line_clear(pair[0], pair[1], 0.0)
+	check("map Piggy Bank: from outside, beside an entrance, the ring blocks a throw at the pig", shut)
+	# every entrance is at least 2 m wide for walking (top and bottom between the arms, left and right too)
+	var gaps_ok: bool = obs[3].position.x - obs[2].end.x >= 2.0 - 1e-3 and obs[7].position.x - obs[6].end.x >= 2.0 - 1e-3 \
+			and obs[5].position.y - obs[1].end.y >= 2.0 - 1e-3 and obs[8].position.y - obs[4].end.y >= 2.0 - 1e-3
+	check("map Piggy Bank: every entrance of the ring is at least 2 m wide", gaps_ok)
+	# two aisle walls on the long half, parallel to the short sides
+	var aisle := 0
+	for i in range(9, obs.size()):
+		var o: Rect2 = obs[i]
+		if o.size.y > o.size.x * 3.0 and absf(o.get_center().y - size.y * 0.5) < 0.01:
+			aisle += 1
+	check("map Piggy Bank: two aisle walls stand across the ends of the room (and two short walls split the aisles)", aisle == 2 and obs.size() == 13, str(aisle))
+	# a bot throws at the pig only with a clear line: through an entrance yes, from behind a shelf no
+	var bs := map_sim(5, [0, 1])
+	bs.pig_coins = 3
+	var pbot := Bot.new(0, bs.cfg, 5)
+	place(bs, 0, Vector2(8.5, 7.2))
+	var from_entrance := pbot._pig_wanted(bs, bs.players[0], 20.0)
+	place(bs, 0, Vector2(12.6, 1.6))
+	var from_shelf := pbot._pig_wanted(bs, bs.players[0], 20.0)
+	check("map Piggy Bank: a bot throws at the pig through an entrance, not from behind a shelf", from_entrance and not from_shelf, "%s %s" % [from_entrance, from_shelf])
+
 ## Map 3 (Bounce House) is rebuilt: mirror-symmetric about x = 16 (three long walls with one door each, a pad and a
 ## landing spot in every strip), landing spots in the open, and a bot that takes a trampoline when the walk is long.
 func _bounce_plan_tests() -> void:
@@ -3252,6 +3315,7 @@ func _map_tests() -> void:
 	_lava_plan_tests()
 	_bounce_plan_tests()
 	_magnet_plan_tests()
+	_piggy_plan_tests()
 	_nav_tests()
 	_bot_path_tests()
 	_spawn_spread_tests()

@@ -259,6 +259,8 @@ radius, `MAGNET_DRIFT` 2.5 m/s (same fall-off), `MAGNET_PERIOD` 8.0 s, `MAGNET_O
 ............7...................
 ```
 
+*The sketch is the old layout. The rebuilt floor plan of step A5 is in `docs/map-rework.md` (Progress) and printed by `tools/map_ascii.gd`.*
+
 **Twist.** A big piggy bank stands in the open centre. Every 5 s a coin appears on its back (at most 3).
 A thrown yo-yo that touches the pig shakes them all out for the thrower. They are paid with the round's
 coins ("piggy bank" in the coin line), also if the thrower dies afterwards.
