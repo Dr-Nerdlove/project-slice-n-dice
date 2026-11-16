@@ -31,6 +31,7 @@ var reconnect_panel: PanelContainer
 
 var _shown_key := ""
 var _go_t := -1.0
+var _pop_round := -1   # the round whose new pip already pulsed
 var _last_phase := MatchMode.Phase.OFF
 
 
@@ -52,7 +53,7 @@ func setup() -> void:
 	center.add_child(countdown_label)
 
 	panel = UiKit.panel("paper")
-	panel.custom_minimum_size.x = 520.0
+	panel.custom_minimum_size.x = 640.0
 	panel.visible = false
 	center.add_child(panel)
 	shop = ShopPanel.new()
@@ -67,14 +68,14 @@ func setup() -> void:
 	center.add_child(reconnect_panel)
 	reconnect_panel.add_child(UiKit.heading("Reconnecting …", 30))
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
+	box.add_theme_constant_override("separation", 6)
 	panel.add_child(box)
 	heading_label = UiKit.heading("", 30)
 	box.add_child(heading_label)
 	scorer_label = UiKit.label("", 24, UiKit.TOMATO, true)
 	box.add_child(scorer_label)
 	rows_box = VBoxContainer.new()
-	rows_box.add_theme_constant_override("separation", 4)
+	rows_box.add_theme_constant_override("separation", 2)
 	box.add_child(rows_box)
 	coins_label = UiKit.label("", UiKit.SMALL_SIZE, UiKit.MUTE)
 	coins_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -149,6 +150,8 @@ func update(sim: Sim, own: int, show_it: bool, can_rematch: bool, bots_offline: 
 	visible = show_it
 	if not panel_on:
 		_shown_key = ""
+		if m.phase != MatchMode.Phase.RESULT:
+			_pop_round = -1
 		return
 	var over := m.phase == MatchMode.Phase.MATCH_OVER
 	var key := "%d|%d|%d|%s|%s|%s" % [m.phase, m.round, m.winner, str(m.points), str(m.roster) + str(m.coins), "%d%d" % [int(can_rematch), int(bots_offline)]]
@@ -177,26 +180,37 @@ func _fill(sim: Sim, own: int, over: bool, bots_offline: bool) -> void:
 		if m.roster[i]:
 			slots.append(i)
 	slots.sort_custom(func(a: int, b: int) -> bool: return m.points[a] > m.points[b] or (m.points[a] == m.points[b] and a < b))
+	var pop_now := not over and m.round != _pop_round
+	if not over:
+		_pop_round = m.round
 	for i: int in slots:
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 12)
-		var dot := ColorRect.new()
-		dot.color = ToyFigure.ACCENTS[posmod(sim.players[i].skin, ToyFigure.ACCENTS.size())]
-		dot.custom_minimum_size = Vector2(22, 22)
-		dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(dot)
-		var name_label := UiKit.label(player_name(sim, i, own, bots_offline), 22, UiKit.INK, i == own)
-		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(name_label)
-		row.add_child(UiKit.label("+1" if (not over and i == m.last_scorer) else "", 22, UiKit.TOMATO, true))
-		var pts := UiKit.label(str(m.points[i]), 22, UiKit.INK, true)
-		pts.custom_minimum_size.x = 40.0
-		pts.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		row.add_child(pts)
-		row.add_child(_coin_tag(m.coins[i], m.earned[i]))
-		rows_box.add_child(row)
+		var skin: int = sim.players[i].skin
+		rows_box.add_child(make_row(player_name(sim, i, own, bots_offline), ToyFigure.ACCENTS[posmod(skin, ToyFigure.ACCENTS.size())],
+				m.points[i], m.target, i == own, pop_now and not over and i == m.last_scorer, m.coins[i], m.earned[i]))
 	coins_label.text = coin_text(m, own)
 	target_label.text = ("First to %d" % m.target).to_upper()
+
+
+## One scoreboard row: colour dot, name, the score pips (the newest one pulses when `pop`) and the coin tag.
+func make_row(pname: String, accent: Color, pts: int, target: int, is_own: bool, pop: bool, total: int, gained: int) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	var dot := ColorRect.new()
+	dot.color = accent
+	dot.custom_minimum_size = Vector2(22, 22)
+	dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(dot)
+	var name_label := UiKit.label(pname, 22, UiKit.INK, is_own)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(name_label)
+	var pips := ScorePips.new()
+	pips.name = "Pips"
+	pips.setup(target, pts, accent)
+	row.add_child(pips)
+	row.add_child(_coin_tag(total, gained))
+	if pop:
+		pips.tree_entered.connect(pips.start_pop, CONNECT_ONE_SHOT)   # a tween needs the node in the tree
+	return row
 
 
 ## A yellow price-tag chip with the player's coins and, small, what the last round gave.

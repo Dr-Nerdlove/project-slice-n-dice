@@ -686,8 +686,14 @@ SB=[
  ("8 fit: the figure preview is too tall","ui/play_lobby.gd","figure_preview.custom_minimum_size = Vector2(0, 150)","figure_preview.custom_minimum_size = Vector2(0, 400)"),
  ("8 fit: the lobby scrolls again","ui/play_lobby.gd","\tpage.add_child(cols)\n","\tvar sc := ScrollContainer.new()\n\tsc.size_flags_vertical = Control.SIZE_EXPAND_FILL\n\tpage.add_child(sc)\n\tsc.add_child(cols)\n"),
  ("8 fit: Settings scrolls again","ui/main_menu.gd","\tcol.add_child(panels)\n","\tvar sc := ScrollContainer.new()\n\tsc.size_flags_vertical = Control.SIZE_EXPAND_FILL\n\tcol.add_child(sc)\n\tsc.add_child(panels)\n"),
- ("8 fit: the scoreboard rows are spaced widely","ui/match_overlay.gd",'rows_box.add_theme_constant_override("separation", 4)','rows_box.add_theme_constant_override("separation", 16)'),
+ ("8 fit: the scoreboard rows are spaced widely","ui/match_overlay.gd",'rows_box.add_theme_constant_override("separation", 2)','rows_box.add_theme_constant_override("separation", 16)'),
  ("8 fit: the Settings margins are big again","ui/main_menu.gd",'margin.add_theme_constant_override("margin_top", 16)','margin.add_theme_constant_override("margin_top", 60)'),
+ ("1 pips: the filled count is not clamped","ui/score_pips.gd","return clampi(p, 0, maxi(tgt, 0))","return p"),
+ ("1 pips: no wider gap between groups","ui/score_pips.gd","+ (i / GROUP) * (GROUP_GAP - GAP)","+ 0.0"),
+ ("1 pips: the row is too narrow","ui/score_pips.gd","pip_x(n - 1) + D","pip_x(n - 1)"),
+ ("8 pips: the newest pip never pulses","ui/match_overlay.gd","pop_now and not over and i == m.last_scorer","false"),
+ ("8 pips: the scoreboard shows no pips","ui/match_overlay.gd","pips.setup(target, pts, accent)","pips.setup(target, 0, accent)"),
+ ("8 pips: the panel grows too tall for 8 players","ui/match_overlay.gd",'\tbox.add_theme_constant_override("separation", 6)','\tbox.add_theme_constant_override("separation", 24)'),
 ]
 
 def suites_for(name, full):

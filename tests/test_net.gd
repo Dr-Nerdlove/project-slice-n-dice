@@ -2940,6 +2940,34 @@ func test_main_rejoin() -> void:   # async
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online%d.json" % PORT_OFFSET))
 
 
+## The result / match-over panel must fit the base viewport without scrolling with 8 players and a target of 20.
+func test_score_panel_fit() -> void:   # async
+	var ov := MatchOverlay.new()
+	root.add_child(ov)
+	ov.setup()
+	ov.visible = true
+	ov.panel.visible = true
+	var view := Vector2(ProjectSettings.get_setting("display/window/size/viewport_width"), ProjectSettings.get_setting("display/window/size/viewport_height"))
+	for over in [false, true]:
+		for c in ov.rows_box.get_children():
+			ov.rows_box.remove_child(c)
+			c.queue_free()
+		for i in 8:
+			ov.rows_box.add_child(ov.make_row("Dino (bot)", ToyFigure.ACCENTS[i % ToyFigure.ACCENTS.size()], 17 + i % 3, 20, i == 0, i == 1, 120, 12))
+		ov.heading_label.text = "Dino (bot) wins the match!"
+		ov.scorer_label.text = "" if over else "Dino (bot) scores!"
+		ov.coins_label.text = "+12 coins: round 3, kills 2, survivor 2, underdog 3, leader kill 2"
+		ov.target_label.text = "FIRST TO 20"
+		ov.rematch_btn.visible = over
+		ov.wait_label.visible = false
+		ov.main_menu_btn.visible = true
+		for _i in 3:
+			await process_frame
+		var need := ov.panel.get_combined_minimum_size()
+		check("match: the panel with 8 players and target 20 fits the base viewport (%s)" % ("match over" if over else "round result"), need.y <= view.y and need.x <= view.x, str(need))
+	ov.queue_free()
+
+
 ## Rounds and points in Play: the target choice, Solo starting a match, the overlay texts, the rematch.
 func test_match_flow() -> void:   # async
 	NetStore.path = "user://test_online%d.json" % PORT_OFFSET
@@ -2992,19 +3020,21 @@ func test_match_flow() -> void:   # async
 	var row0: Node = ov.rows_box.get_child(0)
 	check("match: the result panel names the round and the scorer", ov.panel.visible and ov.heading_label.text == "Round 1" and ov.scorer_label.text == bot2 + " scores!" and not ov.rematch_btn.visible, ov.scorer_label.text)
 	check("match: between rounds there is no Main menu button (it was invisible on the paper and ended matches by accident)", not ov.main_menu_btn.visible)
-	check("match: the scoreboard lists every player, the leader first with its point and the marker", ov.rows_box.get_child_count() == main.play_cfg.player_count and row0.get_child(1).text == bot2 and row0.get_child(2).text == "+1" and row0.get_child(3).text == "1" and ov.target_label.text == "FIRST TO 15",
-			"%d %s %s %s %s" % [ov.rows_box.get_child_count(), row0.get_child(1).text, row0.get_child(2).text, row0.get_child(3).text, ov.target_label.text])
+	check("match: the scoreboard lists every player, the leader first with its point and the marker", ov.rows_box.get_child_count() == main.play_cfg.player_count and row0.get_child(1).text == bot2 and row0.get_child(2) is ScorePips and row0.get_child(2).points == 1 and row0.get_child(2).target == 15 and ov.target_label.text == "FIRST TO 15",
+			"%d %s %s" % [ov.rows_box.get_child_count(), row0.get_child(1).text, ov.target_label.text])
+	check("match: the point just won pulses on the scorer's row only", row0.get_child(2).pop_index == 0 and ov.rows_box.get_child(1).get_child(2).pop_index == -1)
 	m.coins[2] = 9; m.earned[2] = 6; m.earned[0] = 3; m.round_kills[2] = 1
 	ov._shown_key = ""
 	await process_frame
 	row0 = ov.rows_box.get_child(0)
-	var tag: Label = row0.get_child(4).get_node("Text")
+	var tag: Label = row0.get_child(3).get_node("Text")
 	check("match: each row shows the coins and what the round gave", tag.text == "9 ¢  +6", tag.text)
 	check("match: the own coin breakdown is under the scoreboard", ov.coins_label.text == "+3 coins: round 3", ov.coins_label.text)
 	m.last_scorer = -1
 	ov._shown_key = ""
 	await process_frame
 	check("match: simultaneous deaths show Nobody scores", ov.scorer_label.text == "Nobody scores")
+	check("match: nobody's pip pulses then", ov.rows_box.get_children().all(func(r: Node) -> bool: return r.get_child(2).pop_index == -1))
 	m.last_scorer = 0
 	ov._shown_key = ""
 	await process_frame
@@ -3541,7 +3571,7 @@ func _initialize() -> void:
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
 		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_zone, test_shop, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
-		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_touch_menu, test_match_flow, test_main_rejoin, test_eight, test_main_eight, test_lobby_fits, test_screens_fit,
+		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_touch_menu, test_match_flow, test_score_panel_fit, test_main_rejoin, test_eight, test_main_eight, test_lobby_fits, test_screens_fit,
 	]
 	for g in groups:
 		if stop_early and fails > 0:
