@@ -561,7 +561,7 @@ func test_one_shot_inputs() -> void:
 	var fs := fake_server_setup()
 	var cl: ClientCore = fs["client"]
 	var s := Sim.new(fs["cfg"], 1)
-	for k in 4:
+	for k in Config.NUM_PLAYERS:
 		s.set_player_enabled(k, k < 2)
 		s.players[k].alive = true
 	s.crate_pos = Vector2(-50, -50)
@@ -571,11 +571,14 @@ func test_one_shot_inputs() -> void:
 	s.players[1].pos = Vector2(8.0, 6.3)
 	s.players[1].prev_pos = s.players[1].pos
 	var dash := inp(Vector2.RIGHT, Vector2.ZERO, false, true)
-	s.step([SimInput.new(), dash, SimInput.new(), SimInput.new()])
+	var step_in: Array[SimInput] = []
+	for k in Config.NUM_PLAYERS:
+		step_in.append(dash if k == 1 else SimInput.new())
+	s.step(step_in)
 	check("client test setup: the dash started and one of two charges is spent", s.players[1].dash_t > 0.0 and s.players[1].dash_charges == 1)
 	s.tick = 100
 	var enc: Array = []
-	for k in 4:
+	for k in Config.NUM_PLAYERS:
 		enc.append(NetProto.encode_input(dash if k == 1 else SimInput.new()))
 	var body := NetProto.snapshot_body(enc, s.save_state())
 	(fs["hub"] as LoopbackHub).server.send(1, NetProto.snapshot_packet(100, 0, body), false)
