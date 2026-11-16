@@ -9,6 +9,8 @@ signal main_menu_pressed
 signal shop_buy(k: int)
 signal shop_reroll
 signal shop_done
+signal shop_sell(n: int)
+signal shop_lock(k: int)
 
 const GO_TIME := 0.6        # how long "GO!" stays after the countdown
 const PANEL_DELAY := 0.8    # the result / match-over panel appears this long after the last hit
@@ -61,6 +63,8 @@ func setup() -> void:
 	shop.buy_pressed.connect(func(k: int) -> void: shop_buy.emit(k))
 	shop.reroll_pressed.connect(func() -> void: shop_reroll.emit())
 	shop.done_pressed.connect(func() -> void: shop_done.emit())
+	shop.sell_pressed.connect(func(n: int) -> void: shop_sell.emit(n))
+	shop.lock_pressed.connect(func(k: int) -> void: shop_lock.emit(k))
 	center.add_child(shop)
 	reconnect_panel = UiKit.panel("paper")
 	reconnect_panel.visible = false

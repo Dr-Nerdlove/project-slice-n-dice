@@ -373,6 +373,12 @@ func apply_shop(i: int, action: int, arg: int, seq: int) -> bool:
 			return sim.shop_reroll(i, seq)
 		NetProto.SHOP_DONE:
 			return sim.shop_done(i)
+		NetProto.SHOP_SELL:
+			if arg < 0 or arg >= Mods.ORDER.size():
+				return false
+			return sim.shop_sell(i, Mods.ORDER[arg], seq)
+		NetProto.SHOP_LOCK:
+			return sim.shop_lock(i, arg, seq)
 	return false
 
 

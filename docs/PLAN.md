@@ -182,6 +182,14 @@ points, free areas for the final zone, and its look in `game/view`. Today the ge
 - **3 offers** per player, random from the modifiers. **Reroll** for coins. Modifiers are kept for the whole match;
   buying the same modifier again levels it up (copies per level: `Mods.COPIES_FOR_LEVEL`).
 - Coins can be saved for later rounds.
+- **Build slots, sell and lock (decided by the owner on 2026-11-16):** the shop shows the five build slots in a row
+  (empty at the start); each owned modifier takes one slot and shows an icon, its level (I/II/III) and the progress to
+  the next level as pips. Offers are cards with an icon, the name, a short text (max. about 8 words, `Mods.short`),
+  the yellow price tag and what one more copy gives. **Sell:** tapping an owned slot offers Sell; the modifier goes
+  with ALL its copies and refunds half the price of every copy, rounded down (`floor(copies * price / 2)`); the slot
+  is free again. Bots never sell. **Lock:** every offer card has a free lock toggle; a locked offer survives rerolls
+  and stays in the next shop; buying it, or a new match, clears the lock. Everything must fit the screen without
+  scrolling (checked down to 960x540).
 
 ### Coins
 

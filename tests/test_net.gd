@@ -1741,6 +1741,31 @@ func test_shop() -> void:
 	for _t in 5:
 		step_rig(rig, idle_input)
 	check("shop net: a repeated request is refused (one reroll paid)", srv.sim.mode.coins[0] == coins_before - Economy.REROLL_PRICE, "%d -> %d" % [coins_before, srv.sim.mode.coins[0]])
+	# lock and sell over the wire
+	check("shop net: the lock toggle is part of the state", NetProto.VERSION == 7)
+	c0.send_shop(NetProto.SHOP_LOCK, 1)
+	for _t in 5:
+		step_rig(rig, idle_input)
+	var locked_id: String = srv.sim.mode.offers[0][1]
+	check("shop net: a lock from the client is applied and reaches the client", srv.sim.mode.is_locked(0, 1) and c0.sim.mode.is_locked(0, 1))
+	c0.send_shop(NetProto.SHOP_REROLL)
+	for _t in 5:
+		step_rig(rig, idle_input)
+	check("shop net: the locked offer survives a reroll on the server and the client", srv.sim.mode.offers[0][1] == locked_id and c0.sim.mode.offers[0][1] == locked_id)
+	var d1 := srv.dropped_packets
+	var pre_coins: int = srv.sim.mode.coins[1]
+	var seq1 := int(srv.sim.mode.shop_seq[1])
+	for bad in [[NetProto.SHOP_SELL, 0], [NetProto.SHOP_SELL, 99], [NetProto.SHOP_SELL, -1], [NetProto.SHOP_LOCK, 7], [NetProto.SHOP_LOCK, -1]]:
+		srv._on_packet(srv.slots[1].peer, NetProto.pack([NetProto.T_SHOP, bad[0], bad[1], seq1]))
+	srv._on_packet(srv.slots[1].peer, NetProto.pack([NetProto.T_SHOP, NetProto.SHOP_SELL, "bounce", seq1]))
+	check("shop net: selling what is not owned and out-of-range indices change nothing", srv.sim.mode.coins[1] == pre_coins and srv.sim.mode.shop_seq[1] == seq1 and not srv.sim.mode.is_locked(1, 0) and not srv.sim.mode.is_locked(1, 1) and not srv.sim.mode.is_locked(1, 2) and srv.dropped_packets == d1 + 1)
+	var sell_coins: int = srv.sim.mode.coins[0]
+	c0.send_shop(NetProto.SHOP_SELL, Mods.ORDER.find(id))
+	c0.send_shop(NetProto.SHOP_SELL, Mods.ORDER.find(id))   # double tap
+	for _t in 5:
+		step_rig(rig, idle_input)
+	check("shop net: a sell from the client refunds half once and frees the slot", srv.sim.mode.owned[0].is_empty() and srv.sim.mode.coins[0] == sell_coins + Mods.price(id) / 2 and srv.sim.lv(srv.sim.players[0], id) == 0)
+	check("shop net: the client sees the sold build", c0.sim.mode.owned[0].is_empty() and c0.sim.mode.coins[0] == srv.sim.mode.coins[0] and c0.sim.lv(c0.sim.players[0], id) == 0)
 	var d0 := srv.dropped_packets
 	srv._on_packet(srv.slots[1].peer, NetProto.pack([NetProto.T_SHOP, NetProto.SHOP_BUY, 0]))
 	srv._on_packet(srv.slots[1].peer, NetProto.pack([NetProto.T_SHOP, NetProto.SHOP_BUY, "0", 0]))
@@ -3048,10 +3073,20 @@ func test_match_flow() -> void:   # async
 	check("shop: the shop shows after the result, the result panel goes", shop.visible and not ov.panel.visible and shop.cards[0]["name"].text == Mods.mod_name(sid) and (shop.coins_tag.get_node("Text") as Label).text == "10 ¢" and shop.time_label.text == "20 s", shop.time_label.text)
 	(shop.cards[0]["buy"] as Button).pressed.emit()
 	await process_frame
-	check("shop: Buy buys in Solo", m.owned[0] == {sid: 1} and main.sim.lv(main.sim.players[0], sid) == 1 and m.coins[0] == 10 - Mods.price(sid) and shop.cards[0]["name"].text == "Sold" and shop.build_label.text.begins_with("Build 1/5"))
+	check("shop: Buy buys in Solo", m.owned[0] == {sid: 1} and main.sim.lv(main.sim.players[0], sid) == 1 and m.coins[0] == 10 - Mods.price(sid) and shop.cards[0]["name"].text == "Sold" and shop.slots[0]["id"] == sid and shop.slots[1]["id"] == "")
 	shop.reroll_btn.pressed.emit()
 	await process_frame
 	check("shop: Reroll rerolls in Solo", m.coins[0] == 9 - Mods.price(sid) and not m.offers[0].has(""))
+	(shop.cards[1]["lock"] as Button).pressed.emit()
+	await process_frame
+	check("shop: the lock button locks in Solo", m.is_locked(0, 1) and (shop.cards[1]["lock"] as Button).button_pressed)
+	var coins_pre: int = m.coins[0]
+	shop._on_slot(0)
+	await process_frame
+	check("shop: tapping a slot shows Sell with the refund", shop.sell_btn.visible and shop.sell_btn.text.contains("+%d" % (Mods.price(sid) / 2)))
+	shop.sell_btn.pressed.emit()
+	await process_frame
+	check("shop: Sell sells in Solo", m.owned[0].is_empty() and m.coins[0] == coins_pre + Mods.price(sid) / 2 and main.sim.lv(main.sim.players[0], sid) == 0 and shop.slots[0]["id"] == "" and not shop.sell_btn.visible)
 	m.coins[0] = 0
 	await process_frame
 	check("shop: what cannot be paid is greyed out", (shop.cards[0]["buy"] as Button).disabled and shop.reroll_btn.disabled)
