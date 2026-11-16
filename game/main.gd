@@ -169,6 +169,7 @@ func _make_play_cfg() -> Config:
 	c.character = train_cfg.character
 	c.target_score = train_cfg.target_score
 	c.player_count = train_cfg.player_count
+	c.map = train_cfg.map   # until the lobby has its own picker: the map chosen in the Training menu
 	c.bot_mode = Config.BotMode.ACTIVE
 	return c
 
@@ -404,6 +405,8 @@ func _process(delta: float) -> void:
 			_poll_client(0.0)
 	elif not _reconnecting:
 		_sync_mods()
+		if sim.mode.phase == MatchMode.Phase.OFF and sim.map_id != MapDef.valid(cfg.map):
+			sim.set_map(cfg.map)   # Training: the map selector of the tuning menu acts at once
 		if cfg.bot_mode != _applied_bot_mode:
 			_apply_bot_mode()
 		if screen == Screen.GAME and not menu.visible and not pause.visible:

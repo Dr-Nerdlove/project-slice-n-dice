@@ -18,9 +18,9 @@ Where things live: `game/sim/map_def.gd` (`MapDef`: all layout data and every nu
 functions), the section "maps" at the end of `game/sim/sim.gd` (the rules), `game/input/bot.gd` (what bots do
 about them), `game/view/playroom.gd` and `game/view/map_props.gd` (the look).
 
-Sketches: one character is 1 m wide and 1.8 m tall, so they are 32 x 8. `#` block, `C` toy chest (the
-movable crate), `P` present (the breakable box), `1`-`8` spawn points, `z` the four areas the shrinking zone
-can end on (only their corners are marked, with `+`).
+Sketches: one character is 1 m wide and 1.8 m tall, so they are 32 x 8 and only rough (exact numbers:
+`MapDef`). `#` block, `C` toy chest (the movable crate), `P` present (the breakable box), `1`-`8` spawn points.
+On Lava Mats the lines are the borders of the mat pairs. Where the shrinking zone can end: `MapDef.ZONE_SPOTS`.
 
 ## Common rules
 
@@ -38,11 +38,11 @@ can end on (only their corners are marked, with `+`).
 ## 1. Assembly Line
 
 ```
-................................
-.3................8...#.......6.
-...>>C>>>>>>>>>vv...............
+.3................8..#........6.
 ...>>>>>>>>>>>>vv...............
-1........##....vv...##........2.
+...>>>C>>>>>>>>vv...............
+..........#....vv....#..........
+..1.......#....vv....#........2.
 ...............>>>>>>>>>>>>>>...
 ...............>>>>>>>>>>>>>>...
 .5........#...7...........P...4.
@@ -71,14 +71,14 @@ pieces in `BELTS` (rectangle, direction forwards, direction backwards: the two c
 ## 2. Lava Mats
 
 ```
-.....5..+------+..8..#..........
-..##....|      |................
-........+------+........+------+
-1.....C.........................2
-+------+.......##...P...+------+
-3      |........................4
-+------+........+------+........
-.........#....7.|     6|...##...
+...##...|.5.....|.8..##.|.......
+...##...|.......|.......|.......
+--------+-------+-------+-------
+..3.....|...C..##.......|.....2.
+--------+------##-------+-------
+..1.....|.......|...P...|.....4.
+--------+-------+-------+-------
+........|#....7.|.....6.|..##...
 ```
 
 **Twist.** The carpet is a puzzle mat of 8 x 4 foam tiles (4 x 3.6 m each). "The floor is lava" comes in
@@ -105,16 +105,16 @@ generator when the blinking starts (`Sim.lava_cells`), so server and clients see
 ## 3. Bounce House
 
 ```
-+------+...............C........
-| 3    |..#............x..6...D.
-+------+........#...............
-+------+....A...#..x....+------+
-|1     |..7.....#..8....|     2|
-+------+....x...#..B....+------+
-.............x..#....#..+------+
-.C5.....5.......P.......|   4  |
+................C...............
+..3.......#.......e.....6....E..
+............A..##..a............
+...............##....8..........
+..1.......7....##............2..
+............b..##..B............
+..D..................#.......4..
+........5....d..P...............
 ```
-(`A`-`D` trampolines, `x` their landing spots; the lower-left `C` is trampoline C.)
+(`A`, `B`, `D`, `E` trampolines, `a`, `b`, `d`, `e` their landing spots.)
 
 **Twist.** A wall of cushions splits the room; the only ways round are the two narrow gaps at the top and
 bottom, one blocked by the chest and one by the present. Four trampolines are the shortcuts: step on one and
@@ -125,7 +125,7 @@ kill for you.
 **Why it is fun.** A trampoline is an escape, an ambush and a gamble in one. It saves you from a yo-yo that
 is about to connect, but everybody knows where and when you land, so a yo-yo can already lie there (you die
 on arrival) or a player waits to throw. The squash turns that around: standing on a landing spot to camp it
-is the most dangerous place in the room. A and B cross the wall in opposite directions; C and D fire from
+is the most dangerous place in the room. A and B cross the wall in opposite directions; D and E fire from
 the far corners into the two gaps, where the fights over the wall happen.
 
 **Counterplay.** Do not stand on painted spots. Punish a landing: the jumper arrives with the yo-yo in hand
@@ -142,23 +142,23 @@ pads and landing spots in `PADS`.
 ## 4. Magnet Lab
 
 ```
-+------+....7..........P......6.
-|3     |.......##...............
-+------+.......##...............
-+------+..( )...#...( ).+------+
-|1     |..(N)...#...(S).|     2|
-+------+.......................+
-........C......##.......+------+
-.5.............##..8....|    4 |
+............7...................
+..3............##......P.....6..
+................................
+..........NN...#....SS..........
+..1.......NN...#....SS.......2..
+................................
+..5.....C......##............4..
+...................8............
 ```
-(`(N)` / `(S)` the two magnets.)
+(`N` / `S` the two magnets, `$` in the next sketch the pig.)
 
 **Twist.** Two big horseshoe magnets stand left and right of the centre. One pulls yo-yos, the other pushes
 them away; every 8 s they swap (the last second of each turn both are off and blink). Within 6 m a magnet
 bends the flight of a thrown yo-yo: towards the red one, away from the blue one. A yo-yo that lies on the
 floor creeps the same way, still deadly. Players are not metal and feel nothing.
 
-**Why it is fun.** No throw is a straight line here, and that is a skill, not noise: the aim line shows the
+**Why it is fun.** Hardly a throw is a straight line here, and that is a skill, not noise: the aim line shows the
 real curve, so you can learn to throw round the centre wall and round the blocks, hit somebody behind cover,
 or slingshot a yo-yo past the red magnet. The pulling magnet swallows careless throws (the yo-yo sticks to
 it and has to be called back), the pushing one is a shield you can stand behind. The swap every 8 s turns
@@ -177,14 +177,14 @@ radius, `MAGNET_DRIFT` 2.5 m/s (same fall-off), `MAGNET_PERIOD` 8.0 s, `MAGNET_O
 ## 5. Piggy Bank
 
 ```
-+------+............6...+------+
-|3     |.......C........|     6|
-+------+..##......##....+------+
-................................
-1.............[PIG]............2
-..........##......##............
-+------+................+------+
-|5     |....7...P.......|     4|
+....................8...........
+..3.............C............6..
+..........##........##..........
+...............$$...............
+..1............$$............2..
+..........##........##..........
+..5.............P............4..
+............7...................
 ```
 
 **Twist.** A big piggy bank stands in the open centre. Every 5 s a coin appears on its back (at most 3).
@@ -211,9 +211,13 @@ coins to everybody and 2 to the survivor (`Economy`).
 
 What is built on `feature/new-maps`: the design above, `MapDef`, the rules in `Sim`, bot behaviour, the look,
 and the minimal plumbing (`Config.map`, saved and sent like `target_score`; `Sim.map_id`; a "Map" selector on
-the values page of the Training menu, which Play uses too until the lobby has its own picker). What is NOT
+the values page of the Training menu, which Play uses too until the lobby has its own picker: remove that
+caption and decide whether Training keeps its own selector when the lobby picker exists). What is NOT
 built: tests, sabotage entries, the lobby picker, "Random", the protocol version bump, the entry in
-`AGENTS.md`. The look was written without a display and has never been seen.
+`AGENTS.md`. The look was checked on still pictures only (rendered in the `godot-render` container that
+`tools/render-preview.sh` uses, with a scratch script that is not in the repository): every map builds and
+reads well in a still; motion, timing and the feel on a phone are unchecked. Existing suites: `sim`, `view`
+and `net` were run and pass with these changes.
 
 ### How the map id should travel
 
