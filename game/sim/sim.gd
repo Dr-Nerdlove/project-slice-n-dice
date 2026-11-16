@@ -5,7 +5,7 @@ extends RefCounted
 
 const HS := SimHead.S
 ## Variables that are not part of the snapshot: configuration, static layout, per-tick output, rng (handled by hand).
-const STATE_SKIP := ["cfg", "rng", "statics", "wall_count", "events"]
+const STATE_SKIP := ["cfg", "rng", "statics", "wall_count", "events", "_built_map"]
 
 var cfg: Config
 var rng := RandomNumberGenerator.new()
@@ -22,6 +22,14 @@ var shards: Array[SimShard] = []
 ## The toy train: position of the locomotive along `TrainTrack` (metres) and its value one tick earlier.
 var train_s := 0.0
 var prev_train_s := 0.0
+## The map (MapDef.Id) and the state of its twist. `map_t` is the twist's clock: seconds of play since the round (or
+## the sim) began; belts, lava waves and magnets are pure functions of it. Rules: the section "maps" below.
+var map_id := 0
+var map_t := 0.0
+var lava_cells := PackedInt32Array()   # Lava Mats: the mats that blink or burn right now (sorted cell numbers)
+var lava_wave := 0                     # Lava Mats: waves drawn so far this round
+var pig_coins := 0                     # Piggy Bank: coins on the pig's back
+var pig_t := 0.0                       # Piggy Bank: seconds towards the next coin
 ## Rounds and score. Phase OFF (the default) is free play with respawns; `start_match` begins a match.
 var mode: MatchMode = LastStanding.new()
 ## Events of the last tick (dictionaries with "type"): kill, bounce, ricochet, box_break, respawn,
@@ -29,21 +37,16 @@ var mode: MatchMode = LastStanding.new()
 var events: Array = []
 
 var _hit := false  # scratch flag set by head sweeps
+var _built_map := -1  # the map `statics` was built for
 
 
 func _init(config: Config, seed_value: int) -> void:
 	cfg = config
 	rng.seed = seed_value
 	var a := Config.ARENA_SIZE
-	var t := Config.WALL_THICKNESS
-	statics.append(Rect2(-t, -t, a.x + 2.0 * t, t))
-	statics.append(Rect2(-t, a.y, a.x + 2.0 * t, t))
-	statics.append(Rect2(-t, 0.0, t, a.y))
-	statics.append(Rect2(a.x, 0.0, t, a.y))
-	wall_count = statics.size()
-	for o in Config.OBSTACLES:
-		statics.append(o)
-	crate_pos = Config.CRATE_START
+	map_id = MapDef.valid(cfg.map)
+	_build_statics()
+	crate_pos = MapDef.crate_start(map_id)
 	prev_crate_pos = crate_pos
 	for i in Config.NUM_PLAYERS:
 		var p := SimPlayer.new()
@@ -52,7 +55,7 @@ func _init(config: Config, seed_value: int) -> void:
 		p.enabled = i < cfg.player_count   # the others are switched on by whoever fills the slots (bots, joiners)
 		if not p.enabled:
 			p.alive = false
-		p.pos = Config.SPAWNS[i]
+		p.pos = MapDef.spawns(map_id)[i]
 		p.dash_charges = cfg.dash_charges
 		p.prev_pos = p.pos
 		p.heads[0].pos = p.pos
@@ -73,6 +76,9 @@ func save_state() -> Dictionary:
 ## Overwrites the state in place (existing SimPlayer / SimHead objects are kept where the counts match).
 func load_state(d: Dictionary) -> void:
 	StateIO.restore(self, d)
+	if map_id != _built_map:
+		map_id = MapDef.valid(map_id)
+		_build_statics()   # a snapshot of another map: the layout follows
 	rng.seed = d["rng_seed"]
 	rng.state = d["rng_state"]
 
@@ -84,7 +90,7 @@ func crate_rect() -> Rect2:
 
 func box_rect() -> Rect2:
 	var h := Vector2(Config.BOX_HALF, Config.BOX_HALF)
-	return Rect2(Config.BOX_POS - h, h * 2.0)
+	return Rect2(MapDef.box_pos(map_id) - h, h * 2.0)
 
 
 func set_player_enabled(i: int, on: bool) -> void:
@@ -146,16 +152,17 @@ func start_match(target: int) -> bool:
 func _start_round() -> void:
 	wires.clear()
 	shards.clear()
-	crate_pos = Config.CRATE_START
+	crate_pos = MapDef.crate_start(map_id)
 	prev_crate_pos = crate_pos
 	box_active = true
 	box_timer = 0.0
 	train_s = 0.0
 	prev_train_s = 0.0
+	_reset_map_state()
 	mode.zone_t = 0.0
-	mode.zone_spot = rng.randi_range(0, Config.ZONE_SPOTS.size() - 1)
+	mode.zone_spot = rng.randi_range(0, MapDef.zone_spots(map_id).size() - 1)
 	mode.begin_round_coins()
-	var spawns: Array = Config.SPAWNS.duplicate()
+	var spawns: Array = MapDef.spawns(map_id).duplicate()
 	for k in range(spawns.size() - 1, 0, -1):
 		var j := rng.randi_range(0, k)
 		var tmp: Vector2 = spawns[k]
@@ -174,6 +181,7 @@ func _start_round() -> void:
 		next += 1
 		p.alive = true
 		p.zone_t = 0.0
+		p.air_t = 0.0
 		p.pos = at
 		p.prev_pos = at
 		_reset_yoyo(p)
@@ -361,6 +369,7 @@ func step(inputs: Array) -> void:
 			_step_player(players[i], inputs[i], dt)
 	_separate_players()
 	_step_train(dt)
+	_step_map(dt)
 	if mode.phase == MatchMode.Phase.PLAY:
 		_step_zone(dt)
 	_collide_heads()
@@ -489,7 +498,10 @@ func aim_range(p: SimPlayer) -> float:
 func aim_path(p: SimPlayer) -> PackedVector2Array:
 	var pts := PackedVector2Array()
 	pts.append(p.pos)
-	pts.append(p.pos + p.aim_dir * aim_range(p))
+	if map_id == MapDef.Id.MAGNETS:
+		_magnet_aim_path(p, pts)
+	else:
+		pts.append(p.pos + p.aim_dir * aim_range(p))
 	return pts
 
 
@@ -518,6 +530,10 @@ func _step_player(p: SimPlayer, inp: SimInput, dt: float) -> void:
 		p.respawn_t -= dt
 		if p.respawn_t <= 0.0:
 			_respawn(p)
+		return
+	if p.air_t > 0.0:
+		p.held_prev = inp.aim_held
+		_step_air(p, dt)   # Bounce House: in the air nothing is steered
 		return
 
 	p.last_move = inp.move
@@ -691,11 +707,11 @@ func _separate_players() -> void:
 	var r := cfg.player_radius
 	for i in players.size():
 		var a := players[i]
-		if not (a.enabled and a.alive):
+		if not _hittable(a):
 			continue
 		for j in range(i + 1, players.size()):
 			var b := players[j]
-			if not (b.enabled and b.alive):
+			if not _hittable(b):
 				continue
 			var d := b.pos - a.pos
 			var dist := d.length()
@@ -982,6 +998,8 @@ func _step_flight(p: SimPlayer, h: SimHead, dt: float, steer := Vector2.ZERO) ->
 		var before_dir := h.throw_dir
 		if turn_max > 0.0:
 			h.throw_dir = h.throw_dir.rotated(clampf(h.throw_dir.angle_to(steer), -turn_max, turn_max))
+		if map_id == MapDef.Id.MAGNETS:
+			h.throw_dir = MapDef.magnet_bend(h.pos, h.throw_dir, map_t, dt / float(n))
 		var bent := absf(before_dir.angle_to(h.throw_dir)) > Mods.STEER_MIN_TURN
 		var from := h.pos
 		var start := from + h.throw_dir * step
@@ -989,6 +1007,8 @@ func _step_flight(p: SimPlayer, h: SimHead, dt: float, steer := Vector2.ZERO) ->
 		h.flown += step
 		var moved := res.distance_to(h.pos)
 		h.pos = res
+		if map_id == MapDef.Id.PIGGY:
+			_pig_touch(p, h, r)
 		if (res - start).length_squared() > 1e-10:
 			if h.bounces < max_bounces:
 				var nrm := (res - start).normalized()
@@ -1280,7 +1300,7 @@ func _resolve_head(pos: Vector2, r: float, breaks_box: bool, pass_level := 0) ->
 func _break_box() -> void:
 	box_active = false
 	box_timer = Config.BOX_RESPAWN_TIME
-	events.append({"type": "box_break", "pos": Config.BOX_POS})
+	events.append({"type": "box_break", "pos": MapDef.box_pos(map_id)})
 
 
 func _step_box(dt: float) -> void:
@@ -1311,7 +1331,7 @@ func _explode(owner: SimPlayer, pos: Vector2, radius: float) -> void:
 	if box_active and Collide.push_out_rect(pos, radius, box_rect()) != Vector2.ZERO:
 		_break_box()
 	for v in players:
-		if v.enabled and v.alive and pos.distance_to(v.pos) - cfg.player_radius < radius:
+		if _hittable(v) and pos.distance_to(v.pos) - cfg.player_radius < radius:
 			if v == owner:
 				_kill(v, null, "self")  # own explosions hurt the owner: a death, no kill for anybody
 			else:
@@ -1365,7 +1385,7 @@ func _step_wires(dt: float) -> void:
 		var used := w.ttl <= 0.0
 		if not used:
 			for v in players:
-				if v.id == w.owner_id or not (v.enabled and v.alive):
+				if v.id == w.owner_id or not _hittable(v):
 					continue
 				if not w.lethal and v.stun_t > 0.0:
 					continue
@@ -1443,7 +1463,7 @@ func _step_shard(s: SimShard, dt: float) -> bool:
 	# Kills along the path of this tick.
 	var owner := players[s.owner_id]
 	for v in players:
-		if v == owner or not (v.enabled and v.alive):
+		if v == owner or not _hittable(v):
 			continue
 		var nearest := Geometry2D.get_closest_point_to_segment(v.pos, s.prev_pos, res)
 		if nearest.distance_to(v.pos) < s.radius + cfg.player_radius:
@@ -1523,7 +1543,7 @@ func _check_kills() -> void:
 			if not h.lethal():
 				continue
 			for v in players:
-				if v == a or not (v.enabled and v.alive):
+				if v == a or not _hittable(v):
 					continue
 				# Swept check along this tick's head path, so a fast head cannot skip over a player.
 				var nearest := Geometry2D.get_closest_point_to_segment(v.pos, h.prev_pos, h.pos)
@@ -1532,7 +1552,7 @@ func _check_kills() -> void:
 		var br := body_lethal_r(a)
 		if br > 0.0 and a.alive:
 			for v in players:
-				if v == a or not (v.enabled and v.alive):
+				if v == a or not _hittable(v):
 					continue
 				var nearest := Geometry2D.get_closest_point_to_segment(v.pos, a.prev_pos, a.pos)
 				if nearest.distance_to(v.pos) < br + pr + Mods.BODY_LETHAL_MARGIN:
@@ -1543,6 +1563,7 @@ func _check_kills() -> void:
 func _kill(victim: SimPlayer, killer: SimPlayer, cause := "train") -> void:
 	victim.alive = false
 	victim.zone_t = 0.0
+	victim.air_t = 0.0
 	victim.deaths += 1
 	if killer != null:
 		killer.kills += 1
@@ -1559,7 +1580,7 @@ func _kill(victim: SimPlayer, killer: SimPlayer, cause := "train") -> void:
 ## Pushes a circle out of every train car (the cars are solid for yo-yo heads, like the crate). Unchanged when
 ## the train is off. Identical centres are pushed along the car's travel direction.
 func _push_train(pos: Vector2, r: float) -> Vector2:
-	if cfg.train_speed <= 0.0:
+	if not train_on():
 		return pos
 	for k in TrainTrack.CARS:
 		var cs := TrainTrack.car_s(train_s, k)
@@ -1588,7 +1609,8 @@ func zone_rect() -> Rect2:
 	if not zone_active():
 		return full
 	var k := clampf((mode.zone_t - MatchMode.ZONE_FULL_TIME) / MatchMode.ZONE_SHRINK_TIME, 0.0, 1.0)
-	var f: Rect2 = Config.ZONE_SPOTS[clampi(mode.zone_spot, 0, Config.ZONE_SPOTS.size() - 1)]
+	var spots := MapDef.zone_spots(map_id)
+	var f: Rect2 = spots[clampi(mode.zone_spot, 0, spots.size() - 1)]
 	if k >= 1.0:
 		return f
 	var a := full.position.lerp(f.position, k)
@@ -1620,7 +1642,7 @@ func _step_zone(dt: float) -> void:
 ## yo-yo heads (a flying head stops or bounces, a retracting one lies down, a lying one is shoved aside; the
 ## shove can kill). Strings, wires and shards pass over them. Speed 0 = no train at all.
 func _step_train(dt: float) -> void:
-	if cfg.train_speed <= 0.0:
+	if not train_on():
 		prev_train_s = train_s
 		return
 	prev_train_s = train_s
@@ -1633,7 +1655,7 @@ func _step_train(dt: float) -> void:
 		var c := TrainTrack.point(TrainTrack.car_s(train_s, k))
 		_crate_vs_circle(c, TrainTrack.CAR_RADIUS, 1.0)
 		for v in players:
-			if v.enabled and v.alive and v.pos.distance_to(c) < reach:
+			if _hittable(v) and v.pos.distance_to(c) < reach:
 				_kill(v, null)
 		for v in players:
 			if not (v.enabled and v.alive):
@@ -1649,7 +1671,7 @@ func _step_train(dt: float) -> void:
 
 ## True when a player standing at `pos` would be run over right now.
 func train_unsafe(pos: Vector2) -> bool:
-	if cfg.train_speed <= 0.0:
+	if not train_on():
 		return false
 	var reach := TrainTrack.CAR_RADIUS + cfg.player_radius * Config.TRAIN_HIT_SHARE
 	for k in TrainTrack.CARS:
@@ -1678,9 +1700,10 @@ func _reset_yoyo(p: SimPlayer) -> void:
 
 
 func _respawn(p: SimPlayer) -> void:
-	var best := Config.SPAWNS[0]
-	var best_score := -1.0
-	for s in Config.SPAWNS:
+	var spawns := MapDef.spawns(map_id)
+	var best: Vector2 = spawns[0]
+	var best_score := -1e9
+	for s: Vector2 in spawns:
 		var nearest := 1000.0
 		for o in players:
 			if o == p or not (o.enabled and o.alive):
@@ -1690,13 +1713,14 @@ func _respawn(p: SimPlayer) -> void:
 				if h.lethal():
 					nearest = minf(nearest, s.distance_to(h.pos))
 		var score := nearest + rng.randf() * Config.SPAWN_NOISE
-		if train_unsafe(s):
+		if spawn_unsafe(s):
 			score -= 1000.0
 		if score > best_score:
 			best_score = score
 			best = s
 	p.alive = true
 	p.zone_t = 0.0
+	p.air_t = 0.0
 	p.pos = best
 	p.prev_pos = best
 	_reset_yoyo(p)
@@ -1705,3 +1729,251 @@ func _respawn(p: SimPlayer) -> void:
 	p.dash_cd = 0.0
 	p.dash_charges = dash_max(p)
 	events.append({"type": "respawn", "pos": best, "player": p.id})
+
+
+# ---------------------------------------------------------------- maps
+# Layout data and all numbers: MapDef. Design: docs/maps.md. Map 0 is the train above.
+
+## Outer walls first, then the obstacles of the current map.
+func _build_statics() -> void:
+	statics.clear()
+	var a := Config.ARENA_SIZE
+	var t := Config.WALL_THICKNESS
+	statics.append(Rect2(-t, -t, a.x + 2.0 * t, t))
+	statics.append(Rect2(-t, a.y, a.x + 2.0 * t, t))
+	statics.append(Rect2(-t, 0.0, t, a.y))
+	statics.append(Rect2(a.x, 0.0, t, a.y))
+	wall_count = statics.size()
+	for o: Rect2 in MapDef.obstacles(map_id):
+		statics.append(o)
+	_built_map = map_id
+
+
+## Switches the running sim to another map: its layout, the chest and the present at their start, a fresh twist and
+## every player on a spawn point with the yo-yo in hand. Scores and the match phase stay.
+func set_map(id: int) -> void:
+	map_id = MapDef.valid(id)
+	_build_statics()
+	wires.clear()
+	shards.clear()
+	crate_pos = MapDef.crate_start(map_id)
+	prev_crate_pos = crate_pos
+	box_active = true
+	box_timer = 0.0
+	train_s = 0.0
+	prev_train_s = 0.0
+	_reset_map_state()
+	var spawns := MapDef.spawns(map_id)
+	for i in players.size():
+		var p := players[i]
+		_reset_yoyo(p)
+		p.pos = spawns[i % spawns.size()]
+		p.prev_pos = p.pos
+		for h in p.heads:
+			h.pos = p.pos
+			h.prev_pos = p.pos
+
+
+func _reset_map_state() -> void:
+	map_t = 0.0
+	lava_cells = PackedInt32Array()
+	lava_wave = 0
+	pig_coins = 0
+	pig_t = 0.0
+	for p in players:
+		p.air_t = 0.0
+
+
+## The train only runs on its own map.
+func train_on() -> bool:
+	return map_id == MapDef.Id.TRAIN and cfg.train_speed > 0.0
+
+
+## A player the world can touch right now: in the game, alive and not in the air (Bounce House).
+func _hittable(v: SimPlayer) -> bool:
+	return v.enabled and v.alive and v.air_t <= 0.0
+
+
+## True when a player appearing at `pos` would die at once (the train) or stand on a marked mat.
+func spawn_unsafe(pos: Vector2) -> bool:
+	if train_unsafe(pos):
+		return true
+	return map_id == MapDef.Id.LAVA and lava_cells.has(MapDef.lava_cell(pos))
+
+
+## The twist of the current map, once per played tick (never while the world is frozen).
+func _step_map(dt: float) -> void:
+	if map_id == MapDef.Id.TRAIN:
+		return
+	map_t += dt
+	match map_id:
+		MapDef.Id.BELTS:
+			_step_belts(dt)
+		MapDef.Id.LAVA:
+			_step_lava(dt)
+		MapDef.Id.BOUNCE:
+			_step_pads()
+		MapDef.Id.MAGNETS:
+			_step_magnets(dt)
+		MapDef.Id.PIGGY:
+			_step_pig(dt)
+
+
+## Assembly Line: the belt carries what stands or lies on it (players, lying yo-yos, the chest) at its speed.
+## Walls, blocks and the others stop them as always; a carried yo-yo stays deadly.
+func _step_belts(dt: float) -> void:
+	if MapDef.belt_factor(map_t) == 0.0:
+		return
+	var r := cfg.player_radius
+	for p in players:
+		if not _hittable(p):
+			continue
+		var v := MapDef.belt_velocity(p.pos, map_t)
+		if v != Vector2.ZERO:
+			p.pos = _push_statics(p.pos + v * dt, r, wall_count) if _phasing(p) else _collide_player(p.pos + v * dt, r)
+		var hr := head_r(p)
+		for h in p.heads:
+			if h.state != HS.OUT:
+				continue
+			var hv := MapDef.belt_velocity(h.pos, map_t)
+			if hv != Vector2.ZERO:
+				h.pos = _sweep_head(h.pos, hv * dt, hr, false)
+	var cv := MapDef.belt_velocity(crate_pos, map_t)
+	if cv != Vector2.ZERO:
+		crate_pos = _resolve_crate(crate_pos + cv * dt)
+
+
+## Lava Mats: when the blinking starts a new set of mats is drawn; while they burn, a player whose centre is on
+## one dies (a death for the victim, a kill for nobody, cause "lava"); afterwards the floor is clear again.
+func _step_lava(dt: float) -> void:
+	var now := MapDef.lava_stage(map_t)
+	if now == MapDef.Lava.CALM:
+		if not lava_cells.is_empty():
+			lava_cells = PackedInt32Array()
+		return
+	if now == MapDef.Lava.WARN:
+		if MapDef.lava_stage(map_t - dt) == MapDef.Lava.CALM:
+			_draw_lava()
+		return
+	if lava_cells.is_empty():
+		return
+	for p in players:
+		if _hittable(p) and lava_cells.has(MapDef.lava_cell(p.pos)):
+			_kill(p, null, "lava")
+
+
+## Draws the mats of the next wave from the sim's rng: one mat each of that many different pairs (a pair = the two
+## mats 2k and 2k + 1, left and right neighbours), so the other mat of every pair stays safe.
+func _draw_lava() -> void:
+	var pairs: Array[int] = []
+	for k in MapDef.LAVA_COLS * MapDef.LAVA_ROWS / 2:
+		pairs.append(k)
+	var n := mini(MapDef.lava_count(lava_wave), pairs.size())
+	lava_wave += 1
+	var cells := PackedInt32Array()
+	for i in n:
+		var j := rng.randi_range(i, pairs.size() - 1)
+		var tmp := pairs[i]
+		pairs[i] = pairs[j]
+		pairs[j] = tmp
+		cells.append(pairs[i] * 2 + rng.randi_range(0, 1))
+	cells.sort()
+	lava_cells = cells
+	events.append({"type": "lava_warn", "count": n})
+
+
+## Bounce House: a player whose centre is on a trampoline is flung to its landing spot.
+func _step_pads() -> void:
+	for p in players:
+		if not _hittable(p):
+			continue
+		var k := MapDef.pad_at(p.pos)
+		if k < 0:
+			continue
+		_reset_yoyo(p)   # the yo-yos snap back into the hand
+		p.air_t = MapDef.AIR_TIME
+		p.air_from = p.pos
+		p.air_to = MapDef.PADS[k][1]
+		p.facing = (p.air_to - p.air_from).normalized()
+		p.aim_dir = p.facing
+		events.append({"type": "launch", "pos": p.pos, "player": p.id, "pad": k})
+
+
+## A player in the air: moves along the straight line to the landing spot (the arc is the view's business) and
+## squashes whoever stands there on arrival (a kill with credit).
+func _step_air(p: SimPlayer, dt: float) -> void:
+	p.air_t = maxf(0.0, p.air_t - dt)
+	if p.air_t > 0.0:
+		p.pos = p.air_from.lerp(p.air_to, 1.0 - p.air_t / MapDef.AIR_TIME)
+	else:
+		p.pos = _collide_player(p.air_to, cfg.player_radius)
+		events.append({"type": "land", "pos": p.pos, "player": p.id})
+		for v in players:
+			if v != p and _hittable(v) and v.pos.distance_to(p.pos) < MapDef.STOMP_RADIUS:
+				_kill(v, p)
+	for h in p.heads:
+		h.pos = p.pos
+
+
+## Magnet Lab: lying yo-yos creep towards the pulling magnet and away from the pushing one (deadly on the way,
+## stopped by everything solid). The bend of a flying yo-yo is in `_step_flight`.
+func _step_magnets(dt: float) -> void:
+	for p in players:
+		if not (p.enabled and p.alive):
+			continue
+		var hr := head_r(p)
+		for h in p.heads:
+			if h.state != HS.OUT:
+				continue
+			var v := MapDef.magnet_drift(h.pos, map_t)
+			if v != Vector2.ZERO:
+				h.pos = _sweep_head(h.pos, v * dt, hr, false)
+
+
+## The aim line on the Magnet Lab: the flight an unsteered throw would take in the magnets' fields as they are
+## now, with the same steps as `_step_flight`, up to the first thing that stops it.
+func _magnet_aim_path(p: SimPlayer, pts: PackedVector2Array) -> void:
+	var r := head_r(p)
+	var pass_level := _flight_pass(p)
+	var dt := 1.0 / Config.TICK_RATE
+	var left := charge_range(p)
+	var pos := p.pos
+	var dir := p.aim_dir
+	while left > 0.00001:
+		var move := minf(cfg.flight_speed * dt, left)
+		var n := maxi(1, ceili(move / (r * Config.SUBSTEP_FACTOR)))
+		var step := move / float(n)
+		for _i in n:
+			dir = MapDef.magnet_bend(pos, dir, map_t, dt / float(n))
+			var start := pos + dir * step
+			pos = _resolve_head(start, r, false, pass_level)
+			if (pos - start).length_squared() > 1e-10:
+				pts.append(pos)
+				return
+		left -= move
+		pts.append(pos)
+
+
+## Piggy Bank: a coin appears on the pig every PIG_FILL seconds, up to PIG_MAX.
+func _step_pig(dt: float) -> void:
+	if pig_coins >= MapDef.PIG_MAX:
+		pig_t = 0.0
+		return
+	pig_t += dt
+	if pig_t >= MapDef.PIG_FILL:
+		pig_t -= MapDef.PIG_FILL
+		pig_coins += 1
+		events.append({"type": "pig_coin", "pos": MapDef.PIG_RECT.get_center(), "coins": pig_coins})
+
+
+## A thrown (flying) yo-yo of `p` touching the pig takes all its coins. In a match they are the thrower's bonus
+## of this round (paid with the round's coins); in free play it only rattles.
+func _pig_touch(p: SimPlayer, h: SimHead, r: float) -> void:
+	if pig_coins <= 0 or Collide.push_out_rect(h.pos, r + MapDef.PIG_TOUCH, MapDef.PIG_RECT) == Vector2.ZERO:
+		return
+	var n := pig_coins
+	pig_coins = 0
+	pig_t = 0.0
+	if mode.phase == MatchMode.Phase.PLAY:
+		mode.bonus[p.id] += n
+	events.append({"type": "pig", "pos": h.pos, "player": p.id, "coins": n})

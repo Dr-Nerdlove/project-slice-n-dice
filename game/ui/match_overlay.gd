@@ -110,9 +110,9 @@ static func coin_text(m: MatchMode, slot: int) -> String:
 		return ""
 	var parts := m.coin_parts(slot, m.last_scorer)
 	var bits: Array[String] = []
-	for k: String in ["base", "kills", "survivor", "underdog", "leader"]:
+	for k: String in ["base", "kills", "survivor", "underdog", "leader", "bonus"]:
 		if parts[k] > 0:
-			bits.append("%s %d" % [{"base": "round", "kills": "kills", "survivor": "survivor", "underdog": "underdog", "leader": "leader kill"}[k], parts[k]])
+			bits.append("%s %d" % [{"base": "round", "kills": "kills", "survivor": "survivor", "underdog": "underdog", "leader": "leader kill", "bonus": "piggy bank"}[k], parts[k]])
 	return "+%d coins: %s" % [m.earned[slot], ", ".join(bits)]
 
 

@@ -28,6 +28,11 @@ var last_move := Vector2.ZERO
 
 var mods := {}              # modifier id -> level 0..3
 var zone_t := 0.0           # seconds spent outside the shrinking zone (drains inside); dies at MatchMode.ZONE_DEATH_TIME
+## Bounce House: > 0 while flung through the air by a trampoline (seconds left), from `air_from` to `air_to`. In
+## the air a player cannot be hit, pushed or steered.
+var air_t := 0.0
+var air_from := Vector2.ZERO
+var air_to := Vector2.ZERO
 var stun_t := 0.0           # > 0: cannot move, dash or use the yo-yo
 var fling_left := 0.0       # Rubber Band: distance still to be flung
 var fling_dir := Vector2.RIGHT
