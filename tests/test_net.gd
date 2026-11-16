@@ -2991,6 +2991,7 @@ func test_match_flow() -> void:   # async
 	var bot2: String = ToyFigure.NAMES[main.sim.players[2].skin] + " (bot)"
 	var row0: Node = ov.rows_box.get_child(0)
 	check("match: the result panel names the round and the scorer", ov.panel.visible and ov.heading_label.text == "Round 1" and ov.scorer_label.text == bot2 + " scores!" and not ov.rematch_btn.visible, ov.scorer_label.text)
+	check("match: between rounds there is no Main menu button (it was invisible on the paper and ended matches by accident)", not ov.main_menu_btn.visible)
 	check("match: the scoreboard lists every player, the leader first with its point and the marker", ov.rows_box.get_child_count() == main.play_cfg.player_count and row0.get_child(1).text == bot2 and row0.get_child(2).text == "+1" and row0.get_child(3).text == "1" and ov.target_label.text == "FIRST TO 15",
 			"%d %s %s %s %s" % [ov.rows_box.get_child_count(), row0.get_child(1).text, row0.get_child(2).text, row0.get_child(3).text, ov.target_label.text])
 	m.coins[2] = 9; m.earned[2] = 6; m.earned[0] = 3; m.round_kills[2] = 1

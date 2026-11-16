@@ -86,7 +86,9 @@ func setup() -> void:
 	box.add_child(rematch_btn)
 	wait_label = UiKit.heading("Waiting for the host", 22)
 	box.add_child(wait_label)
-	main_menu_btn = UiKit.compact(UiKit.button("Main menu", "quiet"), 48.0, 24)
+	# Only at match over, and "dark": a "quiet" button (translucent, paper text) is invisible on the paper panel,
+	# and between rounds an invisible Main menu button at the bottom ended matches by accident.
+	main_menu_btn = UiKit.compact(UiKit.button("Main menu", "dark"), 48.0, 24)
 	main_menu_btn.pressed.connect(func() -> void: main_menu_pressed.emit())
 	box.add_child(main_menu_btn)
 
@@ -155,6 +157,7 @@ func update(sim: Sim, own: int, show_it: bool, can_rematch: bool, bots_offline: 
 		_fill(sim, own, over, bots_offline)
 	rematch_btn.visible = over and can_rematch
 	wait_label.visible = over and not can_rematch
+	main_menu_btn.visible = over
 
 
 func _fill(sim: Sim, own: int, over: bool, bots_offline: bool) -> void:
