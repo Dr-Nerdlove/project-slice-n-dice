@@ -46,6 +46,7 @@ var cfg: Config
 var _rows := {}  # name -> {slider, label}
 var _variant_opt: OptionButton
 var _bot_opt: OptionButton
+var _map_opt: OptionButton
 var _save_timer: Timer
 var _grabber: ImageTexture
 var _suppress := false
@@ -162,6 +163,8 @@ func setup(c: Config) -> void:
 
 	grid.add_child(_selector("Yo-yo behaviour while it lies out", VARIANT_NAMES, "out_variant"))
 	grid.add_child(_selector("Practice opponents", BOT_NAMES, "bot_mode"))
+	grid.add_child(_selector("Map", MapDef.NAMES, "map"))
+	grid.add_child(Control.new())   # keeps the two-column grid even
 	for def: Array in SLIDERS:
 		grid.add_child(_slider_row(def))
 	# Bottom padding so the last row can be scrolled clear of the screen edge.
@@ -519,6 +522,8 @@ func _selector(caption: String, names: Array[String], key: String) -> Control:
 	box.add_child(opt)
 	if key == "out_variant":
 		_variant_opt = opt
+	elif key == "map":
+		_map_opt = opt
 	else:
 		_bot_opt = opt
 	return box
@@ -573,6 +578,7 @@ func refresh() -> void:
 	_refresh_mods()
 	_variant_opt.select(cfg.out_variant)
 	_bot_opt.select(cfg.bot_mode)
+	_map_opt.select(MapDef.valid(cfg.map))
 	_suppress = false
 
 

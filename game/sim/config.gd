@@ -38,6 +38,8 @@ const NUM_PLAYERS := 8             # player slots in the sim (the most a match c
 const MIN_PLAYERS := 2
 const DEFAULT_PLAYERS := 4
 const TRAINING_PLAYERS := 4        # Training (and `--server`) keep four players
+const MAP_ROTATE := -1             # `map` value: the map changes between rounds (Play); Training never uses it
+const MAP_COUNT := 6               # maps to choose from (`map`); must equal MapDef.NAMES.size()
 const COLOR_COUNT := 8             # player colours to choose from; must equal ArenaView.PLAYER_COLORS.size()
 const SKIN_COUNT := 8              # player figures to choose from (presentation only); must equal ToyFigure.NAMES.size()
 const MOVE_DEADZONE := 0.1
@@ -72,6 +74,13 @@ const BOT_ZONE_MARGIN := 1.0        # bots keep this far inside the zone edge (i
 const BOT_MARGIN := 1.8
 const BOT_TRAIN_AVOID_DIST := 3.0   # bots steer away from a train car (or the rails ahead of it) closer than this
 const BOT_TRAIN_AVOID_WEIGHT := 3.0
+const BOT_LAVA_AVOID_DIST := 1.4    # bots keep this far from the edge of a marked mat (Lava Mats)
+const BOT_LAVA_WEIGHT := 4.0
+const BOT_PAD_AVOID_DIST := 1.6     # bots keep this far from the rim of a trampoline that would throw them into trouble
+const BOT_PAD_WEIGHT := 3.0
+const BOT_PAD_HEAD_DIST := 1.6      # a deadly yo-yo this close to a landing spot makes the trampoline a bad idea
+const BOT_PIG_CHANCE := 0.5         # how often a bot that could throw at the full pig does
+const BOT_PIG_ENEMY_DIST := 5.0     # ... and only with no enemy closer than this
 
 # --- Feel / presentation (fixed) ---
 const HITSTOP_TIME := 0.07
@@ -129,6 +138,9 @@ var target_score := MatchMode.DEFAULT_TARGET
 ## Players in a Play match (MIN_PLAYERS..NUM_PLAYERS): you plus bots in Solo, the room size when hosting. Saved with the
 ## settings like `character`, not reset by Reset.
 var player_count := DEFAULT_PLAYERS
+## The map (0..MAP_COUNT-1, see MapDef), or MAP_ROTATE (-1): the maps take turns between rounds of a match. Training saves
+## a chosen map with the settings like `character` (not reset by Reset); Play always rotates.
+var map := 0
 
 const DEFAULTS := {
 	"player_radius": 0.5,
@@ -175,6 +187,7 @@ func to_dict() -> Dictionary:
 	d["player_color"] = player_color
 	d["target_score"] = target_score
 	d["player_count"] = player_count
+	d["map"] = map
 	return d
 
 
@@ -189,6 +202,8 @@ func from_dict(d: Dictionary) -> void:
 	target_score = int(ts) if (ts is int or (ts is float and is_finite(ts))) and MatchMode.TARGETS.has(int(ts)) else MatchMode.DEFAULT_TARGET
 	var pc: Variant = d.get("player_count")
 	player_count = clampi(int(clampf(float(pc), -1000.0, 1000.0)), MIN_PLAYERS, NUM_PLAYERS) if (pc is int or (pc is float and is_finite(pc))) else DEFAULT_PLAYERS
+	var mp: Variant = d.get("map")
+	map = int(mp) if (mp is int or (mp is float and is_finite(mp))) and int(mp) >= MAP_ROTATE and int(mp) < MAP_COUNT else 0
 	for k: String in DEFAULTS:
 		if not d.has(k):
 			continue

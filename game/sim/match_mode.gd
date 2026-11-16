@@ -41,6 +41,8 @@ var round_kills: Array = []
 var leader_kills: Array = []
 var underdog: Array = []
 var leader: Array = []
+## Coins a map handed out during this round (Piggy Bank), per slot; paid with the round's coins.
+var bonus: Array = []
 ## The shop, per slot: `owned` modifier id -> copies (kept for the match); `offers` the current offers (ids, ""
 ## for one already bought); `shop_ready` done shopping; `shop_seq` counts shop actions, so a repeated request
 ## (a double tap, a resent message) is refused instead of buying or rerolling twice. `locked` is a bool per offer index
@@ -51,6 +53,10 @@ var offers: Array = []
 var locked: Array = []
 var shop_ready: Array = []
 var shop_seq: Array = []
+## Map rotation (`Config.map == MAP_ROTATE`): a shuffled list of all map ids, `map_bag_i` the next to play. Each map
+## comes once before any repeats; the list is reshuffled when used up (Sim does the drawing).
+var map_bag: Array = []
+var map_bag_i := 0
 
 
 func _init() -> void:
@@ -63,6 +69,7 @@ func _init() -> void:
 		leader_kills.append(0)
 		underdog.append(false)
 		leader.append(false)
+		bonus.append(0)
 		owned.append({})
 		offers.append([])
 		locked.append([])
@@ -128,6 +135,7 @@ func begin_round_coins() -> void:
 	for i in roster.size():
 		round_kills[i] = 0
 		leader_kills[i] = 0
+		bonus[i] = 0
 		if roster[i]:
 			lo = mini(lo, points[i])
 			hi = maxi(hi, points[i])
@@ -146,7 +154,7 @@ func note_kill(victim: int, killer: int) -> void:
 
 
 ## What slot `i` gets for the round that just ended (`scorer`: who scored it, -1 nobody), by part:
-## base, kills, survivor, underdog, leader. Empty for a slot outside the roster.
+## base, kills, survivor, underdog, leader, bonus (what a map paid, e.g. the piggy bank). Empty for a slot outside the roster.
 func coin_parts(i: int, scorer: int) -> Dictionary:
 	if not roster[i]:
 		return {}
@@ -156,6 +164,7 @@ func coin_parts(i: int, scorer: int) -> Dictionary:
 		"survivor": Economy.COINS_SURVIVOR if i == scorer else 0,
 		"underdog": Economy.COINS_UNDERDOG if underdog[i] else 0,
 		"leader": Economy.COINS_LEADER_KILL * int(leader_kills[i]),
+		"bonus": int(bonus[i]),
 	}
 
 

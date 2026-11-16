@@ -168,6 +168,18 @@ func _build_arena() -> void:
 	_zone.build(sim.players.size())
 
 
+## The room for the map of the sim that is drawn now, in place of the old one.
+func _rebuild_playroom() -> void:
+	var at := playroom.get_index()
+	remove_child(playroom)
+	playroom.queue_free()
+	playroom = Playroom.new()
+	playroom.name = "Playroom"
+	add_child(playroom)
+	move_child(playroom, at)
+	playroom.build(sim)
+
+
 func _build_players() -> void:
 	for i in sim.players.size():
 		var col := color_of(sim.players[i])
@@ -348,6 +360,15 @@ func handle_event(e: Dictionary) -> void:
 			burst(pos, color_of(sim.players[e["player"] as int]), 6, 2.5)
 		"stun":
 			burst(pos, Color(1, 0.95, 0.3), 10, 3.5)
+		"launch":
+			burst(pos, Color(1, 1, 1), 8, 3.0)
+		"land":
+			burst(pos, PLAYER_COLORS[e["player"] as int], 14, 4.5)
+			shake(Config.SHAKE_STRENGTH * 0.4, Config.SHAKE_TIME * 0.5)
+		"pig":
+			burst(pos, MapProps.COIN, 8 + 6 * (e["coins"] as int), 5.0)
+	if playroom.props != null:
+		playroom.props.on_event(e)
 
 
 ## Quick expanding ring and flash of the real radius.
@@ -529,6 +550,8 @@ func set_others(s: Sim, a: float) -> void:
 
 
 func render(alpha: float, delta: float) -> void:
+	if playroom.map_id != sim.map_id:
+		_rebuild_playroom()   # another map (a server on another one, the Training selector)
 	_spin += delta * Config.HEAD_SPIN_SPEED
 	_time += delta
 	var pr := cfg.player_radius
@@ -562,6 +585,11 @@ func render(alpha: float, delta: float) -> void:
 					break
 		# The figure follows the same source as everything else of this player (and pops when it dies).
 		fig.sync(p, src, pos, delta)
+		# Bounce House: a flung player flies an arc (the sim only knows the straight line on the floor).
+		var lift := 0.0
+		if vis and p.air_t > 0.0:
+			lift = MapDef.air_height(p.air_t + (1.0 - a) / Config.TICK_RATE)
+			fig.position.y = lift
 		# The ring of a player outside the zone, from the same source as the figure (a predicted own player's own timer).
 		_zone.show_ring(i, pos, p.zone_t, pr, vis and src.zone_active())
 		_aim_marks[i].visible = false
@@ -602,7 +630,7 @@ func render(alpha: float, delta: float) -> void:
 				var h3 := hand3
 				hp = Vector2(h3.x, h3.z) + side * (hand_k - (hand_n - 1) * 0.5) * hr * HAND_SPREAD * 2.0
 				hand_k += 1
-				hy = h3.y
+				hy = h3.y + lift
 				hs = hr * 0.7
 			else:
 				hy = _head_height(h, hp.distance_to(pos), hand3.y)

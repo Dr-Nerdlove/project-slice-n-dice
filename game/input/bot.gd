@@ -15,6 +15,8 @@ var attack_wait := 1.0
 var wander_target := Vector2.ZERO
 var wander_t := 0.0
 var _last_alive := true
+var _urgent := false          # set by `_wander`: running from a marked mat, so no slow walking while charging
+var _aim_pig := false         # the throw being charged goes at the piggy bank
 
 
 func _init(index: int, config: Config, seed_value: int) -> void:
@@ -41,25 +43,42 @@ func think(sim: Sim, dt: float) -> SimInput:
 		to_target = target.pos - me.pos
 		dist = to_target.length()
 
-	inp.move = _wander(sim, me, dt) * (0.3 if phase == Phase.CHARGING else 1.0)
+	var walk := _wander(sim, me, dt)
+	inp.move = walk * (0.3 if phase == Phase.CHARGING and not _urgent else 1.0)
 
 	match phase:
 		Phase.IDLE:
 			attack_wait -= dt
 			var dash_roll := rng.randf()   # always drawn, so the random sequence does not depend on the train
-			if dash_roll < Config.BOT_DASH_CHANCE and not _train_near(sim, me, cfg.dash_distance):
+			if dash_roll < Config.BOT_DASH_CHANCE and not _train_near(sim, me, cfg.dash_distance) \
+					and not _map_hazard_near(sim, me, cfg.dash_distance):
 				inp.dash = true
-			if attack_wait <= 0.0 and me.hand_index() >= 0 and not me.pulling and target != null \
+			if attack_wait <= 0.0 and me.hand_index() >= 0 and not me.pulling and _pig_wanted(sim, me, dist):
+				# Piggy Bank: coins on the pig, nobody close: throw at it (not every time, so the pot can grow).
+				var pig_d := me.pos.distance_to(MapDef.PIG_RECT.get_center())
+				if rng.randf() < Config.BOT_PIG_CHANCE * sim.pig_coins / float(MapDef.PIG_MAX):
+					goal_t = clampf((pig_d - cfg.effective_min_range()) \
+							/ maxf(0.01, cfg.effective_max_range() - cfg.effective_min_range()), 0.0, 1.0) * cfg.charge_time + 0.05
+					aim_err = rng.randf_range(-Config.BOT_AIM_ERROR, Config.BOT_AIM_ERROR) * 0.3
+					_aim_pig = true
+					phase = Phase.CHARGING
+					phase_t = 0.0
+				else:
+					attack_wait = 1.0
+			elif attack_wait <= 0.0 and me.hand_index() >= 0 and not me.pulling and target != null \
 					and dist < cfg.effective_max_range() * Config.BOT_ATTACK_RANGE_FACTOR:
 				var ratio := clampf((dist - cfg.effective_min_range()) \
 						/ maxf(0.01, cfg.effective_max_range() - cfg.effective_min_range()), 0.0, 1.0)
 				goal_t = ratio * cfg.charge_time + 0.05
 				aim_err = rng.randf_range(-Config.BOT_AIM_ERROR, Config.BOT_AIM_ERROR)
+				_aim_pig = false
 				phase = Phase.CHARGING
 				phase_t = 0.0
 		Phase.CHARGING:
 			inp.aim_held = true
-			if target != null:
+			if _aim_pig:
+				inp.aim = (MapDef.PIG_RECT.get_center() - me.pos).normalized().rotated(aim_err)
+			elif target != null:
 				inp.aim = to_target.normalized().rotated(aim_err)
 			else:
 				inp.aim = me.facing
@@ -113,7 +132,7 @@ func think(sim: Sim, dt: float) -> SimInput:
 
 ## True when a train car is closer than the avoidance distance plus `extra` (a dash must not carry the bot into it).
 func _train_near(sim: Sim, me: SimPlayer, extra: float) -> bool:
-	if sim.cfg.train_speed <= 0.0:
+	if not sim.train_on():
 		return false
 	for k in TrainTrack.CARS:
 		if me.pos.distance_to(TrainTrack.point(TrainTrack.car_s(sim.train_s, k))) < Config.BOT_TRAIN_AVOID_DIST + extra:
@@ -121,7 +140,90 @@ func _train_near(sim: Sim, me: SimPlayer, extra: float) -> bool:
 	return false
 
 
+## Piggy Bank: true when a throw at the pig makes sense: coins on it, in range, and no enemy close (`enemy_dist`).
+func _pig_wanted(sim: Sim, me: SimPlayer, enemy_dist: float) -> bool:
+	if sim.map_id != MapDef.Id.PIGGY or sim.pig_coins <= 0 or enemy_dist < Config.BOT_PIG_ENEMY_DIST:
+		return false
+	return me.pos.distance_to(MapDef.PIG_RECT.get_center()) < cfg.effective_max_range() * 0.95
+
+
+## True when a dash of length `extra` could carry the bot into trouble on this map: any marked mat (Lava Mats), a
+## trampoline that would throw it somewhere bad (Bounce House).
+func _map_hazard_near(sim: Sim, me: SimPlayer, extra: float) -> bool:
+	match sim.map_id:
+		MapDef.Id.LAVA:
+			return not sim.lava_cells.is_empty()
+		MapDef.Id.BOUNCE:
+			var zone := sim.zone_rect().grow(-Config.BOT_ZONE_MARGIN) if sim.mode.phase == MatchMode.Phase.PLAY else Rect2()
+			for k in MapDef.PADS.size():
+				if _pad_bad(sim, me, k, zone) and me.pos.distance_to(MapDef.PADS[k][0]) < MapDef.PAD_RADIUS + extra + 0.5:
+					return true
+	return false
+
+
+## Lava Mats. On a marked mat: straight to the nearest spot on a safe one (inside the zone if possible), at full
+## speed. Next to marked mats: pushed away from their edges.
+func _lava_steer(sim: Sim, me: SimPlayer, zone: Rect2) -> Vector2:
+	if sim.lava_cells.is_empty():
+		return Vector2.ZERO
+	if sim.lava_cells.has(MapDef.lava_cell(me.pos)):
+		var best := me.pos
+		var best_d := 1e9
+		for c in MapDef.LAVA_COLS * MapDef.LAVA_ROWS:
+			if sim.lava_cells.has(c):
+				continue
+			var r := MapDef.lava_rect(c).grow(-(sim.cfg.player_radius + 0.4))
+			var q := Vector2(clampf(me.pos.x, r.position.x, r.end.x), clampf(me.pos.y, r.position.y, r.end.y))
+			var d := q.distance_to(me.pos)
+			if zone != Rect2() and not zone.has_point(q):
+				d += 4.0
+			for s in sim.statics:
+				if s.grow(sim.cfg.player_radius).has_point(q):
+					d += 4.0   # a block stands there
+			if d < best_d:
+				best_d = d
+				best = q
+		_urgent = true
+		return (best - me.pos).normalized() * Config.BOT_LAVA_WEIGHT
+	var push := Vector2.ZERO
+	for c in sim.lava_cells:
+		var r := MapDef.lava_rect(c)
+		var closest := Vector2(clampf(me.pos.x, r.position.x, r.end.x), clampf(me.pos.y, r.position.y, r.end.y))
+		var away := me.pos - closest
+		var d := away.length()
+		if d < Config.BOT_LAVA_AVOID_DIST and d > 0.001:
+			push += away / d * (1.0 - d / Config.BOT_LAVA_AVOID_DIST) * Config.BOT_LAVA_WEIGHT
+	return push
+
+
+## Bounce House: is trampoline `k` a bad idea right now? Its landing spot is outside the zone (`zone`: the bots' safe
+## rectangle, empty outside a round) or a deadly yo-yo of somebody else lies on it.
+func _pad_bad(sim: Sim, me: SimPlayer, k: int, zone: Rect2) -> bool:
+	var land: Vector2 = MapDef.PADS[k][1]
+	if zone != Rect2() and not zone.has_point(land):
+		return true
+	for o in sim.players:
+		if o == me or not (o.enabled and o.alive):
+			continue
+		for h in o.heads:
+			if h.lethal() and h.pos.distance_to(land) < Config.BOT_PAD_HEAD_DIST:
+				return true
+	return false
+
+
+## Bounce House: pushed away from the rim of every trampoline that is a bad idea.
+func _pad_steer(sim: Sim, me: SimPlayer, zone: Rect2) -> Vector2:
+	var push := Vector2.ZERO
+	for k in MapDef.PADS.size():
+		var away: Vector2 = me.pos - MapDef.PADS[k][0]
+		var d := away.length() - MapDef.PAD_RADIUS
+		if d < Config.BOT_PAD_AVOID_DIST and away.length() > 0.001 and _pad_bad(sim, me, k, zone):
+			push += away.normalized() * (1.0 - maxf(d, 0.0) / Config.BOT_PAD_AVOID_DIST) * Config.BOT_PAD_WEIGHT
+	return push
+
+
 func _to_idle() -> void:
+	_aim_pig = false
 	phase = Phase.IDLE
 	phase_t = 0.0
 	attack_wait = rng.randf_range(Config.BOT_ATTACK_WAIT.x, Config.BOT_ATTACK_WAIT.y)
@@ -159,7 +261,7 @@ func _wander(sim: Sim, me: SimPlayer, dt: float) -> Vector2:
 		var d := away.length()
 		if d < Config.BOT_AVOID_DIST and d > 0.001:
 			dir += away / d * (1.0 - d / Config.BOT_AVOID_DIST) * Config.BOT_AVOID_WEIGHT
-	if sim.cfg.train_speed > 0.0:
+	if sim.train_on():
 		for k in TrainTrack.CARS:
 			var cs := TrainTrack.car_s(sim.train_s, k)
 			var rel := me.pos - TrainTrack.point(cs)
@@ -172,6 +274,12 @@ func _wander(sim: Sim, me: SimPlayer, dt: float) -> Vector2:
 			side = side.normalized() if side.length() > 0.05 else Vector2(-td.y, td.x)
 			var w := (1.0 - d / Config.BOT_TRAIN_AVOID_DIST) * Config.BOT_TRAIN_AVOID_WEIGHT
 			dir += (side + rel.normalized() * 0.5) * w
+	_urgent = false
+	match sim.map_id:
+		MapDef.Id.LAVA:
+			dir += _lava_steer(sim, me, zone)
+		MapDef.Id.BOUNCE:
+			dir += _pad_steer(sim, me, zone)
 	if zone != Rect2():
 		# Outside the margin: steer back in.
 		var z := zone

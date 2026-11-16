@@ -3,7 +3,8 @@ extends Node3D
 ## The arena dressed as a children's room seen from above: wooden floorboards, a chequered play carpet framed by
 ## wooden beams with crayons, marbles and ring towers left lying on them (the outer walls), building blocks with
 ## letters (the obstacles), a toy chest on wheels (the movable crate), a wrapped present (the breakable box) that
-## bursts apart when it breaks, and the toy train on its loop. View only: reads the sim.
+## bursts apart when it breaks, and the toy train on its loop (map 0) or the toys of another map (`MapProps`).
+## View only: reads the sim. Built for one map (`map_id`); ArenaView builds a new one when the map changes.
 ## The carpet is darker and calmer than every player colour so the figures and their yo-yos stay the loudest
 ## things on screen.
 
@@ -33,6 +34,8 @@ const TRAIN_YELLOW := Color("ffd133")
 const WAGON_COLORS: Array[Color] = [Color("40b3b8"), Color("9973e6")]
 const BOX_DEBRIS_TIME := 0.9
 
+var map_id := 0
+var props: MapProps            # the toys of maps 1..5 (null on the train map)
 var crate: Node3D
 var box: Node3D
 var cars: Array[Node3D] = []
@@ -48,12 +51,21 @@ var _rng := RandomNumberGenerator.new()
 func build(sim: Sim) -> void:
 	_rng.seed = 7
 	var a := Config.ARENA_SIZE
+	map_id = sim.map_id
 	_build_floor(a)
 	_build_beams(a)
-	for i in range(sim.wall_count, sim.statics.size()):
+	# Some maps dress their first obstacles themselves (the magnets, the pig).
+	var special: int = MapDef.SPECIAL_OBSTACLES[map_id]
+	for i in range(sim.wall_count + special, sim.statics.size()):
 		_build_block(sim.statics[i], i - sim.wall_count)
-	_build_track()
-	_build_train()
+	if map_id == MapDef.Id.TRAIN:
+		_build_track()
+		_build_train()
+	else:
+		props = MapProps.new()
+		props.name = "MapProps"
+		add_child(props)
+		props.build(sim)
 	_build_crate()
 	_build_box()
 
@@ -84,6 +96,11 @@ func _build_floor(a: Vector2) -> void:
 	var carpet := _shader_plane(a, Vector3(a.x * 0.5, 0.0, a.y * 0.5), CARPET_SHADER,
 			{"col_a": CARPET_A, "col_b": CARPET_B, "seam": CARPET_SEAM, "tile": CARPET_TILE})
 	carpet.name = "Carpet"
+	if map_id == MapDef.Id.LAVA:
+		# The floor is a puzzle mat whose tiles are the lava cells.
+		var mat := MapProps.mat_floor_material()
+		mat.set_shader_parameter("size", a)
+		carpet.material_override = mat
 
 
 func _part(parent: Node3D, mesh: Mesh, mat: Material, pos: Vector3, size: Vector3, rot := Vector3.ZERO) -> MeshInstance3D:
@@ -317,7 +334,8 @@ func _build_crate() -> void:
 func _build_box() -> void:
 	box = Node3D.new()
 	box.name = "Box"
-	box.position = Vector3(Config.BOX_POS.x, 0, Config.BOX_POS.y)
+	var box_at := MapDef.box_pos(map_id)
+	box.position = Vector3(box_at.x, 0, box_at.y)
 	add_child(box)
 	_present(box, false)
 	var dbg := Node3D.new()
@@ -371,6 +389,8 @@ func update(sim: Sim, alpha: float, dt: float) -> void:
 	crate.position = Vector3(cp.x, 0, cp.y)
 	box.visible = sim.box_active
 	_update_train(sim, alpha)
+	if props != null:
+		props.update(sim, alpha, dt)
 	if _debris_t < 0.0:
 		return
 	_debris_t += dt
@@ -402,7 +422,7 @@ func _update_train(sim: Sim, alpha: float) -> void:
 		var pt := TrainTrack.point(cs)
 		var d := TrainTrack.dir(cs)
 		var car := cars[k]
-		car.visible = sim.cfg.train_speed > 0.0
+		car.visible = sim.train_on()
 		car.position = Vector3(pt.x, 0.0, pt.y)
 		car.rotation = Vector3(0.0, atan2(d.x, d.y), sin(_time * 9.0 + k * 1.7) * 0.03)
 	for w in _wheels:

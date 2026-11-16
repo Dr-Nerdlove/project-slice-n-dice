@@ -301,6 +301,8 @@ func _initialize() -> void:
 	_coin_tests()
 	_shop_tests()
 	_zone_tests()
+	_map_tests()
+	_rotation_tests()
 
 var _frames := 0
 func _process(_delta: float) -> bool:
@@ -2813,3 +2815,446 @@ func _color_tests() -> void:
 	check("lobby colour: opening again shows the colour of the config", lob.color_buttons[5].button_pressed and not lob.color_buttons[3].button_pressed and lob.figure_preview.figure.player_color == ArenaView.PLAYER_COLORS[5])
 	lob.queue_free()
 
+
+
+# ================================================================ maps
+
+func map_sim(id: int, only := [0, 1, 2, 3], seed_value := 7, far_crate := false) -> Sim:
+	var cfg := Config.new()
+	cfg.map = id
+	var s := Sim.new(cfg, seed_value)
+	for i in Config.NUM_PLAYERS:
+		s.set_player_enabled(i, i in only)
+	for i in only:
+		s.players[i].alive = true
+	if far_crate:
+		s.crate_pos = Vector2(-50, -50)
+		s.prev_crate_pos = s.crate_pos
+	return s
+
+## Steps `n` ticks with idle input and returns every event seen.
+func step_collect(s: Sim, n: int, ins: Array = []) -> Array:
+	var out := []
+	for _t in n:
+		s.step(ins if not ins.is_empty() else idle4())
+		out.append_array(s.events)
+	return out
+
+func has_event(evs: Array, type: String) -> bool:
+	return evs.any(func(e: Dictionary) -> bool: return e["type"] == type)
+
+func _map_geometry(id: int) -> void:
+	var arena := Rect2(Vector2.ZERO, Config.ARENA_SIZE)
+	var rr := Config.new().player_radius
+	var obs: Array = MapDef.obstacles(id)
+	var crate := MapDef.crate_start(id) if id != 0 else Config.CRATE_START
+	var box := MapDef.box_pos(id)
+	var crate_r := Rect2(crate - Vector2(Config.CRATE_HALF, Config.CRATE_HALF), Vector2(Config.CRATE_HALF, Config.CRATE_HALF) * 2.0)
+	var box_r := Rect2(box - Vector2(Config.BOX_HALF, Config.BOX_HALF), Vector2(Config.BOX_HALF, Config.BOX_HALF) * 2.0)
+	var nm: String = MapDef.NAMES[id]
+	var ok := true
+	for i in obs.size():
+		ok = ok and arena.encloses(obs[i]) and not (obs[i] as Rect2).intersects(crate_r) and not (obs[i] as Rect2).intersects(box_r)
+		for j in range(i + 1, obs.size()):
+			ok = ok and not (obs[i] as Rect2).intersects(obs[j])
+	check("map %s: blocks lie inside the arena and overlap neither each other, the chest nor the present" % nm, ok)
+	var spawns: Array = MapDef.spawns(id)
+	var clear := spawns.size() == 8
+	for i in spawns.size():
+		var sp: Vector2 = spawns[i]
+		for o: Rect2 in obs:
+			clear = clear and rect_dist(sp, o) > rr + Config.SPAWN_NOISE
+		clear = clear and sp.distance_to(crate) > 1.0 + rr and sp.distance_to(box) > 1.0 + rr
+		clear = clear and MapDef.belt_at(sp) < 0 if id == MapDef.Id.BELTS else clear
+		if id == MapDef.Id.BOUNCE:
+			for pd: Array in MapDef.PADS:
+				clear = clear and sp.distance_to(pd[0]) > MapDef.PAD_RADIUS + rr and sp.distance_to(pd[1]) > MapDef.STOMP_RADIUS + rr
+		for j in range(i + 1, spawns.size()):
+			clear = clear and sp.distance_to(spawns[j]) > 4.0 * rr
+	check("map %s: eight clear spawn points" % nm, clear)
+	var zones: Array = MapDef.zone_spots(id)
+	var zok := zones.size() == 4
+	for z: Rect2 in zones:
+		zok = zok and z.size.is_equal_approx(Config.ARENA_SIZE / 4.0) and arena.encloses(z) and not z.intersects(crate_r) and not z.intersects(box_r)
+		for o: Rect2 in obs:
+			zok = zok and not z.intersects(o)
+		if id == MapDef.Id.BELTS:
+			for b: Array in MapDef.BELTS:
+				zok = zok and not z.intersects(b[0])
+		if id == MapDef.Id.BOUNCE:
+			for pd: Array in MapDef.PADS:
+				zok = zok and rect_dist(pd[0], z) > MapDef.PAD_RADIUS
+		if id == MapDef.Id.LAVA:
+			var cells := 0
+			for c in MapDef.LAVA_COLS * MapDef.LAVA_ROWS:
+				var cr := MapDef.lava_rect(c)
+				if z.encloses(cr.grow(-0.01)):
+					cells += 1
+			zok = zok and cells == 2
+	check("map %s: four free zone areas" % nm, zok)
+	var s := map_sim(id)
+	check("map %s: the sim has the statics of the map" % nm, s.map_id == id and s.statics.size() == s.wall_count + obs.size())
+
+func _map_tests() -> void:
+	for id in Config.MAP_COUNT:
+		_map_geometry(id)
+	check("maps: the counts agree", Config.MAP_COUNT == MapDef.NAMES.size() and MapDef.HINTS.size() == Config.MAP_COUNT and MapDef.OBSTACLES.size() == Config.MAP_COUNT and MapDef.SPAWNS.size() == Config.MAP_COUNT and MapDef.ZONE_SPOTS.size() == Config.MAP_COUNT)
+	# the config value
+	var c := Config.new()
+	c.map = 3
+	var c2 := Config.new()
+	c2.from_dict(c.to_dict())
+	check("map config: survives to_dict and from_dict", c2.map == 3)
+	var bad_ok := true
+	for bad in ["x", 99, -5, NAN, null, 2.5e30]:
+		var d := c.to_dict()
+		d["map"] = bad
+		c2.from_dict(d)
+		bad_ok = bad_ok and c2.map == 0
+	check("map config: garbage becomes map 0", bad_ok)
+	var dr := c.to_dict()
+	dr["map"] = -1
+	c2.from_dict(dr)
+	check("map config: the rotation value -1 is kept", c2.map == Config.MAP_ROTATE)
+	c.reset()
+	check("map config: reset leaves the map", c.map == 3)
+	# set_map and load_state rebuild the layout
+	var s := map_sim(0)
+	s.set_map(MapDef.Id.LAVA)
+	check("map: set_map builds the layout of the new map", s.map_id == MapDef.Id.LAVA and s.statics.size() == s.wall_count + MapDef.obstacles(MapDef.Id.LAVA).size())
+	var snap := map_sim(MapDef.Id.MAGNETS).save_state()
+	s.load_state(snap)
+	check("map: loading a snapshot of another map rebuilds the layout", s.map_id == MapDef.Id.MAGNETS and s.statics.size() == s.wall_count + MapDef.obstacles(MapDef.Id.MAGNETS).size())
+	_belt_tests()
+	_lava_tests()
+	_bounce_tests()
+	_magnet_tests()
+	_pig_tests()
+	_map_determinism_tests()
+
+func _belt_tests() -> void:
+	var s := map_sim(MapDef.Id.BELTS, [0], 7, true)
+	place(s, 0, Vector2(5.0, 3.7))
+	var x0 := 5.0
+	step_collect(s, 60)
+	check("belts: a standing player rides the belt at its speed", absf(s.players[0].pos.x - (x0 + MapDef.BELT_SPEED)) < 0.2 and absf(s.players[0].pos.y - 3.7) < 0.1, str(s.players[0].pos))
+	s = map_sim(MapDef.Id.BELTS, [0], 7, true)
+	place(s, 0, Vector2(5.0, 8.0))
+	step_collect(s, 60)
+	check("belts: off the belt nothing moves", s.players[0].pos.is_equal_approx(Vector2(5.0, 8.0)), str(s.players[0].pos))
+	s = map_sim(MapDef.Id.BELTS, [0], 7, true)
+	place(s, 0, Vector2(5.0, 3.7))
+	s.map_t = MapDef.BELT_RUN + 0.1
+	step_collect(s, 40)
+	check("belts: standing still while the belt turns", s.players[0].pos.is_equal_approx(Vector2(5.0, 3.7)), str(s.players[0].pos))
+	step_collect(s, 100)
+	check("belts: after the stop the belt runs the other way", s.players[0].pos.x < 5.0 - 0.5, str(s.players[0].pos))
+	s = map_sim(MapDef.Id.BELTS, [0], 7, true)
+	place(s, 0, Vector2(3.5, 3.7))
+	step_collect(s, int(MapDef.BELT_RUN * 60.0) - 5)
+	check("belts: the corner pieces carry a player along the whole S", s.players[0].pos.x > 29.0 and s.players[0].pos.y > 9.5, str(s.players[0].pos))
+	s = map_sim(MapDef.Id.BELTS, [0], 7, true)
+	s.statics.append(Rect2(6.5, 2.6, 1.0, 2.2))
+	place(s, 0, Vector2(4.0, 3.7))
+	step_collect(s, 120)
+	check("belts: a block stops a carried player", s.players[0].pos.x < 6.5 - Config.new().player_radius + 0.05 and s.players[0].pos.x > 5.5, str(s.players[0].pos))
+	s = map_sim(MapDef.Id.BELTS, [0, 1])
+	s.crate_pos = Vector2(5.0, 3.7)
+	var cx := s.crate_pos.x
+	step_collect(s, 30)
+	check("belts: the chest rides the belt too", s.crate_pos.x > cx + 1.0, str(s.crate_pos))
+	# a carried lying yo-yo kills
+	s = map_sim(MapDef.Id.BELTS, [0, 1], 7, true)
+	s.statics.append(Rect2(9.6, 2.6, 1.0, 2.2))
+	place(s, 1, Vector2(8.7, 3.7))
+	place(s, 0, Vector2(3.0, 7.0))
+	var h := s.players[0].heads[0]
+	h.state = HS.OUT
+	h.pos = Vector2(4.0, 3.7)
+	h.prev_pos = h.pos
+	h.limit = 1e9
+	var evs := step_collect(s, 120)
+	check("belts: a yo-yo lying on the belt is carried and kills", not s.players[1].alive and evs.any(func(e: Dictionary) -> bool: return e["type"] == "kill" and e["victim"] == 1 and e["killer"] == 0), str(h.pos))
+
+func _lava_tests() -> void:
+	var s := map_sim(MapDef.Id.LAVA, [0])
+	place(s, 0, Vector2(16.0, 14.0))
+	step_collect(s, int(MapDef.LAVA_CALM * 60.0) - 5)
+	check("lava: no marked mats during the calm", s.lava_cells.is_empty())
+	step_collect(s, 10)
+	check("lava: the first warning marks the first wave", s.lava_cells.size() == MapDef.LAVA_FIRST)
+	var pairs_ok := true
+	var sizes := []
+	for seed_value in 12:
+		var t := map_sim(MapDef.Id.LAVA, [0], seed_value)
+		for w in 8:
+			t._draw_lava()
+			sizes.append(t.lava_cells.size())
+			var seen := {}
+			for cell in t.lava_cells:
+				pairs_ok = pairs_ok and not seen.has(cell / 2)
+				seen[cell / 2] = true
+	check("lava: never both mats of a pair", pairs_ok)
+	check("lava: waves grow by LAVA_STEP and stop at LAVA_MAX", sizes.slice(0, 8) == [6, 8, 10, 12, 14, 16, 16, 16] and sizes.max() == MapDef.LAVA_MAX, str(sizes.slice(0, 8)))
+	# a burning mat kills, a blinking one and a safe one do not
+	var cell := 10
+	var centre := MapDef.lava_rect(cell).get_center()
+	var safe := MapDef.lava_rect(cell + 1).get_center()
+	s = map_sim(MapDef.Id.LAVA, [0, 1])
+	place(s, 0, centre)
+	place(s, 1, safe)
+	s.map_t = MapDef.LAVA_CALM + 0.3
+	s.lava_cells = PackedInt32Array([cell])
+	step_collect(s, 20)
+	check("lava: a player on a blinking mat lives", s.players[0].alive)
+	s.map_t = MapDef.LAVA_CALM + MapDef.LAVA_WARN + 0.01
+	var evs := step_collect(s, 3)
+	check("lava: on a burning mat dies without kill credit", not s.players[0].alive and evs.any(func(e: Dictionary) -> bool: return e["type"] == "kill" and e["victim"] == 0 and e["killer"] == -1 and e.get("cause", "") == "lava"))
+	check("lava: a player on the safe mat of the pair lives", s.players[1].alive)
+	s.map_t = MapDef.LAVA_CALM + MapDef.LAVA_WARN + MapDef.LAVA_HOT + 0.01
+	step_collect(s, 3)
+	check("lava: the mats are cleared after the wave", s.lava_cells.is_empty())
+	s.lava_cells = PackedInt32Array([cell])
+	check("lava: a respawn avoids marked mats", s.spawn_unsafe(centre) and not s.spawn_unsafe(safe))
+	s = map_sim(MapDef.Id.LAVA, [0, 1])
+	s.map_t = 20.0
+	s.lava_wave = 3
+	s.lava_cells = PackedInt32Array([1, 4])
+	s.start_match(10)
+	check("lava: a new round resets the clock, the waves and the mats", s.map_t == 0.0 and s.lava_wave == 0 and s.lava_cells.is_empty())
+
+func _bounce_tests() -> void:
+	var pad: Array = MapDef.PADS[0]
+	var s := map_sim(MapDef.Id.BOUNCE, [0, 1, 2])
+	place(s, 0, pad[0])
+	place(s, 1, pad[1] + Vector2(1.0, 0.0))
+	place(s, 2, pad[1] + Vector2(2.6, 0.0))
+	var evs := step_collect(s, 2)
+	check("bounce: a player on a trampoline is launched", s.players[0].air_t > 0.0 and has_event(evs, "launch"))
+	var mid := s.players[0].pos
+	var arr := idle4()
+	arr[0] = inp(Vector2(0, 1), Vector2.ZERO, true)
+	evs = step_collect(s, 10, arr)
+	check("bounce: in the air input does nothing, the player flies towards the landing spot", s.players[0].pos.x > mid.x + 0.5 and absf(s.players[0].pos.y - 5.2) < 0.1 and s.players[0].air_t > 0.0, str(s.players[0].pos))
+	check("bounce: nobody is hurt while the jumper flies", s.players[1].alive and s.players[2].alive)
+	evs = step_collect(s, int(MapDef.AIR_TIME * 60.0))
+	check("bounce: the jumper lands", has_event(evs, "land") and s.players[0].air_t == 0.0)
+	check("bounce: the landing squashes a player next to the spot with credit for the jumper", not s.players[1].alive and evs.any(func(e: Dictionary) -> bool: return e["type"] == "kill" and e["victim"] == 1 and e["killer"] == 0))
+	check("bounce: a player just outside the stomp radius lives", s.players[2].alive)
+	s = map_sim(MapDef.Id.BOUNCE, [0, 1])
+	place(s, 0, pad[0])
+	place(s, 1, Vector2(2.0, 2.0))
+	step_collect(s, 5)
+	s._kill(s.players[0], null, "zone")
+	check("bounce: a death in the air clears the flight", s.players[0].air_t == 0.0)
+
+func _magnet_tests() -> void:
+	var ends := []
+	for t0 in [0.0, MapDef.MAGNET_PERIOD, MapDef.MAGNET_PERIOD - MapDef.MAGNET_OFF]:
+		var s := map_sim(MapDef.Id.MAGNETS, [0])
+		place(s, 0, Vector2(6.0, 4.0))
+		s.map_t = t0
+		var path0 := s.aim_path(s.players[0])
+		throw_i(s, 0, Vector2.RIGHT, 40)
+		var h := s.players[0].heads[0]
+		ends.append(h.pos)
+	check("magnets: a pulling magnet bends the throw towards it", ends[0].y > 4.4, str(ends[0]))
+	check("magnets: a pushing magnet bends it away", ends[1].y < 3.6, str(ends[1]))
+	check("magnets: both off, the throw flies straight", absf(ends[2].y - 4.0) < 0.05, str(ends[2]))
+	# the aim line is the real flight
+	var s := map_sim(MapDef.Id.MAGNETS, [0])
+	place(s, 0, Vector2(6.0, 4.0))
+	s.players[0].aim_dir = Vector2.RIGHT
+	for _t in 40:
+		s.step([inp(Vector2.ZERO, Vector2.RIGHT, true), inp(), inp(), inp()])
+	var path := s.aim_path(s.players[0])
+	var t_end := path[path.size() - 1]
+	s.step([inp(), inp(), inp(), inp()])
+	for _t in 100:
+		if s.players[0].heads[0].state == HS.OUT:
+			break
+		s.step(idle4())
+	check("magnets: the aim line ends where the throw lands", path.size() >= 2 and t_end.distance_to(s.players[0].heads[0].pos) < 0.5, "%s vs %s" % [t_end, s.players[0].heads[0].pos])
+	var s0 := map_sim(MapDef.Id.TRAIN, [0])
+	check("magnets: other maps keep the two-point aim line", s0.aim_path(s0.players[0]).size() == 2)
+	# a lying yo-yo creeps towards the pulling magnet and away from the pushing one
+	s = map_sim(MapDef.Id.MAGNETS, [0])
+	place(s, 0, Vector2(6.0, 11.0))
+	var h2 := s.players[0].heads[0]
+	h2.state = HS.OUT
+	h2.pos = Vector2(11.0, 4.5)
+	h2.prev_pos = h2.pos
+	step_collect(s, 60)
+	var pulled := h2.pos.y
+	s = map_sim(MapDef.Id.MAGNETS, [0])
+	s.map_t = MapDef.MAGNET_PERIOD
+	place(s, 0, Vector2(6.0, 11.0))
+	h2 = s.players[0].heads[0]
+	h2.state = HS.OUT
+	h2.pos = Vector2(11.0, 4.5)
+	h2.prev_pos = h2.pos
+	step_collect(s, 60)
+	check("magnets: a lying yo-yo creeps towards a pulling and away from a pushing magnet", pulled > 4.5 + 0.3 and h2.pos.y < 4.5 - 0.3, "%.2f %.2f" % [pulled, h2.pos.y])
+	# the pulling and pushing magnets swap
+	check("magnets: after one period the magnets have swapped", MapDef.magnet_sign(0, 0.0) == 1.0 and MapDef.magnet_sign(1, 0.0) == -1.0 and MapDef.magnet_sign(0, MapDef.MAGNET_PERIOD) == -1.0 and MapDef.magnet_sign(1, MapDef.MAGNET_PERIOD) == 1.0)
+
+func _pig_tests() -> void:
+	var s := map_sim(MapDef.Id.PIGGY, [0, 1])
+	step_collect(s, int(MapDef.PIG_FILL * 60.0) + 2)
+	check("pig: a coin appears every PIG_FILL seconds", s.pig_coins == 1)
+	step_collect(s, int(MapDef.PIG_FILL * 60.0 * 5))
+	check("pig: it holds at most PIG_MAX", s.pig_coins == MapDef.PIG_MAX)
+	# hit the pig in a match
+	s = map_sim(MapDef.Id.PIGGY, [0, 1])
+	s.start_match(10)
+	to_play(s)
+	place(s, 0, Vector2(8.5, 7.2))
+	place(s, 1, Vector2(2.0, 13.0))
+	s.pig_coins = 2
+	var evs := []
+	for _t in 30:
+		s.step([inp(Vector2.ZERO, Vector2.RIGHT, true), inp(), inp(), inp()])
+	s.step(idle4())
+	for _t in 60:
+		s.step(idle4())
+		evs.append_array(s.events)
+	check("pig: a thrown yo-yo touching the pig empties it", s.pig_coins == 0 and evs.any(func(e: Dictionary) -> bool: return e["type"] == "pig" and e["coins"] == 2 and e["player"] == 0), "coins=%d" % s.pig_coins)
+	check("pig: in a match the coins become the thrower's bonus", s.mode.bonus[0] == 2 and s.mode.bonus[1] == 0, str(s.mode.bonus))
+	kill_i(s, 1)
+	for _t in 10:
+		s.step(idle4())
+	check("pig: the bonus is paid with the round's coins and named in the coin text", s.mode.earned[0] >= 2 and MatchOverlay.coin_text(s.mode, 0).contains("piggy bank 2"), MatchOverlay.coin_text(s.mode, 0))
+	check("pig: a new round empties the pig and the bonus", (func() -> bool:
+		next_round(s)
+		return s.pig_coins == 0 and s.mode.bonus[0] == 0).call())
+	# a hit on an empty pig gives nothing; free play pays nothing
+	s = map_sim(MapDef.Id.PIGGY, [0, 1])
+	place(s, 0, Vector2(8.5, 7.2))
+	s.pig_coins = 3
+	for _t in 30:
+		s.step([inp(Vector2.ZERO, Vector2.RIGHT, true), inp(), inp(), inp()])
+	for _t in 80:
+		s.step(idle4())
+	check("pig: in free play the pig empties but nothing is paid", s.pig_coins == 0 and s.mode.bonus[0] == 0)
+	s.pig_coins = 0
+	s.players[0].heads[0].state = HS.OUT
+	s.players[0].heads[0].pos = MapDef.PIG_RECT.get_center() + Vector2(0, -1.5)
+	var before := s.pig_coins
+	step_collect(s, 5)
+	check("pig: a lying yo-yo does not collect", s.pig_coins == before)
+
+func _map_determinism_tests() -> void:
+	for id in Config.MAP_COUNT:
+		var nm: String = MapDef.NAMES[id]
+		var a := map_sim(id, [0, 1, 2, 3], 21)
+		var b := map_sim(id, [0, 1, 2, 3], 21)
+		var bots_a: Array[Bot] = []
+		var bots_b: Array[Bot] = []
+		for i in 4:
+			bots_a.append(Bot.new(i, a.cfg, 300 + i))
+			bots_b.append(Bot.new(i, b.cfg, 300 + i))
+		var snap := PackedByteArray()
+		var snap_ticks := 0
+		var lava_deaths := 0
+		var yo_kills := 0
+		for t in 60 * 40:
+			var ia: Array = []
+			var ib: Array = []
+			for i in 4:
+				ia.append(bots_a[i].think(a, 1.0 / 60.0))
+				ib.append(bots_b[i].think(b, 1.0 / 60.0))
+			a.step(ia)
+			b.step(ib)
+			for e: Dictionary in a.events:
+				if e["type"] == "kill":
+					if e.get("cause", "") == "lava":
+						lava_deaths += 1
+					elif e["killer"] >= 0:
+						yo_kills += 1
+			if t == 60 * 12:
+				snap = var_to_bytes(a.save_state())
+				snap_ticks = t
+		check("map %s: two sims with the same seed and bots stay identical for 40 s" % nm, var_to_bytes(a.save_state()) == var_to_bytes(b.save_state()))
+		check("map %s: bots make kills with the yo-yo and rarely die of the map" % nm, yo_kills >= 3 and lava_deaths <= 6, "yo=%d lava=%d" % [yo_kills, lava_deaths])
+		# save at 12 s, load into a fresh sim of the same config, step both without bots
+		var c := map_sim(id, [0, 1, 2, 3], 5)
+		c.load_state(bytes_to_var(snap))
+		var d := map_sim(id, [0, 1, 2, 3], 21)
+		var d_bots: Array[Bot] = []
+		for i in 4:
+			d_bots.append(Bot.new(i, d.cfg, 300 + i))
+		for t in snap_ticks + 1:
+			var idn: Array = []
+			for i in 4:
+				idn.append(d_bots[i].think(d, 1.0 / 60.0))
+			d.step(idn)
+		for _t in 240:
+			c.step(idle4())
+			d.step(idle4())
+		check("map %s: a saved state loaded into a fresh sim continues identically" % nm, var_to_bytes(c.save_state()) == var_to_bytes(d.save_state()))
+
+func _rotation_tests() -> void:
+	var cfg := Config.new()
+	cfg.map = Config.MAP_ROTATE
+	var s := Sim.new(cfg, 3)
+	check("rotation: free play before a match uses map 0", s.map_id == 0)
+	for i in Config.NUM_PLAYERS:
+		s.set_player_enabled(i, i < 2)
+	s.start_match(20)
+	var seen: Array[int] = [s.map_id]
+	var rounds := Config.MAP_COUNT * 2 + 1
+	for _r in rounds - 1:
+		to_play(s)
+		kill_i(s, 1)
+		next_round(s)
+		seen.append(s.map_id)
+	var first := seen.slice(0, Config.MAP_COUNT)
+	var second := seen.slice(Config.MAP_COUNT, Config.MAP_COUNT * 2)
+	first.sort()
+	second.sort()
+	var want := []
+	for m in Config.MAP_COUNT:
+		want.append(m)
+	check("rotation: every map comes once before any repeat", first == want and second == want, str(seen))
+	var no_repeat := true
+	for i in range(1, seen.size()):
+		no_repeat = no_repeat and seen[i] != seen[i - 1]
+	check("rotation: the map changes between rounds, also across a reshuffle", no_repeat and s.mode.map_bag.size() == Config.MAP_COUNT, str(seen))
+	check("rotation: the layout follows the map", s.statics.size() == s.wall_count + MapDef.obstacles(s.map_id).size() and s.players[0].alive)
+	# part of the state: save mid-match, a fresh sim continues with the same maps
+	var twin := Sim.new(cfg, 99)
+	twin.load_state(bytes_to_var(var_to_bytes(s.save_state())))
+	var sa: Array[int] = []
+	var sb: Array[int] = []
+	for _r in 6:
+		to_play(s)
+		kill_i(s, 1)
+		next_round(s)
+		sa.append(s.map_id)
+		to_play(twin)
+		kill_i(twin, 1)
+		next_round(twin)
+		sb.append(twin.map_id)
+	check("rotation: the bag is state, a loaded sim continues with the same maps", sa == sb and var_to_bytes(s.save_state()) == var_to_bytes(twin.save_state()), "%s vs %s" % [sa, sb])
+	# the same seed gives the same order
+	var s2 := Sim.new(cfg, 3)
+	for i in Config.NUM_PLAYERS:
+		s2.set_player_enabled(i, i < 2)
+	s2.start_match(20)
+	check("rotation: the order comes from the sim's seed", s2.map_id == seen[0])
+	s.start_match(20)
+	check("rotation: a rematch starts a fresh shuffle with every map still to come", s.mode.map_bag.size() == Config.MAP_COUNT and s.mode.map_bag_i == 1 and s.map_id == s.mode.map_bag[0], "i=%d" % s.mode.map_bag_i)
+	# Training: a chosen map never rotates
+	var tc := Config.new()
+	tc.map = MapDef.Id.LAVA
+	var t := Sim.new(tc, 3)
+	for i in Config.NUM_PLAYERS:
+		t.set_player_enabled(i, i < 2)
+	t.start_match(20)
+	var all_lava := t.map_id == MapDef.Id.LAVA
+	for _r in 4:
+		to_play(t)
+		kill_i(t, 1)
+		next_round(t)
+		all_lava = all_lava and t.map_id == MapDef.Id.LAVA
+	check("rotation: a fixed map (Training, --server) is never changed", all_lava and t.mode.map_bag.is_empty())
