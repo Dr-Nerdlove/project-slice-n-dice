@@ -166,6 +166,7 @@ func _make_play_cfg() -> Config:
 	var c := Config.new()
 	c.character = train_cfg.character
 	c.target_score = train_cfg.target_score
+	c.player_count = train_cfg.player_count
 	c.bot_mode = Config.BotMode.ACTIVE
 	return c
 
@@ -349,8 +350,10 @@ func _on_back() -> void:
 
 func _apply_bot_mode() -> void:
 	_applied_bot_mode = cfg.bot_mode
+	# Training keeps four players; a Play match has `player_count` (you plus bots).
+	var total := Config.TRAINING_PLAYERS if training else cfg.player_count
 	for i in range(1, Config.NUM_PLAYERS):
-		sim.set_player_enabled(i, cfg.bot_mode != Config.BotMode.OFF)
+		sim.set_player_enabled(i, i < total and cfg.bot_mode != Config.BotMode.OFF)
 	sim.set_player_enabled(0, true)
 
 
@@ -497,7 +500,7 @@ const STATUS := {
 	"host_failed": "Could not open the game (port in use?)",
 	"connected": "Connected as player %d",
 	"ended": "Game ended",
-	"full": "Server is full (%d players)",
+	"full": "Server is full",
 	"version": "Wrong version: the app and the server do not match",
 	"started": "The match has already started.",
 	"disconnected": "Disconnected",
@@ -754,7 +757,7 @@ func _end_session(reason: String, show_status := true) -> void:
 	hud.online = false
 	var key := "ended" if was_hosting and reason == "closed" else _reason_key(reason, was_online)
 	if show_status:
-		_set_status(key, false, Config.NUM_PLAYERS)
+		_set_status(key, false)
 	else:
 		_refresh_local_session()
 

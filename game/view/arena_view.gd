@@ -4,7 +4,8 @@ extends Node3D
 ## Sim (x, y) maps to 3D (x, 0, y).
 
 ## The first four of the eight player colours of the "Kinderzimmer" style (pink, cyan, lime, orange).
-const PLAYER_COLORS: Array[Color] = [Color("ff2e88"), Color("00c2ff"), Color("7ddc1f"), Color("ff8a00")]
+const PLAYER_COLORS: Array[Color] = [Color("ff2e88"), Color("00c2ff"), Color("7ddc1f"), Color("ff8a00"),
+	Color("a45cff"), Color("ffd400"), Color("2fe0b0"), Color("e8e8ef")]
 ## Which toy each player slot gets (for now fixed): pink bunny, cyan robot, lime dino, orange duck.
 const FIGURE_KINDS: Array[int] = [ToyPose.Kind.BUNNY, ToyPose.Kind.ROBOT, ToyPose.Kind.DINO, ToyPose.Kind.DUCK]
 const HEAD_Y := 0.35

@@ -25,6 +25,7 @@ var solo_btn: Button
 var mode_card: PanelContainer
 var figure_buttons: Array[Button] = []
 var target_buttons: Array[Button] = []   # First to 10 / 15 / 20
+var player_buttons: Array[Button] = []   # 2 .. 8 players
 var start_btn: Button           # host only: begins the match for everybody in the lobby
 var wait_label: Label           # joiner only: waits for the host
 var figure_preview: FigurePreview   # live 3D picture of the chosen figure
@@ -118,6 +119,7 @@ func setup(c: Config) -> void:
 	right.add_child(pad)
 	_mark_figure()
 	_mark_target()
+	_mark_players()
 
 
 func _build_mode_card() -> Control:
@@ -144,6 +146,18 @@ func _build_mode_card() -> Control:
 		b.pressed.connect(func() -> void: _choose_target(pts))
 		row.add_child(b)
 		target_buttons.append(b)
+	box.add_child(UiKit.eyebrow("Players"))
+	var prow := HBoxContainer.new()
+	prow.add_theme_constant_override("separation", 6)
+	box.add_child(prow)
+	for n in range(Config.MIN_PLAYERS, Config.NUM_PLAYERS + 1):
+		var b := UiKit.button(str(n), "paper")
+		b.toggle_mode = true
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.custom_minimum_size = Vector2(0, 52.0)
+		b.pressed.connect(func() -> void: _choose_players(n))
+		prow.add_child(b)
+		player_buttons.append(b)
 	return mode_card
 
 
@@ -282,6 +296,18 @@ func _choose_target(points: int) -> void:
 	target_chosen.emit(points)
 
 
+## How many play in a Play match: you plus bots in Solo, the room size when hosting.
+func _choose_players(n: int) -> void:
+	cfg.player_count = clampi(n, Config.MIN_PLAYERS, Config.NUM_PLAYERS)
+	_mark_players()
+	save_fn.call(cfg)
+
+
+func _mark_players() -> void:
+	for i in player_buttons.size():
+		player_buttons[i].set_pressed_no_signal(Config.MIN_PLAYERS + i == cfg.player_count)
+
+
 func _mark_target() -> void:
 	for i in target_buttons.size():
 		target_buttons[i].set_pressed_no_signal(MatchMode.TARGETS[i] == cfg.target_score)
@@ -298,6 +324,7 @@ func _mark_figure() -> void:
 func open() -> void:
 	_mark_figure()
 	_mark_target()
+	_mark_players()
 	visible = true
 
 
@@ -332,7 +359,7 @@ func set_session(hosting: bool, connected: bool, code: String, players: int) -> 
 			_players_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		else:
 			_code_label.text = LanCode.grouped(code)
-			_players_label.text = "Players: %d of %d" % [players, Config.NUM_PLAYERS]
+			_players_label.text = "Players: %d of %d" % [players, cfg.player_count]
 	if not hosting:
 		_shown = ""
 
