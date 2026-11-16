@@ -303,7 +303,7 @@ testers is the owners' call; a good moment is after A (the floor plans are what 
   escape test checks the real walking distance on the NavGrid (limit speed x `LAVA_WARN` = 9 m), so layout alone
   guarantees it. Bot: `_lava_steer` now walks the NavGrid path. Old tests: only the position of the safe player in
   `_lava_tests` was moved off a new wall.)
-- [ ] A3 Bounce House
+- [x] A3 Bounce House (built; 11 obstacles, mirror-symmetric about x = 16 instead of point-symmetric because the zigzag of doors (top, bottom, top) is not point-symmetric; `NetProto.VERSION` 13. Changes against the idea: the strips are 8.5, 6, 6 and 8.5 m wide, doors are 4.0 m tall so a zone area fits across the top ones; pads S1->S2, S2->S4, S4->S3, S3->S1; the bot rule is `Bot._pad_goal` (walk to a pad when it saves 10 m of walking and is within 9 m on foot, via `NavGrid.path_length`). Old tests: the pad test in `_bounce_tests` was moved to the new pad positions.)
 - [ ] A4 Magnet Lab
 - [ ] A5 Piggy Bank
 - [ ] B0 theme system

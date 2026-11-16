@@ -22,6 +22,8 @@ var _urgent := false          # set by `_wander`: running from a marked mat, so 
 var _nav_t := 0.0             # seconds until the next path search (the waypoint is kept in between)
 var _nav_point := Vector2.ZERO
 var _nav_goal := Vector2.ZERO
+var _pad_t := 0.0             # seconds until the next look at the trampolines (Bounce House)
+var _pad_pick := -1           # the trampoline the bot is walking to, or -1
 var _aim_pig := false         # the throw being charged goes at the piggy bank
 
 
@@ -231,6 +233,32 @@ func _pad_steer(sim: Sim, me: SimPlayer, zone: Rect2) -> Vector2:
 	return push
 
 
+## Bounce House: where to walk. Normally `goal`; when the walk to it is long and a trampoline that is not a bad idea
+## (`_pad_bad`) is close on foot and lands the bot much nearer to it, the trampoline. Decided every BOT_PAD_EVERY seconds.
+func _pad_goal(sim: Sim, me: SimPlayer, goal: Vector2, zone: Rect2, dt: float) -> Vector2:
+	if me.air_t > 0.0:
+		_pad_pick = -1
+		_pad_t = 0.0
+		return goal
+	_pad_t -= dt
+	if _pad_t <= 0.0:
+		_pad_t = Config.BOT_PAD_EVERY
+		_pad_pick = -1
+		var grid := NavGrid.for_sim(sim)
+		var best := grid.path_length(me.pos, goal) - Config.BOT_PAD_GAIN
+		for k in MapDef.PADS.size():
+			if _pad_bad(sim, me, k, zone):
+				continue
+			var to_pad := grid.path_length(me.pos, MapDef.PADS[k][0])
+			if to_pad > Config.BOT_PAD_REACH:
+				continue
+			var total := to_pad + grid.path_length(MapDef.PADS[k][1], goal)
+			if total < best:
+				best = total
+				_pad_pick = k
+	return MapDef.PADS[_pad_pick][0] if _pad_pick >= 0 else goal
+
+
 func _to_idle() -> void:
 	_aim_pig = false
 	phase = Phase.IDLE
@@ -294,7 +322,10 @@ func _wander(sim: Sim, me: SimPlayer, dt: float) -> Vector2:
 		zone = sim.zone_rect().grow(-Config.BOT_ZONE_MARGIN)
 		wander_target = Vector2(clampf(wander_target.x, zone.position.x, zone.end.x), clampf(wander_target.y, zone.position.y, zone.end.y))
 	wander_target = NavGrid.for_sim(sim).snap(wander_target)   # never a spot inside a wall
-	var dir := (_steer_point(sim, me, wander_target, dt) - me.pos).normalized() * Config.BOT_MOVE_SCALE
+	var goal := wander_target
+	if sim.map_id == MapDef.Id.BOUNCE:
+		goal = _pad_goal(sim, me, goal, zone, dt)
+	var dir := (_steer_point(sim, me, goal, dt) - me.pos).normalized() * Config.BOT_MOVE_SCALE
 	for s in sim.statics:
 		var closest := Vector2(clampf(me.pos.x, s.position.x, s.end.x), clampf(me.pos.y, s.position.y, s.end.y))
 		var away := me.pos - closest

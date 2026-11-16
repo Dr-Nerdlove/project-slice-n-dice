@@ -20,7 +20,7 @@ const HINTS: Array[String] = [
 
 ## Maps whose floor plan has been rebuilt (docs/map-rework.md). The stricter floor-plan rules of the tests (10 to
 ## 18 obstacles, spawn points far apart and out of sight, the 2.0 m passage rule) apply only to these.
-const REWORKED: Array[int] = [0, 1, 2]
+const REWORKED: Array[int] = [0, 1, 2, 3]
 
 # --- layout per map (index = map id) ---
 const OBSTACLES: Array = [
@@ -40,7 +40,13 @@ const OBSTACLES: Array = [
 	[Rect2(17.0, 5.2, 5.0, 1.0), Rect2(17.0, 6.2, 1.0, 3.8), Rect2(10.0, 8.2, 5.0, 1.0), Rect2(14.0, 4.4, 1.0, 3.8),
 			Rect2(0.0, 3.2, 5.6, 0.8), Rect2(7.6, 0.0, 0.8, 4.4), Rect2(26.4, 10.4, 5.6, 0.8), Rect2(23.6, 10.0, 0.8, 4.4),
 			Rect2(24.0, 0.0, 0.8, 3.6), Rect2(26.8, 2.8, 5.2, 0.8), Rect2(7.2, 10.8, 0.8, 3.6), Rect2(0.0, 10.8, 5.2, 0.8)],
-	[Rect2(15.4, 3.2, 1.2, 8.0), Rect2(9.6, 1.4, 1.8, 1.8), Rect2(20.6, 11.2, 1.8, 1.8)],
+	# Bounce House: three long walls (1.0 m thick) divide the room into four strips side by side, each with ONE walking
+	# door: left wall at the top, middle wall at the bottom, right wall at the top (a zigzag from one end to the other;
+	# the doors are 4.0 m tall so that a zone area fits across the top ones). Covers inside the strips hide the two
+	# starts of a strip from each other. Mirror-symmetric about x = 16 (the strips are 8.5, 6.0, 6.0 and 8.5 m wide).
+	[Rect2(8.5, 4.0, 1.0, 10.4), Rect2(15.5, 0.0, 1.0, 10.4), Rect2(22.5, 4.0, 1.0, 10.4),
+			Rect2(0.0, 6.5, 6.0, 1.0), Rect2(26.0, 6.5, 6.0, 1.0), Rect2(11.5, 6.5, 2.0, 1.0), Rect2(18.5, 6.5, 2.0, 1.0),
+			Rect2(12.5, 11.9, 1.0, 2.5), Rect2(18.5, 11.9, 1.0, 2.5), Rect2(3.0, 2.0, 1.0, 1.0), Rect2(28.0, 2.0, 1.0, 1.0)],
 	# Magnet Lab: the two magnets first (MAGNETS holds their centres), then the centre wall and two blocks.
 	[Rect2(10.2, 6.4, 1.6, 1.6), Rect2(20.2, 6.4, 1.6, 1.6), Rect2(15.6, 5.8, 0.8, 2.8), Rect2(15.1, 2.2, 1.8, 1.8),
 			Rect2(15.1, 10.4, 1.8, 1.8)],
@@ -56,8 +62,8 @@ const SPAWNS: Array = [
 			Vector2(1.6, 13.2), Vector2(30.4, 1.2), Vector2(12.4, 7.2), Vector2(19.6, 7.2)],
 	[Vector2(3.0, 1.6), Vector2(29.0, 12.8), Vector2(29.0, 1.2), Vector2(3.0, 13.2),
 			Vector2(10.0, 5.6), Vector2(22.0, 8.8), Vector2(20.0, 3.0), Vector2(12.0, 11.4)],
-	[Vector2(2.8, 7.2), Vector2(29.2, 7.2), Vector2(2.8, 2.2), Vector2(29.2, 12.2),
-			Vector2(8.0, 12.6), Vector2(24.0, 1.8), Vector2(10.6, 7.6), Vector2(21.4, 6.8)],
+	[Vector2(2.0, 4.8), Vector2(30.0, 4.8), Vector2(2.0, 12.4), Vector2(30.0, 12.4),
+			Vector2(12.5, 4.6), Vector2(19.5, 4.6), Vector2(11.0, 12.9), Vector2(21.0, 12.9)],
 	[Vector2(2.8, 7.2), Vector2(29.2, 7.2), Vector2(2.8, 2.0), Vector2(29.2, 12.4),
 			Vector2(2.8, 12.4), Vector2(29.2, 2.0), Vector2(12.5, 1.4), Vector2(19.5, 13.0)],
 	[Vector2(2.8, 7.2), Vector2(29.2, 7.2), Vector2(2.8, 2.2), Vector2(29.2, 12.2),
@@ -69,15 +75,16 @@ const ZONE_SPOTS: Array = [
 	[Rect2(0.8, 5.8, 8.0, 3.6), Rect2(23.2, 5.0, 8.0, 3.6), Rect2(0.8, 10.4, 8.0, 3.6), Rect2(23.2, 0.4, 8.0, 3.6)],
 	# Lava Mats: each is one mat pair, so a wave never takes more than half of it.
 	[Rect2(16.0, 0.0, 8.0, 3.6), Rect2(8.0, 10.8, 8.0, 3.6), Rect2(0.0, 7.2, 8.0, 3.6), Rect2(24.0, 3.6, 8.0, 3.6)],
-	[Rect2(0.8, 5.4, 8.0, 3.6), Rect2(23.2, 5.4, 8.0, 3.6), Rect2(0.8, 0.4, 8.0, 3.6), Rect2(23.2, 10.4, 8.0, 3.6)],
+	# Bounce House: the bottom of the two outer strips, and the top across the two upper doors.
+	[Rect2(0.25, 10.2, 8.0, 3.6), Rect2(23.75, 10.2, 8.0, 3.6), Rect2(4.75, 0.25, 8.0, 3.6), Rect2(19.25, 0.25, 8.0, 3.6)],
 	[Rect2(0.8, 5.4, 8.0, 3.6), Rect2(23.2, 5.4, 8.0, 3.6), Rect2(0.8, 0.4, 8.0, 3.6), Rect2(23.2, 10.4, 8.0, 3.6)],
 	# Piggy Bank: the four corners, never the pig.
 	[Rect2(0.8, 0.4, 8.0, 3.6), Rect2(23.2, 0.4, 8.0, 3.6), Rect2(0.8, 10.4, 8.0, 3.6), Rect2(23.2, 10.4, 8.0, 3.6)],
 ]
 const CRATE_STARTS: Array[Vector2] = [
-	Vector2.ZERO, Vector2(6.0, 3.7), Vector2(12.0, 5.4), Vector2(16.0, 1.6), Vector2(8.5, 11.8), Vector2(16.0, 2.4)]
+	Vector2.ZERO, Vector2(6.0, 3.7), Vector2(12.0, 5.4), Vector2(16.0, 12.4), Vector2(8.5, 11.8), Vector2(16.0, 2.4)]
 const BOX_POSITIONS: Array[Vector2] = [
-	Vector2.ZERO, Vector2(26.0, 13.1), Vector2(20.0, 9.0), Vector2(16.0, 12.8), Vector2(23.5, 2.6), Vector2(16.0, 12.0)]
+	Vector2.ZERO, Vector2(26.0, 13.1), Vector2(20.0, 9.0), Vector2(3.0, 9.0), Vector2(23.5, 2.6), Vector2(16.0, 12.0)]
 
 # --- 1 Assembly Line: conveyor belts ---
 const BELT_SPEED := 4.0
@@ -110,12 +117,13 @@ const PAD_RADIUS := 0.95
 const AIR_TIME := 0.75           # seconds in the air
 const AIR_HEIGHT := 3.2          # top of the arc (view only)
 const STOMP_RADIUS := 1.4        # who is this close to the landing point is squashed
-## [trampoline centre, landing spot]
+## [trampoline centre, landing spot]. Every strip (left to right: S1..S4) has one pad and one landing spot: the pad of S1
+## lands in S2, the pad of S2 in S4, and the mirrored pair: S4 to S3, S3 to S1.
 const PADS: Array = [
-	[Vector2(12.6, 5.2), Vector2(19.8, 5.2)],
-	[Vector2(19.4, 9.2), Vector2(12.2, 9.2)],
-	[Vector2(2.4, 12.2), Vector2(13.2, 12.6)],
-	[Vector2(29.6, 2.2), Vector2(18.8, 1.8)],
+	[Vector2(7.0, 5.0), Vector2(11.6, 9.6)],
+	[Vector2(25.0, 5.0), Vector2(20.4, 9.6)],
+	[Vector2(14.2, 9.4), Vector2(27.2, 10.4)],
+	[Vector2(17.8, 9.4), Vector2(4.8, 10.4)],
 ]
 
 # --- 4 Magnet Lab ---

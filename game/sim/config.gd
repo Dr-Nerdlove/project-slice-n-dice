@@ -87,6 +87,9 @@ const BOT_LAVA_WEIGHT := 4.0
 const BOT_PAD_AVOID_DIST := 1.6     # bots keep this far from the rim of a trampoline that would throw them into trouble
 const BOT_PAD_WEIGHT := 3.0
 const BOT_PAD_HEAD_DIST := 1.6      # a deadly yo-yo this close to a landing spot makes the trampoline a bad idea
+const BOT_PAD_GAIN := 10.0          # a bot takes a trampoline when it saves at least this many metres of walking
+const BOT_PAD_REACH := 9.0          # ... and the trampoline is at most this far away on foot
+const BOT_PAD_EVERY := 0.5          # seconds between two decisions
 const BOT_PIG_CHANCE := 0.5         # how often a bot that could throw at the full pig does
 const BOT_PIG_ENEMY_DIST := 5.0     # ... and only with no enemy closer than this
 

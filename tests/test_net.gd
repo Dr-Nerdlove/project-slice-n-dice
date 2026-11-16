@@ -560,7 +560,7 @@ func test_color() -> void:
 	check("colour net: out-of-range choices on the client wrap into range", (func() -> bool:
 		a.set_color(Config.COLOR_COUNT * 4 + 2)
 		return a._wanted_color == 2).call())
-	check("map net: the protocol version is 12", NetProto.VERSION == 12)
+	check("map net: the protocol version is 13", NetProto.VERSION == 13)
 
 
 func test_skin_delayed() -> void:

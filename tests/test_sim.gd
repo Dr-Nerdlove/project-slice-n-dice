@@ -3044,6 +3044,96 @@ func _assembly_plan_tests() -> void:
 				open_ok = open_ok and hi - lo >= br.size.y
 	check("map Assembly Line: the belt crosses both dividing walls through an opening as wide as the belt", crossings == 2 and open_ok)
 
+## Map 3 (Bounce House) is rebuilt: mirror-symmetric about x = 16 (three long walls with one door each, a pad and a
+## landing spot in every strip), landing spots in the open, and a bot that takes a trampoline when the walk is long.
+func _bounce_plan_tests() -> void:
+	check("map Bounce House: it is marked as reworked, so the strict floor-plan rules run on it", 3 in MapDef.REWORKED)
+	var size := Config.ARENA_SIZE
+	var obs: Array = MapDef.obstacles(3)
+	var mirrored := true
+	for o: Rect2 in obs:
+		var m := Rect2(size.x - o.end.x, o.position.y, o.size.x, o.size.y)
+		var found := false
+		for q: Rect2 in obs:
+			found = found or (q.position.distance_to(m.position) < 1e-4 and q.size.distance_to(m.size) < 1e-4)
+		mirrored = mirrored and found
+	for sp: Vector2 in MapDef.spawns(3):
+		var found := false
+		for q: Vector2 in MapDef.spawns(3):
+			found = found or q.distance_to(Vector2(size.x - sp.x, sp.y)) < 1e-4
+		mirrored = mirrored and found
+	for z: Rect2 in MapDef.zone_spots(3):
+		var found := false
+		for q: Rect2 in MapDef.zone_spots(3):
+			found = found or q.position.distance_to(Vector2(size.x - z.end.x, z.position.y)) < 1e-4
+		mirrored = mirrored and found
+	for pd: Array in MapDef.PADS:
+		var found := false
+		for q: Array in MapDef.PADS:
+			found = found or (q[0] as Vector2).distance_to(Vector2(size.x - pd[0].x, pd[0].y)) < 1e-4 and (q[1] as Vector2).distance_to(Vector2(size.x - pd[1].x, pd[1].y)) < 1e-4
+		mirrored = mirrored and found
+	check("map Bounce House: obstacles, spawn points, zone areas and trampolines are mirror-symmetric about x = 16", mirrored)
+	# the long walls divide the room into four strips; every strip has one pad and one landing spot
+	var long_walls: Array[Rect2] = []
+	for o: Rect2 in obs:
+		if o.size.y > 8.0:
+			long_walls.append(o)
+	var strip := func(x: float) -> int:
+		var n := 0
+		for w in long_walls:
+			if x > w.end.x:
+				n += 1
+		return n
+	var pads_in := [0, 0, 0, 0]
+	var lands_in := [0, 0, 0, 0]
+	var reach_ok := long_walls.size() == 3
+	for pd: Array in MapDef.PADS:
+		var a: int = strip.call(pd[0].x)
+		var b: int = strip.call(pd[1].x)
+		pads_in[a] += 1
+		lands_in[b] += 1
+		reach_ok = reach_ok and b != a and absi(b - a) <= 2
+	check("map Bounce House: every strip has one trampoline and one landing spot, and a jump goes to another strip at most two away", pads_in == [1, 1, 1, 1] and lands_in == [1, 1, 1, 1] and reach_ok, "%s %s" % [pads_in, lands_in])
+	# a landing spot has room for the stomp circle and a player around it, and is not in a doorway of a long wall
+	var rr := Config.new().player_radius
+	var room := MapDef.STOMP_RADIUS + rr
+	var open_ok := true
+	var near_pad := true
+	for pd: Array in MapDef.PADS:
+		var land: Vector2 = pd[1]
+		for o: Rect2 in obs:
+			open_ok = open_ok and rect_dist(land, o) >= room
+		for w in long_walls:
+			open_ok = open_ok and absf(land.x - w.get_center().x) >= room + 0.5 * w.size.x
+		open_ok = open_ok and land.x >= room and land.x <= size.x - room and land.y >= room and land.y <= size.y - room
+		for sp: Vector2 in MapDef.spawns(3):
+			near_pad = near_pad and sp.distance_to(pd[0]) >= 2.0
+	check("map Bounce House: every landing spot has the stomp radius and a player of free floor around it, outside the doorways", open_ok)
+	check("map Bounce House: no trampoline lies within 2 m of a spawn point", near_pad)
+	# bots: a long walk and a trampoline close by and landing much nearer to the goal: take the trampoline
+	var s := map_sim(MapDef.Id.BOUNCE, [0], 7, true)
+	place(s, 0, MapDef.spawns(3)[0])
+	var b := Bot.new(0, s.cfg, 11)
+	b.wander_target = Vector2(28.0, 9.0)
+	b.wander_t = 1000.0
+	var launched := false
+	for _t in 60 * 4:
+		s.step([b.think(s, 1.0 / 60.0), inp(), inp(), inp()])
+		launched = launched or has_event(s.events, "launch")
+	check("bot: far from its goal behind a wall it takes the trampoline of its strip", launched and s.players[0].pos.x > MapDef.PADS[0][1].x - 1.0, str(s.players[0].pos))
+	# ... but not when the landing spot is outside the zone
+	s = map_sim(MapDef.Id.BOUNCE, [0], 7, true)
+	place(s, 0, MapDef.spawns(3)[0])
+	b = Bot.new(0, s.cfg, 11)
+	var goal := Vector2(28.0, 9.0)
+	var zone_in := Rect2(0.0, 0.0, 14.0, 14.4)
+	var zone_out := Rect2(0.0, 0.0, 9.0, 14.4)
+	check("bot: it takes the trampoline when the landing spot is inside the zone", b._pad_goal(s, s.players[0], goal, zone_in, 1.0) == MapDef.PADS[0][0])
+	b = Bot.new(0, s.cfg, 11)
+	check("bot: it does not take a trampoline whose landing spot is outside the zone", b._pad_goal(s, s.players[0], goal, zone_out, 1.0) == goal)
+	b = Bot.new(0, s.cfg, 11)
+	check("bot: it walks when the goal is close", b._pad_goal(s, s.players[0], s.players[0].pos + Vector2(1.5, 0.0), Rect2(), 1.0) != MapDef.PADS[0][0])
+
 ## Map 2 (Lava Mats) is rebuilt: point-symmetric, and no wall closes the seam inside a mat pair.
 func _lava_plan_tests() -> void:
 	check("map Lava Mats: it is marked as reworked, so the strict floor-plan rules run on it", 2 in MapDef.REWORKED)
@@ -3096,6 +3186,7 @@ func _map_tests() -> void:
 	_train_set_plan_tests()
 	_assembly_plan_tests()
 	_lava_plan_tests()
+	_bounce_plan_tests()
 	_nav_tests()
 	_bot_path_tests()
 	_spawn_spread_tests()
@@ -3296,14 +3387,14 @@ func _bounce_tests() -> void:
 	var s := map_sim(MapDef.Id.BOUNCE, [0, 1, 2])
 	place(s, 0, pad[0])
 	place(s, 1, pad[1] + Vector2(1.0, 0.0))
-	place(s, 2, pad[1] + Vector2(2.6, 0.0))
+	place(s, 2, pad[1] + Vector2(0.0, 2.2))
 	var evs := step_collect(s, 2)
 	check("bounce: a player on a trampoline is launched", s.players[0].air_t > 0.0 and has_event(evs, "launch"))
 	var mid := s.players[0].pos
 	var arr := idle4()
 	arr[0] = inp(Vector2(0, 1), Vector2.ZERO, true)
 	evs = step_collect(s, 10, arr)
-	check("bounce: in the air input does nothing, the player flies towards the landing spot", s.players[0].pos.x > mid.x + 0.5 and absf(s.players[0].pos.y - 5.2) < 0.1 and s.players[0].air_t > 0.0, str(s.players[0].pos))
+	check("bounce: in the air input does nothing, the player flies towards the landing spot", s.players[0].pos.x > mid.x + 0.5 and s.players[0].pos.y > mid.y + 0.5 and s.players[0].pos.y < pad[1].y and s.players[0].air_t > 0.0, str(s.players[0].pos))
 	check("bounce: nobody is hurt while the jumper flies", s.players[1].alive and s.players[2].alive)
 	evs = step_collect(s, int(MapDef.AIR_TIME * 60.0))
 	check("bounce: the jumper lands", has_event(evs, "land") and s.players[0].air_t == 0.0)
