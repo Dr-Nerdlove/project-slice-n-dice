@@ -347,7 +347,8 @@ missing, with a recommendation, and let the people choose.
   (after `test`) exports the debug APK and uploads it as an artifact (14 days). Godot and the Android export
   templates are downloaded from the official release and cached; the APK is signed with the fixed test key (trap
   7), the Java/SDK/keystore paths are written to Godot's editor settings (no env vars exist for them). No branch protection: not available for private repositories on the owner's free plan (see
-  "Protecting `main`").
+  "Protecting `main`"). GitHub security settings (set by the owner, Nov 2026): Dependabot alerts on (with the dependency graph); secret scanning is not available for private repositories on the
+  free plan; automatic dependency submission and AI scan off (Actions minutes and AI credits for little gain). A Dependabot alert is checked in a session before anything is changed.
 - **Limits of the environment:** Cloud sessions (Claude Code on the web) cannot open the repository settings
   (rulesets, secrets, Pages); the owner does that on github.com. GitHub is reached through the GitHub MCP tools,
   not the `gh` CLI. Local sessions on the owner's Linux machine have git over HTTPS working.
