@@ -763,6 +763,18 @@ SB=[
  ('2 rotation: Config refuses the rotation value','sim/config.gd','int(mp) >= MAP_ROTATE','int(mp) >= 0'),
  ('8 rotation: Play uses the map saved for Training','main.gd','c.map = Config.MAP_ROTATE','c.map = train_cfg.map'),
  ('8 map: the Training map is not applied to a standing sim','main.gd','\t\t\tsim.set_map(cfg.map)','\t\t\tpass'),
+ ('2 spawns: the farthest point becomes the nearest','sim/sim.gd','if d > best_d + 1e-9:','if best_d < 0.0 or d < best_d - 1e-9:'),
+ ('2 spawns: ties go to the highest index','sim/sim.gd','if d > best_d + 1e-9:','if d >= best_d - 1e-9:'),
+ ('2 spawns: the first point is not drawn','sim/sim.gd','pick = rng.randi_range(0, spawns.size() - 1)','pick = 0'),
+ ('2 bot: no path around walls','input/bot.gd','_nav_point = grid.next_point(me.pos, goal)','_nav_point = goal'),
+ ('2 bot: throws at enemies behind walls','input/bot.gd','grid.line_clear(me.pos, o.pos, THROW_CLEARANCE)','true'),
+ ('2 nav: walls are not grown by the player radius','sim/nav_grid.gd','if _dist_to_rect(c, s) < radius:','if _dist_to_rect(c, s) < 0.0:'),
+ ('2 nav: a diagonal step may cut a corner','sim/nav_grid.gd','if dx != 0 and dy != 0 and not (is_free(cx + dx, cy) and is_free(cx, cy + dy)):','if false:'),
+ ('2 nav: the search never expands','sim/nav_grid.gd','\t\t\tqueue.append(n)','\t\t\tpass'),
+ ('2 nav: the walking line ignores walls','sim/nav_grid.gd','if segment_hits_rect(a, b, s.grow(r)):','if false:'),
+ ('2 nav: the segment test never hits','sim/nav_grid.gd','\t\t\tif t0 > t1:\n\t\t\t\treturn false','\t\t\tif t0 > t1:\n\t\t\t\treturn true'),
+ ('0 wall rows: a long wall is one stretched block','view/playroom.gd','if short_side <= 0.0 or long_side <= WALL_ROW_RATIO * short_side:','if true:'),
+ ('0 wall rows: the pieces are two long slabs','view/playroom.gd','var n := maxi(2, roundi(long_side / short_side))','var n := 2'),
 ]
 
 def suites_for(name, full):

@@ -57,6 +57,7 @@ func _initialize() -> void:
 	await test_arena_view_figures()
 	await test_playroom_details()
 	await test_map_views()
+	await test_wall_rows()
 	await test_main_scene()
 	quit(fails)
 
@@ -1112,4 +1113,63 @@ func test_map_views() -> void:
 		if not ok:
 			info += " " + str(id)
 	check("maps view: the playroom is built and updated for every map and follows a change of map", ok, info)
+	view.queue_free()
+
+
+## A long obstacle is drawn as a row of equal near-square blocks that covers exactly its rectangle.
+func test_wall_rows() -> void:
+	var near := Playroom.block_pieces(Rect2(10, 5, 2.4, 2.0))
+	check("wall rows: a near-square obstacle stays one block", near.size() == 1 and near[0] == Rect2(10, 5, 2.4, 2.0))
+	var edge := Playroom.block_pieces(Rect2(10, 5, 3.0, 2.0))
+	check("wall rows: exactly 1.5 times as long is still one block", edge.size() == 1)
+	var ok := true
+	var info := ""
+	for r: Rect2 in [Rect2(15.4, 3.2, 1.2, 8.0), Rect2(0, 0, 0.8, 2.8), Rect2(5, 5, 6.0, 0.8), Rect2(5, 5, 3.2, 2.0), Rect2(2, 2, 0.8, 4.4)]:
+		var pieces := Playroom.block_pieces(r)
+		var area := 0.0
+		var union := pieces[0]
+		var square := true
+		for pc in pieces:
+			area += pc.get_area()
+			union = union.merge(pc)
+			square = square and maxf(pc.size.x, pc.size.y) <= 1.5 * minf(pc.size.x, pc.size.y)
+		var same := true
+		for pc in pieces:
+			same = same and pc.size.is_equal_approx(pieces[0].size)
+		var touching := true
+		for i in range(1, pieces.size()):
+			touching = touching and pieces[i].intersects(pieces[i - 1].grow(0.001))
+		var good := pieces.size() >= 2 and absf(area - r.get_area()) < 0.0001 and union.is_equal_approx(r) and square and same and touching
+		ok = ok and good
+		if not good:
+			info += " %s" % str(r)
+	check("wall rows: a long obstacle becomes equal near-square pieces that cover exactly its rectangle", ok, info)
+	var sm := Sim.new(Config.new(), 1)
+	var view := ArenaView.new()
+	root.add_child(view)
+	await process_frame
+	view.setup(sm)
+	var built := true
+	var binfo := ""
+	for id in Config.MAP_COUNT:
+		sm.set_map(id)
+		view.render(1.0, 0.016)
+		var pr: Playroom = view.playroom
+		var special: int = MapDef.SPECIAL_OBSTACLES[id]
+		for i in range(sm.wall_count + special, sm.statics.size()):
+			var r := sm.statics[i]
+			var node := pr.get_node_or_null("Block%d" % (i - sm.wall_count))
+			if node == null:
+				built = false
+				binfo += " missing %d/%d" % [id, i]
+				continue
+			var pieces := Playroom.block_pieces(r)
+			if pieces.size() == 1:
+				built = built and node.position.is_equal_approx(Vector3(r.get_center().x, 0, r.get_center().y))
+			else:
+				built = built and node.get_child_count() == pieces.size()
+				for k in pieces.size():
+					var pn := node.get_node_or_null("Piece%d" % k) as Node3D
+					built = built and pn != null and pn.position.is_equal_approx(Vector3(pieces[k].get_center().x, 0, pieces[k].get_center().y))
+	check("wall rows: the playroom of every map draws each obstacle as its block or row of blocks in the right place", built, binfo)
 	view.queue_free()

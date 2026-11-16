@@ -4,6 +4,12 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.11.0
+
+- **Bots walk around walls** instead of pushing against them, and only throw at a player they can actually see
+  (no wall in between).
+- **Players start farther apart** at the beginning of every round.
+
 ## 0.10.0
 
 - **Five new maps**, each with its own twist (plus the old playroom, now called Train Set):
