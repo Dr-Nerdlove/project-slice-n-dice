@@ -147,12 +147,12 @@ func _build_settings(page: Control) -> void:
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "right"]:
 		margin.add_theme_constant_override("margin_" + side, 64)
-	margin.add_theme_constant_override("margin_top", 24)
-	margin.add_theme_constant_override("margin_bottom", 24)
+	margin.add_theme_constant_override("margin_top", 16)
+	margin.add_theme_constant_override("margin_bottom", 16)
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	page.add_child(margin)
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 20)
+	col.add_theme_constant_override("separation", 12)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(col)
 	var bar := HBoxContainer.new()
@@ -163,14 +163,11 @@ func _build_settings(page: Control) -> void:
 	back.pressed.connect(show_main)
 	bar.add_child(back)
 	bar.add_child(UiKit.title("Settings", 44))
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	col.add_child(scroll)
-	var panels := HBoxContainer.new()
+	var panels := HBoxContainer.new()   # no scrolling anywhere: the page has to fit the screen (checked by a test)
 	panels.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panels.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	panels.add_theme_constant_override("separation", 20)
-	scroll.add_child(panels)
+	col.add_child(panels)
 	var panel := UiKit.panel("paper")
 	panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	panel.custom_minimum_size.x = 340.0
@@ -194,7 +191,7 @@ func _build_touch() -> Control:
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
+	box.add_theme_constant_override("separation", 6)
 	panel.add_child(box)
 	box.add_child(UiKit.eyebrow("Touch controls"))
 	mode_buttons = _option_row(box, "Sticks", [["Floating", TouchSettings.Mode.FLOATING], ["Fixed", TouchSettings.Mode.FIXED]],
@@ -205,14 +202,14 @@ func _build_touch() -> Control:
 	swap_btn = UiKit.button("Swap sides", "paper")
 	swap_btn.toggle_mode = true
 	swap_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	swap_btn.custom_minimum_size.y = 48.0
+	swap_btn.custom_minimum_size.y = 44.0
 	swap_btn.pressed.connect(func() -> void:
 		touch.set_swap(not touch.swap)
 		touch.save()
 		_mark_touch())
 	row.add_child(swap_btn)
 	layout_btn = UiKit.button("Place controls", "paper")
-	layout_btn.custom_minimum_size.y = 48.0
+	layout_btn.custom_minimum_size.y = 44.0
 	layout_btn.pressed.connect(func() -> void: layout_editor.open(touch))
 	box.add_child(layout_btn)
 	box.add_child(UiKit.body("Floating: a stick appears where your thumb lands. Fixed: sticks stay where you put them. "
@@ -241,7 +238,7 @@ func _option_row(box: VBoxContainer, title: String, options: Array, apply: Calla
 		var b := UiKit.button(o[0], "paper")
 		b.toggle_mode = true
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.custom_minimum_size.y = 48.0
+		b.custom_minimum_size.y = 44.0
 		b.pressed.connect(func() -> void:
 			apply.call(value)
 			touch.save()

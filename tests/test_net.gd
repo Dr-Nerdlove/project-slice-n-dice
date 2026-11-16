@@ -2658,7 +2658,7 @@ func test_menu_local() -> void:   # async
 	menu.set_session(true, true, "ABCDE", 2)
 	await process_frame
 	check("lobby local: while hosting the listener is closed, the code is shown grouped and big", menu._listener == null and menu._hosting_box.visible and menu._code_label.text == "ABCD E"
-			and menu._code_label.get_theme_font_size("font_size") >= 60 and menu._players_label.text == "Players: 2 of %d" % Config.DEFAULT_PLAYERS)
+			and menu._code_label.get_theme_font_size("font_size") >= 48 and menu._players_label.text == "Players: 2 of %d" % Config.DEFAULT_PLAYERS)
 	check("lobby local: while hosting only Stop is enabled", menu._host_btn.disabled and menu._join_btn.disabled and not menu._stop_btn.disabled)
 	menu._stop_btn.pressed.emit()
 	check("lobby local: Stop is announced", got.back() == ["stop"])
@@ -3399,6 +3399,139 @@ func test_main_eight() -> void:   # async
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online%d.json" % PORT_OFFSET))
 
 
+## The Play lobby fits on one screen without scrolling, at every screen size and in its fullest states. The project
+## stretches with "expand" from 1280 x 576, so the viewport the UI sees is never smaller than that.
+func test_lobby_fits() -> void:   # async
+	var windows := [Vector2(1280, 576), Vector2(1280, 720), Vector2(1024, 768), Vector2(960, 540), Vector2(576, 1280), Vector2(2400, 1080)]
+	var games := [
+		{"ip": "10.0.0.1", "port": 24565, "code": "ABCDE", "players": 3, "max": 8},
+		{"ip": "10.0.0.6", "port": 24565, "code": "WXYZA", "players": 4, "max": 8},
+		{"ip": "10.0.0.2", "port": 24565, "code": "ABCDE", "players": 3, "max": 8},
+		{"ip": "10.0.0.3", "port": 24565, "code": "FGHJK", "players": 1, "max": 8},
+		{"ip": "10.0.0.4", "port": 24565, "code": "LMNPQ", "players": 7, "max": 8},
+		{"ip": "10.0.0.5", "port": 24565, "code": "RSTUV", "players": 2, "max": 8},
+	]
+	for w: Vector2 in windows:
+		var scale := minf(w.x / 1280.0, w.y / 576.0)
+		var vp := w / scale   # the viewport size after "expand" stretching
+		var sv := SubViewport.new()
+		sv.size = Vector2i(vp)
+		root.add_child(sv)
+		var lobby := PlayLobby.new()
+		sv.add_child(lobby)
+		lobby.setup(Config.new())
+		lobby.save_fn = func(_c: Config) -> void: pass
+		lobby.discovery_port = 24566 + PORT_OFFSET + 800
+		lobby.open()
+		lobby.set_process(false)   # (the live game list would overwrite the games set below)
+		var states := {
+			"idle": func() -> void:
+				lobby.set_session(false, false, "", 0)
+				lobby._show_found(games)
+				lobby.set_rejoin(true)
+				lobby.set_status("Server is full"),
+			"hosting": func() -> void:
+				lobby._show_found([])
+				lobby.set_session(true, true, "ABCDEFG", 8)
+				lobby.set_start(true, true, true)
+				lobby.set_status("Connected as player 1"),
+			"hosting without address": func() -> void:
+				lobby.set_session(true, true, "", 1)
+				lobby.set_start(true, true, false),
+			"joined": func() -> void:
+				lobby.set_session(false, true, "", 0)
+				lobby.set_start(false, true, false)
+				lobby.set_status("Connected as player 5"),
+		}
+		for state: String in states:
+			states[state].call()
+			for _i in 3:
+				await process_frame
+			var label := "%dx%d (viewport %dx%d) %s" % [w.x, w.y, vp.x, vp.y, state]
+			var joining: bool = state == "idle"
+			check("lobby fits: %s: the joining half and the hint show only when not hosting or connected" % label, lobby._join_box.visible == joining and lobby._hint.visible == joining)
+			check("lobby fits: %s: at most %d games are listed" % [label, PlayLobby.MAX_FOUND], lobby._found_buttons.size() <= PlayLobby.MAX_FOUND and (not joining or lobby._found_buttons.size() == PlayLobby.MAX_FOUND))
+			var margin: Control = lobby.cols.get_parent().get_parent()
+			var need := margin.get_combined_minimum_size()
+			check("lobby fits: %s: the combined minimum size fits the screen" % label, need.x <= vp.x and need.y <= vp.y, "need %s" % str(need))
+			var out := ""
+			for c in lobby.find_children("*", "Control", true, false):
+				var ctl := c as Control
+				if ctl.is_visible_in_tree() and ctl.size.x > 0.0:
+					var r := ctl.get_global_rect()
+					if r.end.x > vp.x + 1.0 or r.end.y > vp.y + 1.0 or r.position.x < -1.0 or r.position.y < -1.0:
+						out = "%s %s" % [ctl.get_class(), str(r)]
+						break
+			check("lobby fits: %s: every control lies inside the screen" % label, out == "", out)
+		check("lobby fits: %dx%d: no scroll container anywhere" % [w.x, w.y], lobby.find_children("*", "ScrollContainer", true, false).is_empty())
+		sv.queue_free()
+		await process_frame
+
+
+## The first visible control of `node` that sticks out of a `vp` sized screen ("" = none).
+func first_outside(node: Node, vp: Vector2) -> String:
+	for c in node.find_children("*", "Control", true, false):
+		var ctl := c as Control
+		if ctl.is_visible_in_tree() and ctl.size.x > 0.0 and not ctl.get_class() == "ColorRect":
+			var r := ctl.get_global_rect()
+			if r.end.x > vp.x + 1.0 or r.end.y > vp.y + 1.0 or r.position.x < -1.0 or r.position.y < -1.0:
+				return "%s %s" % [ctl.get_class(), str(r)]
+	return ""
+
+
+## Settings, pause panel, and the round / match / shop panels with eight players fit the base screen (1280 x 576, the
+## smallest the UI ever sees) and nothing scrolls.
+func test_screens_fit() -> void:   # async
+	root.size = Vector2i(1280, 576)   # (the headless window is not 1280 x 576 by itself)
+	await process_frame
+	NetStore.path = "user://test_online%d.json" % PORT_OFFSET
+	var main: Node = load("res://main.tscn").instantiate()
+	root.add_child(main)
+	for _i in 5:
+		await process_frame
+	main.lobby.save_fn = func(_c: Config) -> void: pass
+	var vp := Vector2(1280, 576)
+	check("screens fit: the test window is the base size", main.get_viewport().get_visible_rect().size == vp, str(main.get_viewport().get_visible_rect().size))
+	main.main_menu.show_settings()
+	for _i in 3:
+		await process_frame
+	check("screens fit: the Settings page fits", first_outside(main.main_menu, vp) == "", first_outside(main.main_menu, vp))
+	main.main_menu.back()
+	main.train_cfg.player_count = 8
+	main.main_menu.play_btn.pressed.emit()
+	main.lobby.solo_btn.pressed.emit()
+	for _i in 3:
+		await process_frame
+	var m: MatchMode = main.sim.mode
+	check("screens fit: an 8 player match is on", m.roster.count(true) == 8)
+	main._on_pause_pressed()
+	await process_frame
+	check("screens fit: the pause panel fits", main.pause.visible and first_outside(main.pause, vp) == "", first_outside(main.pause, vp))
+	main._on_pause_pressed()
+	for k in 8:
+		m.points[k] = 8 - k
+		m.coins[k] = 20 + k
+	m.phase = MatchMode.Phase.RESULT
+	m.phase_t = 1.0
+	m.last_scorer = 1
+	await process_frame
+	check("screens fit: the round result with eight rows fits", main.overlay.panel.visible and main.overlay.rows_box.get_child_count() == 8 and first_outside(main.overlay, vp) == "", first_outside(main.overlay, vp))
+	m.phase = MatchMode.Phase.MATCH_OVER
+	m.winner = 0
+	m.phase_t = 1.0
+	await process_frame
+	check("screens fit: the match over panel with eight rows and Rematch fits", main.overlay.panel.visible and main.overlay.rematch_btn.visible and first_outside(main.overlay, vp) == "", first_outside(main.overlay, vp))
+	m.phase = MatchMode.Phase.SHOP
+	m.phase_t = 1.0
+	await process_frame
+	await process_frame
+	check("screens fit: the shop fits", main.overlay.shop.visible and first_outside(main.overlay, vp) == "", first_outside(main.overlay, vp))
+	check("screens fit: no scroll container in the menus, the lobby and the overlays", main.main_menu.find_children("*", "ScrollContainer", true, false).is_empty() and main.lobby.find_children("*", "ScrollContainer", true, false).is_empty() and main.overlay.find_children("*", "ScrollContainer", true, false).is_empty() and main.pause.find_children("*", "ScrollContainer", true, false).is_empty())
+	main.queue_free()
+	await process_frame
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online%d.json" % PORT_OFFSET))
+
+
 func _initialize() -> void:
 	# TEST_STOP_ON_FAIL=1 (set by tests/sabotage.py): stop after the first test group that fails.
 	var stop_early := OS.get_environment("TEST_STOP_ON_FAIL") == "1"
@@ -3407,7 +3540,7 @@ func _initialize() -> void:
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
 		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_zone, test_shop, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
-		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_touch_menu, test_match_flow, test_main_rejoin, test_eight, test_main_eight,
+		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_touch_menu, test_match_flow, test_main_rejoin, test_eight, test_main_eight, test_lobby_fits, test_screens_fit,
 	]
 	for g in groups:
 		if stop_early and fails > 0:

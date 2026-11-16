@@ -680,6 +680,14 @@ SB=[
  ("8 eight: Play does not get the count","main.gd","\tc.player_count = train_cfg.player_count\n",""),
  ("8 eight: Training uses the chosen count","main.gd","Config.TRAINING_PLAYERS if training else cfg.player_count","cfg.player_count"),
  ("8 eight: Solo ignores the count","main.gd","i < total and cfg.bot_mode","i < 4 and cfg.bot_mode"),
+ ("8 fit: the lobby hint stays while hosting","ui/play_lobby.gd","\t_hint.visible = not (hosting or connected)\n","\t_hint.visible = true\n"),
+ ("8 fit: the join half stays while hosting","ui/play_lobby.gd","\t_join_box.visible = not (hosting or connected)\n","\t_join_box.visible = true\n"),
+ ("8 fit: unlimited games found","ui/play_lobby.gd","const MAX_FOUND := 2","const MAX_FOUND := 30"),
+ ("8 fit: the figure preview is too tall","ui/play_lobby.gd","figure_preview.custom_minimum_size = Vector2(0, 150)","figure_preview.custom_minimum_size = Vector2(0, 400)"),
+ ("8 fit: the lobby scrolls again","ui/play_lobby.gd","\tpage.add_child(cols)\n","\tvar sc := ScrollContainer.new()\n\tsc.size_flags_vertical = Control.SIZE_EXPAND_FILL\n\tpage.add_child(sc)\n\tsc.add_child(cols)\n"),
+ ("8 fit: Settings scrolls again","ui/main_menu.gd","\tcol.add_child(panels)\n","\tvar sc := ScrollContainer.new()\n\tsc.size_flags_vertical = Control.SIZE_EXPAND_FILL\n\tcol.add_child(sc)\n\tsc.add_child(panels)\n"),
+ ("8 fit: the scoreboard rows are spaced widely","ui/match_overlay.gd",'rows_box.add_theme_constant_override("separation", 4)','rows_box.add_theme_constant_override("separation", 16)'),
+ ("8 fit: the Settings margins are big again","ui/main_menu.gd",'margin.add_theme_constant_override("margin_top", 16)','margin.add_theme_constant_override("margin_top", 60)'),
 ]
 
 def suites_for(name, full):
