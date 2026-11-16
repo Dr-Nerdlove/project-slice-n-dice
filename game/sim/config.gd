@@ -9,13 +9,21 @@ enum BotMode { OFF, DUMMY, ACTIVE }
 # --- Arena layout (fixed) ---
 const ARENA_SIZE := Vector2(32.0, 14.4)   # 20:9 like a phone screen
 const WALL_THICKNESS := 2.0
-## The building blocks: the layout of the first 28 x 12.6 arena scaled by 8/7 (centre block, two point-symmetric
-## blocks, one small block near the top wall).
+## The floor plan of Train Set (map 0, docs/map-rework.md step A0), point-symmetric about the arena centre: the
+## centre block with two short walls (a pinwheel inside the loop), four walls that run from the top and bottom walls
+## towards the track, and four walls that close the left and right side rooms from the corner rooms.
 const OBSTACLES: Array[Rect2] = [
-	Rect2(14.75, 5.6, 2.5, 3.2),
-	Rect2(6.65, 2.75, 1.8, 1.8),
-	Rect2(23.55, 9.85, 1.8, 1.8),
-	Rect2(21.5, 1.8, 1.4, 1.4),
+	Rect2(14.75, 5.6, 2.5, 3.2),    # centre block
+	Rect2(17.25, 5.6, 2.6, 0.8),    # yard wall, right of the block
+	Rect2(12.15, 8.0, 2.6, 0.8),    # yard wall, left of the block (point mirror of the one above)
+	Rect2(9.0, 0.0, 0.8, 4.2),      # wall from the top wall, left
+	Rect2(22.2, 0.0, 0.8, 4.2),     # wall from the top wall, right
+	Rect2(9.0, 10.2, 0.8, 4.2),     # wall from the bottom wall, left
+	Rect2(22.2, 10.2, 0.8, 4.2),    # wall from the bottom wall, right
+	Rect2(0.0, 4.2, 6.4, 0.8),      # between the top left corner room and the left side room
+	Rect2(0.0, 9.4, 6.4, 0.8),      # between the left side room and the bottom left corner room
+	Rect2(25.6, 4.2, 6.4, 0.8),     # between the top right corner room and the right side room
+	Rect2(25.6, 9.4, 6.4, 0.8),     # between the right side room and the bottom right corner room
 ]
 ## Where the shrinking zone of a match ends up (one of these is drawn per round). y = 0 is the top wall (the top of
 ## the screen). Each is ARENA_SIZE / 4 and a "free area": no obstacle, crate start, box or train track in it.
@@ -28,8 +36,8 @@ const ZONE_SPOTS: Array[Rect2] = [
 const CRATE_START := Vector2(16.0, 2.3)
 const BOX_POS := Vector2(16.0, 12.1)
 const SPAWNS: Array[Vector2] = [
-	Vector2(2.8, 7.2), Vector2(29.2, 7.2), Vector2(10.9, 1.5), Vector2(21.1, 12.9),
-	Vector2(2.8, 2.3), Vector2(29.2, 12.1), Vector2(2.8, 12.1), Vector2(29.2, 2.3),
+	Vector2(4.5, 7.2), Vector2(27.5, 7.2), Vector2(13.0, 1.4), Vector2(19.0, 13.0),
+	Vector2(1.8, 1.6), Vector2(30.2, 12.8), Vector2(1.8, 12.8), Vector2(30.2, 1.6),
 ]
 
 # --- Sim constants (fixed) ---

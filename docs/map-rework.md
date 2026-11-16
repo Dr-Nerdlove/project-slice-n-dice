@@ -278,7 +278,14 @@ testers is the owners' call; a good moment is after A (the floor plans are what 
   line test; the 2.0 m passage rule fails on the old layouts of maps 0 to 4 (map 5 passes), so it is behind
   `REWORKED` with the other strict rules, only connectivity runs for every map; `NetProto.VERSION` stays 9 because
   neither a layout nor the snapshot changed. `REWORKED` lives in `MapDef`.)
-- [ ] A0 Train Set
+- [x] A0 Train Set (built; 11 obstacles, `NetProto.VERSION` is now 10 for the whole step A. Changes against the idea:
+  the "short wall at each short side at mid height" became four horizontal walls from the left and right walls
+  (they make the corner rooms and side rooms the plan names); the inside of the loop got a pinwheel (a wall on
+  each side of the centre block) instead of walls that close two entrances, because the rails are not an obstacle
+  and a yard cannot be closed against them; the top walls are 4.2 m long and stop 2 m before the track's corner
+  arcs, not before the straight. Old tests: `test_sim` already runs in an arena without obstacles (`mk()`), so
+  they did not change; `test_net` clears the obstacles of its rigs with `open_arena()`. Later map steps: expect
+  the same, keep the zone areas free, and fix stale sabotage patterns that quote the old layout.)
 - [ ] A1 Assembly Line
 - [ ] A2 Lava Mats
 - [ ] A3 Bounce House

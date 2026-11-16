@@ -2979,10 +2979,29 @@ func _floor_plan_rule_tests() -> void:
 	var seen := _plan_failures(good, [Vector2(1.0, 1.0), Vector2(31.0, 13.4)], all)
 	check("floor-plan rules: far apart starts need no wall between them", not seen.any(func(f: Variant) -> bool: return f is Array and f[0] == "spawns see each other"))
 
+## Map 0 (Train Set) is rebuilt, point-symmetric about the arena centre, so that no start is better than another.
+func _train_set_plan_tests() -> void:
+	check("map Train Set: it is marked as reworked, so the strict floor-plan rules run on it", 0 in MapDef.REWORKED)
+	var c := Config.ARENA_SIZE * 0.5
+	var mirrored := true
+	for o: Rect2 in Config.OBSTACLES:
+		var m := Rect2(Config.ARENA_SIZE - o.end, o.size)
+		var found := false
+		for q: Rect2 in Config.OBSTACLES:
+			found = found or (q.position.distance_to(m.position) < 1e-4 and q.size.distance_to(m.size) < 1e-4)
+		mirrored = mirrored and found
+	for sp: Vector2 in Config.SPAWNS:
+		var found := false
+		for q: Vector2 in Config.SPAWNS:
+			found = found or q.distance_to(2.0 * c - sp) < 1e-4
+		mirrored = mirrored and found
+	check("map Train Set: obstacles and spawn points are point-symmetric about the centre", mirrored)
+
 func _map_tests() -> void:
 	for id in Config.MAP_COUNT:
 		_map_geometry(id)
 	_floor_plan_rule_tests()
+	_train_set_plan_tests()
 	_nav_tests()
 	_bot_path_tests()
 	_spawn_spread_tests()
