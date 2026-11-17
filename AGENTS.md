@@ -327,7 +327,7 @@ missing, with a recommendation, and let the people choose.
   `MAJOR.MINOR.PATCH`; `tools/set-version.sh` writes it to `application/config/version` in `game/project.godot` (what
   the game shows and compares), and `version/name` and `version/code` (= MAJOR*10000 + MINOR*100 + PATCH, so MINOR
   and PATCH stay below 100) in `game/export_presets.cfg`. The committed files hold the version of the NEXT release
-  (now 0.15.0); a test checks that they agree. CI builds of branches use the committed version plus the suffix
+  (now 0.16.0); a test checks that they agree. CI builds of branches use the committed version plus the suffix
   `-dev+<commit>` in `application/config/version` only (set by the `apk` job), so the game shows it is a dev build and
   never offers an update for the same version. How the app finds updates: `game/update/update_check.gd` (pure logic)
   and `main.gd` ask `https://api.github.com/repos/Joni9993/slice-n-dice-releases/releases/latest` once, 3 s after the

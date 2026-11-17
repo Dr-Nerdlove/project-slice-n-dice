@@ -6,17 +6,17 @@ there is none. Write it for testers, in plain words.
 
 ## 0.16.0
 
-Draft, not released yet.
+Smaller fixes and a harder throw. Players on different versions can no longer play together.
 
 - **Friendlier wording**: the game no longer talks about killing or dying. Texts now say "knock out" and "KOs" (score line, coin breakdown, modifier cards and descriptions). The main menu's Play button no longer shows "Last Standing", because Play now has three modes.
 - **Throw arrow instead of the aim line**: while you charge a throw, the exact flight path and landing mark are gone. A small arrow in your colour lies on the floor just outside the ring around your figure and points the way you will throw; the longer you charge, the slightly further out it sits. It does not tell you how far the yo-yo will fly.
-- Shop: every modifier is offered with the same chance, whatever you own. An offer you cannot buy (build full, max level) is greyed out and says why.
+- **Shop with even odds**: every modifier is offered with the same chance, whatever you own. An offer you cannot buy (build full, max level) is greyed out and says why.
 - **Smoother figure choice in the lobby**: picking another figure or colour under "Your figure" no longer makes the picture freeze for a moment. A colour change now only recolours the figure, and the figures are prepared in the background while the lobby is open.
 - **Round-start markers**: the YOU tag above your figure and the modifier icons above every figure now show only during the round-start countdown and vanish a moment after "GO!". Before, they stayed on screen for the whole round.
 
 ## 0.15.0
 
-Draft, not released yet. Players on different versions can no longer play together.
+Players on different versions can no longer play together.
 
 - **Teams mode**: pick "Teams" in the Match screen (the Mode card), then 2v2, 3v3 or 4v4. Two teams, Red and Blue, fight; you cannot hurt your own team, and when a round ends every member of the winning team scores a point. The floor ring under every figure shows its team colour. Playing together, each player sees both teams in the lobby and can press "Switch team"; the host can start only when the teams are even. Solo puts you on Red and fills both teams with bots.
 - **Hot Potato mode**: pick "Hot Potato". One player carries a bomb with a fuse; hit someone to pass it on, and when the fuse runs out the carrier is out. The last one standing wins the round. The round result says who survived the bombs. The bomb carrier's markers (YOU tag, modifier icons) now sit above the bomb.
