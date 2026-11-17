@@ -169,6 +169,26 @@ model for rhythm and feel only; nothing of an existing game is copied (see secti
 - The mode is its own unit in the code, so later modes (e.g. teams, kill count) can plug in their own rules for
   "round over", "who scores" and "match over".
 
+### Game modes and Teams (decided by the owner on 2026-11-17)
+
+- **Modes:** `Config.GameMode` = FFA (Last Standing, as above), TEAMS, POTATO (Hot Potato, later; it plays like FFA until
+  it is built). The host picks the mode in the Play lobby; it is saved with the settings, copied into the Play config
+  and sent to joiners in the welcome. Training is always free for all.
+- **Targets stay 10 / 15 / 20 in every mode** (decided by the owner; no per-mode targets). In Teams the target counts
+  the team's points.
+- **Teams:** two teams, Red and Blue, 2v2, 3v3 or 4v4 (the player count is even: an odd one snaps up). **No friendly
+  fire**: a player's yo-yo, body, blast, shard, wire and stomp never hurt a teammate (heads of teammates pass through
+  each other). The train, the zone, lava and the thrower's own blast hit everybody.
+- **A round ends when at most one team has a living player; that team scores one point for every member**, dead or
+  away ones included. If both teams are wiped out in the same tick nobody scores. The first team to the target wins.
+  Coins are per player with the usual formulas; every member of the scoring team gets the survivor coins ("team win").
+  The shop is unchanged.
+- **Lobby:** the host's bots fill the empty seats. A joining human is placed on the team with fewer humans (replacing
+  a bot there). Before a match and after one a player can switch to the other team: the switch **swaps** with a bot (or
+  an empty seat) of the other team, so the teams stay the same size; refused when every seat there is a human or while
+  a match runs. A match starts only with the same number of players on each team.
+- **Colours:** Red uses the warm half of the palette, Blue the cool half.
+
 ### Maps and map rotation
 
 More maps with their own design follow later (decided by the owner on 2026-11-15), so the match needs a **map

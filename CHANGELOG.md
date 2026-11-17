@@ -4,6 +4,14 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.15.0
+
+Draft, not released yet.
+
+- **Teams mode (work in progress)**: the rules are in the game (two teams, no friendly fire, every member of the
+  winning team scores) and bots play it, but the lobby does not offer it yet. Players on different versions can no
+  longer play together.
+
 ## 0.14.0
 
 Easier to read in a match, and two fixes for how yo-yos and figures are drawn.
