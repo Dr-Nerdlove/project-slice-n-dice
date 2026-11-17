@@ -1437,12 +1437,17 @@ func test_preview_switching() -> void:   # async
 	pv.warm_up(cfg)
 	var frames := 0
 	var slowest := 0.0
+	var stray := 0
 	while frames < 4000 and not FigurePreview.is_measured(Config.SKIN_COUNT - 1, cfg):
 		var t := Time.get_ticks_usec()
 		await process_frame
+		for n in pv.find_children("*", "ToyFigure", true, false):
+			if n != pv.figure and (n as ToyFigure).is_visible_in_tree():
+				stray += 1
 		slowest = maxf(slowest, (Time.get_ticks_usec() - t) / 1000.0)
 		frames += 1
 	check("preview switching: warming up works in small pieces (slowest frame %.0f ms, one figure at once %.0f ms)" % [slowest, t_full], slowest < t_full * 0.5 and frames > 8)
+	check("preview switching: during the warm-up no scratch figure is visible besides the shown one", stray == 0, "%d frames with a stray figure" % stray)
 	var all := true
 	for k in Config.SKIN_COUNT:
 		all = all and FigurePreview.is_measured(k, cfg)

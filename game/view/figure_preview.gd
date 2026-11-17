@@ -17,6 +17,7 @@ const SAMPLE_EVERY := 4   # `_measure` takes the corners of the figure's meshes 
 const MARGIN := 1.05   # room round the measured box
 
 var figure: ToyFigure
+var _scratch: Node3D   # hidden parent of the scratch figures of the measuring jobs
 var camera: Camera3D
 var bounds := AABB(Vector3(-1, 0, -1), Vector3(2, 2, 2))   # the box round everything the figure does in its show
 var points: Array[Vector3] = []   # the corners of every mesh in every pose of the show (what the camera frames)
@@ -103,8 +104,12 @@ static func is_measured(kind: int, cfg: Config) -> bool:
 func _job_begin(kind: int, cfg: Config) -> void:
 	_job_end()
 	var fig := ToyFigure.new(kind, Color.WHITE)
-	fig.visible = false
-	_viewport.add_child(fig)
+	# (hidden through a holder: `ToyFigure.sync` sets the figure's own `visible` on every pose; the holder's stays)
+	if _scratch == null:
+		_scratch = Node3D.new()
+		_scratch.visible = false
+		_viewport.add_child(_scratch)
+	_scratch.add_child(fig)
 	var p := SimPlayer.new()
 	var sim := Sim.new(cfg, 1)
 	_job = {"settled": 0, "key": _key(kind, cfg), "cfg": cfg, "fig": fig, "p": p, "sim": sim, "pass": 0, "t": 0.0, "walked": 0.0, "steps": 0, "pts": [] as Array[Vector3], "seen": {}}
@@ -113,7 +118,7 @@ func _job_begin(kind: int, cfg: Config) -> void:
 func _job_end() -> void:
 	if not _job.is_empty():
 		var fig: ToyFigure = _job["fig"]
-		_viewport.remove_child(fig)
+		fig.get_parent().remove_child(fig)
 		fig.free()
 		_job = {}
 
