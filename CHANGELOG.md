@@ -9,6 +9,7 @@ there is none. Write it for testers, in plain words.
 Draft, not released yet.
 
 - **Friendlier wording**: the game no longer talks about killing or dying. Texts now say "knock out" and "KOs" (score line, coin breakdown, modifier cards and descriptions). The main menu's Play button no longer shows "Last Standing", because Play now has three modes.
+- **Throw arrow instead of the aim line**: while you charge a throw, the exact flight path and landing mark are gone. A small arrow in your colour lies on the floor just outside the ring around your figure and points the way you will throw; the longer you charge, the slightly further out it sits. It does not tell you how far the yo-yo will fly.
 
 ## 0.15.0
 

@@ -62,6 +62,7 @@ func _initialize() -> void:
 	await test_overhead()
 	await test_bomb_view()
 	await test_team_ring()
+	test_aim_arrow()
 	await test_preview_framing()
 	await test_main_scene()
 	quit(fails)
@@ -965,8 +966,8 @@ func test_arena_view_figures() -> void:
 	var ring_col2: Color = ((f1b.get_node("ColorRing") as MeshInstance3D).material_override as StandardMaterial3D).albedo_color
 	var want2: Color = ArenaView.PLAYER_COLORS[new_k]
 	check("view colour: a colour change rebuilds the figure with the new ring", f1b != f1 and is_equal_approx(ring_col2.r, want2.r) and is_equal_approx(ring_col2.g, want2.g) and is_equal_approx(ring_col2.b, want2.b))
-	var aim_col: Color = (view._aim_marks[1].material_override as StandardMaterial3D).albedo_color
-	check("view colour: ... and the aim mark follows", is_equal_approx(aim_col.r, want2.lightened(0.4).r) and is_equal_approx(aim_col.b, want2.lightened(0.4).b))
+	var aim_col: Color = (view._aim_arrows[1].material_override as StandardMaterial3D).albedo_color
+	check("view colour: ... and the throw arrow follows", is_equal_approx(aim_col.r, want2.lightened(0.4).r) and is_equal_approx(aim_col.b, want2.lightened(0.4).b))
 	var head_node: Node3D = view._heads[1][0]
 	var head_mats := head_node.find_children("*", "MeshInstance3D", true, false).map(func(m: MeshInstance3D) -> Color: return (m.material_override as StandardMaterial3D).albedo_color if m.material_override is StandardMaterial3D else Color.BLACK)
 	var want_half := want2.lightened(0.15)
@@ -1357,6 +1358,31 @@ func test_overhead() -> void:
 	view.queue_free()
 	await process_frame
 ## True when every visible mesh of the preview's figure lies inside the preview's bounds.
+func test_aim_arrow() -> void:
+	var c := Config.new()
+	var p := SimPlayer.new()
+	var at := Vector2(10, 7)
+	p.charging = false
+	check("arrow: hidden when not charging", ArenaView.aim_arrow(p, c, at).is_empty())
+	p.charging = true
+	p.aim_dir = Vector2(0, 1)
+	p.charge_t = 0.0
+	var a0 := ArenaView.aim_arrow(p, c, at)
+	p.charge_t = c.charge_time * 0.5
+	var a1 := ArenaView.aim_arrow(p, c, at)
+	p.charge_t = c.charge_time * 5.0
+	var a2 := ArenaView.aim_arrow(p, c, at)
+	var d0 := (a0[0] as Vector2).distance_to(at) / c.player_radius
+	var d1 := (a1[0] as Vector2).distance_to(at) / c.player_radius
+	var d2 := (a2[0] as Vector2).distance_to(at) / c.player_radius
+	check("arrow: grows with the charge", d0 < d1 and d1 < d2, str([d0, d1, d2]))
+	check("arrow: outside the colour ring, small band", d0 > ToyFigure.RING_RADIUS + 0.3 and d2 < 3.0 and absf(d2 - ArenaView.ARROW_FAR) < 0.001, str([d0, d2]))
+	check("arrow: lies along aim_dir", ((a1[0] as Vector2) - at).normalized().distance_to(p.aim_dir) < 0.001 and absf(float(a1[1]) - p.aim_dir.angle()) < 0.001)
+	p.aim_dir = Vector2(-1, 0)
+	var a3 := ArenaView.aim_arrow(p, c, at)
+	check("arrow: follows a turn", (a3[0] as Vector2).x < at.x and absf(absf(float(a3[1])) - PI) < 0.001)
+
+
 func preview_inside(pv: FigurePreview) -> bool:
 	var box := pv.bounds   # (in the picture's world: the figure stands at the middle, turned as it is drawn)
 	for m in pv.figure.find_children("*", "MeshInstance3D", true, false):
