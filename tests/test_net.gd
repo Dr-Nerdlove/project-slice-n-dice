@@ -3684,6 +3684,14 @@ func test_lobby_fits() -> void:   # async
 						out = "%s %s" % [ctl.get_class(), str(r)]
 						break
 			check("lobby fits: %s: every control lies inside the screen" % label, out == "", out)
+		lobby.set_session(false, false, "", 0)
+		lobby._show_found([])
+		for kind in Config.SKIN_COUNT:
+			lobby._choose_figure(kind)
+			for _i in 3:
+				await process_frame
+			var pv: FigurePreview = lobby.figure_preview
+			check("lobby fits: %dx%d: the preview shows figure %d (%s) completely" % [w.x, w.y, kind, ToyFigure.NAMES[kind]], pv.figure.kind == kind and pv.fits(), "preview size %s" % str(pv.size))
 		check("lobby fits: %dx%d: no scroll container anywhere" % [w.x, w.y], lobby.find_children("*", "ScrollContainer", true, false).is_empty())
 		sv.queue_free()
 		await process_frame

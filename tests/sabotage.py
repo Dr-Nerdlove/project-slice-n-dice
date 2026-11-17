@@ -810,6 +810,9 @@ SB=[
  ("5 map piggy: the ring leaves a gap at a corner, so a throw gets in beside an entrance","sim/map_def.gd","Rect2(11.0, 3.0, 1.0, 3.0), Rect2(12.0, 3.0","Rect2(11.0, 3.0, 1.0, 1.0), Rect2(12.0, 3.0"),
  ("5 map piggy: two starts in one aisle see each other","sim/map_def.gd","Vector2(3.0, 9.4)","Vector2(3.0, 5.0)"),
  ("5 bot: throws at the pig through a shelf","input/bot.gd","return d <= 2.2 or NavGrid.for_sim(sim).line_clear(me.pos, stop, THROW_CLEARANCE)","return true"),
+ ("0 preview: the camera ignores the width of the picture","view/figure_preview.gd","var tx := ty * aspect\n","var tx := ty * 1.0\n"),
+ ("0 preview: the camera ignores the figure's bounds","view/figure_preview.gd","	return Transform3D(basis, c - f * d)","	return Transform3D(basis, c - f * 8.0)"),
+ ("0 preview: the bounds ignore the poses of the walk","view/figure_preview.gd","		pts.append_array(figure_points(fig))\n","		pass\n"),
 ]
 
 def suites_for(name, full):

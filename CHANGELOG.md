@@ -10,6 +10,8 @@ Four more maps have a new floor plan, the same way Train Set and Assembly Line g
 symmetrical, so no start is better than another, and nobody starts in sight of another player. Players on
 different versions can no longer play together.
 
+- **Play lobby**: the figure picture now shows every figure completely (the top of some was cut off); the camera
+  is framed from the figure's real size and the shape of the picture.
 - **Piggy Bank**: the pig stands in an open square in the middle, inside a ring of shelves with an entrance in the
   middle of each side. From outside, the pig can only be hit through an entrance, so taking the coins means
   showing yourself. Two long walls make the ends of the room into aisles, and a short wall in each aisle splits
