@@ -6,6 +6,14 @@ enum Phase { IDLE, CHARGING, WAIT_OUT, TAP, HOLD }
 
 const THROW_CLEARANCE := 0.2   # half width of a yo-yo's line of flight when the bot checks for a wall in the way
 const NAV_EVERY := 0.2         # seconds between two path searches
+## Hot Potato: the carrier waits only this long before a throw; a bot that does not carry the bomb runs when the
+## carrier is within POTATO_FLEE_DIST metres, picks its escape point among POTATO_FLEE_POINTS spots round it at two
+## distances, and throws at others (not at the carrier) only POTATO_RARE_CHANCE of the time.
+const POTATO_WAIT := Vector2(0.3, 0.8)
+const POTATO_FLEE_DIST := 7.0
+const POTATO_FLEE_POINTS := 16
+const POTATO_FLEE_STEPS := [3.0, 6.0]
+const POTATO_RARE_CHANCE := 0.15
 
 var idx := 0
 var cfg: Config
@@ -25,6 +33,10 @@ var _nav_goal := Vector2.ZERO
 var _pad_t := 0.0             # seconds until the next look at the trampolines (Bounce House)
 var _pad_pick := -1           # the trampoline the bot is walking to, or -1
 var _aim_pig := false         # the throw being charged goes at the piggy bank
+var _was_carrier := false     # Hot Potato: carried the bomb in the last think
+var _rare_ok := false         # Hot Potato: this attack wait may end in a throw at somebody who is not the carrier
+var _flee_t := 0.0            # Hot Potato: seconds until the escape point is chosen again
+var _flee_point := Vector2.ZERO
 
 
 func _init(index: int, config: Config, seed_value: int) -> void:
@@ -44,16 +56,27 @@ func think(sim: Sim, dt: float) -> SimInput:
 		_last_alive = true
 		phase = Phase.IDLE
 		attack_wait = rng.randf_range(Config.BOT_ATTACK_WAIT.x, Config.BOT_ATTACK_WAIT.y)
+	var potato: bool = sim.mode is HotPotato and sim.mode.phase == MatchMode.Phase.PLAY
+	var carrier: bool = potato and sim.mode.bomb_holder == idx
+	if carrier != _was_carrier:
+		_was_carrier = carrier
+		if carrier:
+			attack_wait = minf(attack_wait, rng.randf_range(POTATO_WAIT.x, POTATO_WAIT.y))
 	var nearest := _nearest_enemy(sim, me)
 	var dist := me.pos.distance_to(nearest.pos) if nearest != null else 1000.0
 	# A throw goes only at an enemy with a clear line: a wall in between makes the bot walk instead.
 	var target := _nearest_visible_enemy(sim, me)
+	if potato:
+		target = _nearest_potato_prey(sim, me) if carrier else _potato_target(sim, me)
+		dist = me.pos.distance_to(target.pos) if target != null else 1000.0
 	var to_target := Vector2.ZERO
 	if target != null:
 		to_target = target.pos - me.pos
 		dist = minf(dist, to_target.length())
 
 	var walk := _wander(sim, me, dt)
+	if potato:
+		walk = _potato_walk(sim, me, walk, carrier, target, dt)
 	inp.move = walk * (0.3 if phase == Phase.CHARGING and not _urgent else 1.0)
 
 	match phase:
@@ -270,6 +293,73 @@ func _to_idle() -> void:
 	phase = Phase.IDLE
 	phase_t = 0.0
 	attack_wait = rng.randf_range(Config.BOT_ATTACK_WAIT.x, Config.BOT_ATTACK_WAIT.y)
+	if _was_carrier:
+		attack_wait = rng.randf_range(POTATO_WAIT.x, POTATO_WAIT.y)
+	_rare_ok = rng.randf() < POTATO_RARE_CHANCE
+
+
+## Hot Potato, a bot that does not carry the bomb: throws at the carrier (a stun) when it has a clear line, otherwise
+## rarely (`_rare_ok`) at the nearest player it sees.
+func _potato_target(sim: Sim, me: SimPlayer) -> SimPlayer:
+	var c := sim.players[sim.mode.bomb_holder] if sim.mode.bomb_holder >= 0 else null
+	if c != null and c != me and c.enabled and c.alive and NavGrid.for_sim(sim).line_clear(me.pos, c.pos, THROW_CLEARANCE):
+		return c
+	return _nearest_visible_enemy(sim, me) if _rare_ok else null
+
+
+## Hot Potato walking. The carrier goes for the nearest player he can see (not the one who just passed him the
+## bomb); anybody else runs to a free spot away from the carrier while he is closer than POTATO_FLEE_DIST.
+func _potato_walk(sim: Sim, me: SimPlayer, walk: Vector2, carrier: bool, target: SimPlayer, dt: float) -> Vector2:
+	var m: HotPotato = sim.mode
+	if carrier:
+		var prey := _nearest_potato_prey(sim, me)
+		if prey == null:
+			return walk
+		return ((_steer_point(sim, me, prey.pos, dt) - me.pos).normalized() + walk * 0.2).limit_length(1.0)
+	var c := sim.players[m.bomb_holder] if m.bomb_holder >= 0 else null
+	if c == null or not (c.enabled and c.alive) or me.pos.distance_to(c.pos) > POTATO_FLEE_DIST:
+		return walk
+	_flee_t -= dt
+	if _flee_t <= 0.0:
+		_flee_t = NAV_EVERY
+		_flee_point = _flee_spot(sim, me, c.pos)
+	var away := (_flee_point - me.pos).normalized()
+	return (away + walk * 0.25).limit_length(1.0)
+
+
+## The player a carrier hunts: nearest that can be reached in a straight line, skipping the tag-back lock.
+func _nearest_potato_prey(sim: Sim, me: SimPlayer) -> SimPlayer:
+	var m: HotPotato = sim.mode
+	var grid := NavGrid.for_sim(sim)
+	var best: SimPlayer = null
+	var best_d := 1e9
+	for o in sim.players:
+		if o == me or not (o.enabled and o.alive) or m.tagback_locked(o.id):
+			continue
+		var d := o.pos.distance_to(me.pos)
+		if d < best_d and grid.line_clear(me.pos, o.pos, THROW_CLEARANCE):
+			best_d = d
+			best = o
+	return best
+
+
+## A spot round the bot that is reachable in a straight line, inside the arena margin and as far from `from` as possible.
+func _flee_spot(sim: Sim, me: SimPlayer, from: Vector2) -> Vector2:
+	var grid := NavGrid.for_sim(sim)
+	var best := me.pos
+	var best_d := me.pos.distance_to(from)
+	for step: float in POTATO_FLEE_STEPS:
+		for k in POTATO_FLEE_POINTS:
+			var q := me.pos + Vector2.RIGHT.rotated(TAU * k / POTATO_FLEE_POINTS) * step
+			q = Vector2(clampf(q.x, Config.BOT_MARGIN, Config.ARENA_SIZE.x - Config.BOT_MARGIN),
+					clampf(q.y, Config.BOT_MARGIN, Config.ARENA_SIZE.y - Config.BOT_MARGIN))
+			if not grid.line_clear(me.pos, q):
+				continue
+			var d := q.distance_to(from)
+			if d > best_d + 0.01:
+				best_d = d
+				best = q
+	return best
 
 
 func _nearest_enemy(sim: Sim, me: SimPlayer) -> SimPlayer:

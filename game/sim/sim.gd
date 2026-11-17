@@ -33,7 +33,7 @@ var pig_t := 0.0                       # Piggy Bank: seconds towards the next co
 ## Rounds and score. Phase OFF (the default) is free play with respawns; `start_match` begins a match.
 var mode: MatchMode = LastStanding.new()   # replaced in _init by the class of `Config.game_mode`
 ## Events of the last tick (dictionaries with "type"): kill, bounce, ricochet, box_break, respawn,
-## explosion, wire, stun, round_start, round_end ("scorer"), match_over ("winner"). A kill by the train has "killer": -1 and "cause": "train", a death by the own explosion "killer": -1 and "cause": "self".
+## explosion, wire, stun, bomb_pass (from, to), bomb_explode (pos, victim), round_start, round_end ("scorer"), match_over ("winner"). A kill by the train has "killer": -1 and "cause": "train", a death by the own explosion "killer": -1 and "cause": "self".
 var events: Array = []
 
 var _head_hit := false  # scratch flag set by head sweeps
@@ -481,7 +481,7 @@ func step(inputs: Array) -> void:
 	_separate_players()
 	_step_train(dt)
 	_step_map(dt)
-	if mode.phase == MatchMode.Phase.PLAY:
+	if mode.phase == MatchMode.Phase.PLAY and mode.uses_zone():
 		_step_zone(dt)
 	_collide_heads()
 	_step_shards(dt)
@@ -712,6 +712,7 @@ func _move_player(p: SimPlayer, inp: SimInput, dt: float) -> void:
 		var speed := cfg.player_speed
 		if p.charging:
 			speed *= cfg.charge_speed_mult
+		speed *= mode.speed_mult(p.id)
 		delta = mvec * speed * dt
 	_slide_player(p, delta, phase)
 	if phase and p.dash_t <= 0.0:
@@ -1445,7 +1446,8 @@ func _explode(owner: SimPlayer, pos: Vector2, radius: float) -> void:
 	for v in players:
 		if _hittable(v) and pos.distance_to(v.pos) - cfg.player_radius < radius:
 			if v == owner:
-				_kill(v, null, "self")  # own explosions hurt the owner: a death, no kill for anybody
+				if mode.own_blast_kills():
+					_kill(v, null, "self")  # own explosions hurt the owner: a death, no kill for anybody
 			else:
 				_hit(v, owner)
 
@@ -1674,7 +1676,7 @@ func _check_kills() -> void:
 ## Every harm done by an attacker (yo-yo head, body, blast, shard, wire, stomp) goes through here, so the mode can
 ## spare players (Teams: no friendly fire). Kills of the train, the zone, lava and an own blast do not.
 func _hit(victim: SimPlayer, attacker: SimPlayer) -> void:
-	if mode.harms(attacker.id, victim.id):
+	if mode.on_hit(self, attacker.id, victim.id):
 		_kill(victim, attacker)
 
 
