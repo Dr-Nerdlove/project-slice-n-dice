@@ -949,6 +949,7 @@ SB=[
  ('0 switching: a colour change leaves the ring colour','view/toy_figure.gd','	_ring.material_override = ToyKit.overlay(Color(ring_color.r, ring_color.g, ring_color.b, 0.9))\n	_ghost_mat','	_ghost_mat'),
  ('0 switching: the measuring is not kept','view/figure_preview.gd','	if not _measured.has(k):\n		if _job.is_empty()','	if true:\n		if _job.is_empty()'),
  ('0 switching: warming up measures nothing','view/figure_preview.gd','		if not is_measured(k, cfg):\n			_warm.append(k)','		if not is_measured(k, cfg):\n			pass'),
+ ('0 switching: the scratch figures are not hidden','view/figure_preview.gd','	_scratch.add_child(fig)','	_viewport.add_child(fig)'),
  ('0 switching: warming up does all in one frame','view/figure_preview.gd','const WARM_BUDGET := 4000','const WARM_BUDGET := 100000000'),
 ]
 

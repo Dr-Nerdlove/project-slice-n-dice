@@ -4,6 +4,12 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.16.1
+
+Draft, not released yet.
+
+- **Figure choice**: the first time the Play lobby showed the figure choice, all figures were drawn on top of each other while the game measured them. Only the shown figure is visible now.
+
 ## 0.16.0
 
 Smaller fixes and a harder throw. Players on different versions can no longer play together.
