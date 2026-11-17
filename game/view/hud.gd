@@ -40,7 +40,7 @@ func setup(s: Sim) -> void:
 	add_child(box)
 	_score_box = box
 	var legend := Label.new()
-	legend.text = "Kills : Deaths"
+	legend.text = "KOs : Outs"
 	legend.add_theme_font_size_override("font_size", 16)
 	legend.modulate = Color(1, 1, 1, 0.6)
 	box.add_child(legend)

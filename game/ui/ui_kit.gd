@@ -145,7 +145,7 @@ static func _build_theme() -> Theme:
 
 # ---------------------------------------------------------------- widgets
 
-## A big button of `kind` (see KINDS). `hint` is a small right-aligned second text ("Last Standing" under "Play").
+## A big button of `kind` (see KINDS). `hint` is an optional small right-aligned second text.
 static func button(text: String, kind := "paper", hint := "") -> Button:
 	var b := Button.new()
 	b.text = text

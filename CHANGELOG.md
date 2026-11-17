@@ -4,6 +4,12 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.16.0
+
+Draft, not released yet.
+
+- **Friendlier wording**: the game no longer talks about killing or dying. Texts now say "knock out" and "KOs" (score line, coin breakdown, modifier cards and descriptions). The main menu's Play button no longer shows "Last Standing", because Play now has three modes.
+
 ## 0.15.0
 
 Draft, not released yet. Players on different versions can no longer play together.

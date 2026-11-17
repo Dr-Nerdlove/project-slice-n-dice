@@ -3237,7 +3237,7 @@ func test_score_panel_fit() -> void:   # async
 			ov.rows_box.add_child(ov.make_row("Dino (bot)", ToyFigure.ACCENTS[i % ToyFigure.ACCENTS.size()], 17 + i % 3, 20, i == 0, i == 1, 120, 12))
 		ov.heading_label.text = "Dino (bot) wins the match!"
 		ov.scorer_label.text = "" if over else "Dino (bot) scores!"
-		ov.coins_label.text = "+12 coins: round 3, kills 2, survivor 2, underdog 3, leader kill 2"
+		ov.coins_label.text = "+12 coins: round 3, KOs 2, survivor 2, underdog 3, leader KO 2"
 		ov.target_label.text = "FIRST TO 20"
 		ov.rematch_btn.visible = over
 		ov.wait_label.visible = false
