@@ -324,6 +324,7 @@ func _process(delta: float) -> void:
 				_warm.remove_at(0)
 	if figure == null or not is_visible_in_tree():
 		return
+	delta = minf(delta, 1.0 / 30.0)   # (a hitch must not swing the figure further than the measured poses at 1/30 s)
 	if size != _framed_for:
 		_reframe()
 	_time += delta
