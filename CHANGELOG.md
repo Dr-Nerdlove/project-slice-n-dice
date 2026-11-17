@@ -13,7 +13,7 @@ Draft, not released yet.
   longer play together.
 - **Hot Potato mode (work in progress)**: one player carries a bomb with a fuse and passes it on by hitting someone;
   when the fuse runs out he is out. Bots play it, but the lobby does not offer it yet.
-- **Bigger figures in the lobby**: The figure in the Play lobby is about twice as big and still shown completely.
+- **Bigger figures in the lobby**: the figure in the Play lobby is about twice as big and still shown completely.
 
 ## 0.14.0
 
