@@ -58,6 +58,7 @@ func _initialize() -> void:
 	await test_playroom_details()
 	await test_map_views()
 	await test_wall_rows()
+	await test_overhead()
 	await test_main_scene()
 	quit(fails)
 
@@ -1173,3 +1174,88 @@ func test_wall_rows() -> void:
 					built = built and pn != null and pn.position.is_equal_approx(Vector3(pieces[k].get_center().x, 0, pieces[k].get_center().y))
 	check("wall rows: the playroom of every map draws each obstacle as its block or row of blocks in the right place", built, binfo)
 	view.queue_free()
+
+
+## Markers above the heads: the pure decisions (OverheadView statics) and the real labels of an ArenaView.
+func test_overhead() -> void:
+	var cfg := Config.new()
+	var sim := Sim.new(cfg, 3)
+	for k in 4:
+		sim.set_player_enabled(k, k < 2)
+	# Free play (phase OFF): nothing, even with modifiers owned.
+	sim.mode.owned[0] = {"twin": 1, "bounce": 2}
+	check("overhead: no icons and no YOU in free play", OverheadView.icons_for(sim, 0).is_empty()
+			and OverheadView.you_alpha(sim, 0, 0) == 0.0)
+	sim.start_match(10)
+	sim.mode.owned[0] = {"twin": 1, "bounce": 2}
+	sim.mode.owned[1] = {}
+	var ic := OverheadView.icons_for(sim, 0)
+	check("overhead: countdown shows the owned modifiers in key order with their levels",
+			sim.mode.phase == MatchMode.Phase.COUNTDOWN and ic.size() == 2 and ic[0][0] == "twin" and ic[1][0] == "bounce"
+			and ic[0][1] == 1 and ic[1][1] == Mods.level_for_copies(2), str(ic))
+	check("overhead: a player with nothing owned shows no icons", OverheadView.icons_for(sim, 1).is_empty())
+	check("overhead: a slot that does not play shows nothing", OverheadView.icons_for(sim, 3).is_empty())
+	check("overhead: YOU only for the local slot", OverheadView.you_alpha(sim, 0, 0) == 1.0
+			and OverheadView.you_alpha(sim, 1, 0) == 0.0 and OverheadView.you_alpha(sim, 1, 1) == 1.0)
+	sim.mode.phase = MatchMode.Phase.PLAY
+	sim.mode.phase_t = 0.5
+	check("overhead: early in PLAY icons and YOU are still there",
+			not OverheadView.icons_for(sim, 0).is_empty() and OverheadView.you_alpha(sim, 0, 0) == 1.0)
+	sim.mode.phase_t = 1.0
+	var mid := OverheadView.icon_alpha(sim)
+	check("overhead: icons fade during PLAY (%.2f)" % mid, mid > 0.0 and mid < 1.0)
+	sim.mode.phase_t = 1.8
+	var ya := OverheadView.you_alpha(sim, 0, 0)
+	check("overhead: icons gone and YOU fading at 1.8 s (%.2f)" % ya, OverheadView.icons_for(sim, 0).is_empty() and ya > 0.0 and ya < 1.0)
+	sim.mode.phase_t = 2.5
+	check("overhead: YOU gone after 2 s of PLAY", OverheadView.you_alpha(sim, 0, 0) == 0.0)
+	sim.mode.phase = MatchMode.Phase.RESULT
+	check("overhead: nothing in the result phase", OverheadView.you_alpha(sim, 0, 0) == 0.0 and OverheadView.icons_for(sim, 0).is_empty())
+	# Zone countdown.
+	sim.mode.phase = MatchMode.Phase.PLAY
+	sim.mode.phase_t = 10.0
+	sim.mode.zone_t = MatchMode.ZONE_FULL_TIME + 5.0
+	var p := sim.players[0]
+	p.alive = true
+	p.zone_t = 0.0
+	check("overhead: no zone number while the timer is 0", OverheadView.zone_number(sim, 0) == 0)
+	var got := []
+	for t in [0.01, 0.9, 1.1, 1.99, 2.01, 2.9]:
+		p.zone_t = t
+		got.append(OverheadView.zone_number(sim, 0))
+	check("overhead: zone number counts 3, 3, 2, 2, 1, 1 (%s)" % str(got), got == [3, 3, 2, 2, 1, 1])
+	p.zone_t = 0.02
+	var fresh := OverheadView.zone_pulse(sim, 0)
+	p.zone_t = 0.5
+	check("overhead: the number pulses right after it changes (%.2f, later %.2f)" % [fresh, OverheadView.zone_pulse(sim, 0)],
+			fresh > 0.5 and OverheadView.zone_pulse(sim, 0) == 0.0)
+	p.zone_t = 1.0
+	p.alive = false
+	check("overhead: no zone number for a dead player", OverheadView.zone_number(sim, 0) == 0)
+	p.alive = true
+	# The real view: label texts and the old ring is gone.
+	sim.mode.zone_t = MatchMode.ZONE_FULL_TIME + 5.0
+	p.zone_t = 1.2
+	sim.players[1].zone_t = 0.0
+	sim.players[1].alive = true
+	var view := ArenaView.new()
+	root.add_child(view)
+	await process_frame
+	view.setup(sim)
+	view.use_sim(sim, 0)
+	view.render(1.0, 1.0 / 60.0)
+	var ov: OverheadView = view._overhead
+	check("overhead view: the zone number is on screen for the player outside the zone only",
+			ov._zone[0].visible and ov._zone[0].text == "2" and not ov._boxes[1].visible, "%s %s" % [ov._zone[0].text, ov._boxes[1].visible])
+	sim.mode.phase = MatchMode.Phase.COUNTDOWN
+	p.zone_t = 0.0
+	view.render(1.0, 1.0 / 60.0)
+	check("overhead view: YOU and the icons show on the own figure in the countdown",
+			ov._boxes[0].visible and ov._you[0].visible and ov._you_label[0].text == "YOU" and ov._icons[0][0].visible
+			and ov._icons[0][0].id == "twin" and not ov._you[1].visible)
+	sim.mode.phase = MatchMode.Phase.OFF
+	view.render(1.0, 1.0 / 60.0)
+	check("overhead view: nothing in free play", not ov._boxes[0].visible and not ov._boxes[1].visible)
+	check("overhead view: the red ring of the zone is gone", not view._zone.has_method("show_ring"))
+	view.queue_free()
+	await process_frame

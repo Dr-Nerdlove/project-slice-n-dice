@@ -10,6 +10,7 @@ Four more maps have a new floor plan, the same way Train Set and Assembly Line g
 symmetrical, so no start is better than another, and nobody starts in sight of another player. Players on
 different versions can no longer play together.
 
+- **Markers above the figures**: at the start of a round everybody sees the modifiers the others bought (small icons over their heads), and your own figure gets a "YOU" tag with an arrow. A player outside the shrinking zone now gets a big red countdown number (3, 2, 1) above the head instead of the ring on the floor.
 - **Piggy Bank**: the pig stands in an open square in the middle, inside a ring of shelves with an entrance in the
   middle of each side. From outside, the pig can only be hit through an entrance, so taking the coins means
   showing yourself. Two long walls make the ends of the room into aisles, and a short wall in each aisle splits
