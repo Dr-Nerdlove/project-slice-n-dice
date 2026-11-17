@@ -2197,6 +2197,14 @@ func _match_tests() -> void:
 	var M := MatchMode.Phase
 	var s := mk([0])
 	check("match: needs two players", not s.start_match(10) and s.mode.phase == M.OFF)
+	var clock := mk([0, 1])
+	clock.start_match(10)
+	for _t in int(MatchMode.COUNTDOWN_TIME * 60.0) + 2:
+		clock.step(idle4())
+	var t0: float = clock.mode.phase_t
+	for _t in 60:
+		clock.step(idle4())
+	check("match: the time into the round runs in PLAY (the overhead markers fade by it)", clock.mode.phase == M.PLAY and t0 < 0.1 and absf(clock.mode.phase_t - t0 - 1.0) < 0.05, "%s %s" % [t0, clock.mode.phase_t])
 	s = mk([0, 1, 2])
 	check("match: starts with three players", s.start_match(15) and s.mode.phase == M.COUNTDOWN and s.mode.round == 1 and s.mode.target == 15)
 	check("match: roster is the enabled players", s.mode.roster == [true, true, true, false, false, false, false, false])

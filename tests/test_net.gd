@@ -4218,6 +4218,47 @@ func test_screens_fit() -> void:   # async
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online%d.json" % PORT_OFFSET))
 
 
+## Markers above the heads (YOU tag, modifier icons): shown in the countdown, gone once the round has run a moment.
+func overhead_shown(main: Node) -> Array:   # [you visible (slot 0), icons visible (any slot), any box visible]
+	var ov: OverheadView = main.view._overhead
+	var icons := false
+	var any := false
+	for i in ov._boxes.size():
+		any = any or ov._boxes[i].visible
+		for ic: ModIcon in ov._icons[i]:
+			icons = icons or (ic.visible and ov._boxes[i].visible)
+	return [ov._you[0].visible and ov._boxes[0].visible, icons, any]
+
+
+func test_main_markers() -> void:   # async
+	NetStore.path = "user://test_online%d.json" % PORT_OFFSET
+	var main: Node = load("res://main.tscn").instantiate()
+	root.add_child(main)
+	for _i in 5:
+		await process_frame
+	main.start_solo()
+	var id: String = Mods.ORDER[0]
+	main.sim.mode.owned[0][id] = 1
+	main.sim.mode.owned[1][id] = 1
+	var saw_count := false
+	var early: Array = []
+	var late: Array = []
+	for _i in 900:
+		await process_frame
+		OS.delay_msec(10)
+		var m: MatchMode = main.sim.mode
+		if m.phase == MatchMode.Phase.COUNTDOWN and m.phase_t > 0.5 and early.is_empty():
+			early = overhead_shown(main)
+		if m.phase == MatchMode.Phase.PLAY and m.phase_t > 0.6:
+			late = overhead_shown(main)
+			break
+	check("markers main: in the countdown the YOU tag and the modifier icons are shown", early == [true, true, true], str(early))
+	check("markers main: once the round has run for a moment nothing is shown any more", late == [false, false, false], str(late))
+	main.queue_free()
+	await process_frame
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online%d.json" % PORT_OFFSET))
+
+
 func _initialize() -> void:
 	# TEST_STOP_ON_FAIL=1 (set by tests/sabotage.py): stop after the first test group that fails.
 	var stop_early := OS.get_environment("TEST_STOP_ON_FAIL") == "1"
@@ -4226,7 +4267,7 @@ func _initialize() -> void:
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_color, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
 		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_teams_net, test_potato_net, test_maps, test_zone, test_shop, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
-		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_touch_menu, test_match_flow, test_score_panel_fit, test_main_rejoin, test_eight, test_main_eight, test_main_modes, test_mode_overlay, test_lobby_fits, test_screens_fit,
+		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_touch_menu, test_match_flow, test_score_panel_fit, test_main_rejoin, test_eight, test_main_eight, test_main_modes, test_main_markers, test_mode_overlay, test_lobby_fits, test_screens_fit,
 	]
 	for g in groups:
 		if stop_early and fails > 0:

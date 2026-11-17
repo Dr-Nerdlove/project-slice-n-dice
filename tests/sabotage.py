@@ -823,6 +823,8 @@ SB=[
  ("0 overhead: icons not in the countdown","view/overhead_view.gd","	if m.phase == MatchMode.Phase.COUNTDOWN:\n		return 1.0\n	if m.phase == MatchMode.Phase.PLAY:\n		return clampf(1.0 - m","	if m.phase == MatchMode.Phase.PLAY:\n		return clampf(1.0 - m"),
  ("0 overhead: icons in the wrong order","view/overhead_view.gd","out.append([id, lv.get(id, 1)])","out.push_front([id, lv.get(id, 1)])"),
  ("0 overhead: YOU for every player","view/overhead_view.gd","if i != local_slot or i < 0","if i < 0"),
+ ("7 round clock: the time into the round stands still in PLAY","sim/sim.gd","mode.phase_t += dt   # time into","mode.phase_t += 0.0   # time into"),
+ ("8 markers main: YOU and icons stay the whole round (the round clock stands still)","sim/sim.gd","mode.phase_t += dt   # time into","mode.phase_t += 0.0   # time into"),
  ("0 overhead: YOU never fades","view/overhead_view.gd","return clampf((YOU_SHOW_PLAY - m.phase_t) / YOU_FADE, 0.0, 1.0)","return 1.0"),
  ("0 overhead: zone number is the time used, not the time left","view/overhead_view.gd","ceili(MatchMode.ZONE_DEATH_TIME - p.zone_t)","ceili(p.zone_t)"),
  ("0 overhead: zone number rounds down","view/overhead_view.gd","ceili(MatchMode.ZONE_DEATH_TIME - p.zone_t)","floori(MatchMode.ZONE_DEATH_TIME - p.zone_t)"),

@@ -12,6 +12,7 @@ Draft, not released yet.
 - **Throw arrow instead of the aim line**: while you charge a throw, the exact flight path and landing mark are gone. A small arrow in your colour lies on the floor just outside the ring around your figure and points the way you will throw; the longer you charge, the slightly further out it sits. It does not tell you how far the yo-yo will fly.
 - Shop: every modifier is offered with the same chance, whatever you own. An offer you cannot buy (build full, max level) is greyed out and says why.
 - **Smoother figure choice in the lobby**: picking another figure or colour under "Your figure" no longer makes the picture freeze for a moment. A colour change now only recolours the figure, and the figures are prepared in the background while the lobby is open.
+- **Round-start markers**: the YOU tag above your figure and the modifier icons above every figure now show only during the round-start countdown and vanish a moment after "GO!". Before, they stayed on screen for the whole round.
 
 ## 0.15.0
 

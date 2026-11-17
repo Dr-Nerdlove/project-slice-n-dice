@@ -482,6 +482,8 @@ func step(inputs: Array) -> void:
 	_separate_players()
 	_step_train(dt)
 	_step_map(dt)
+	if mode.phase == MatchMode.Phase.PLAY:
+		mode.phase_t += dt   # time into the round (the frozen phases count theirs in _step_match)
 	if mode.phase == MatchMode.Phase.PLAY and mode.uses_zone():
 		_step_zone(dt)
 	_collide_heads()

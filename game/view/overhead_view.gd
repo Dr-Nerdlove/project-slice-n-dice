@@ -6,9 +6,9 @@ extends CanvasLayer
 ## decisions (what to show, how strong) are static functions so they can be tested without a screen. Owner
 ## decision 2026-11-17: an exception to "no UI during a round", like the countdown.
 
-const ICONS_SHOW_PLAY := 1.5        # seconds of PLAY the icons stay (fading out)
-const YOU_SHOW_PLAY := 2.0          # seconds of PLAY the YOU tag stays; it fades during the last YOU_FADE
-const YOU_FADE := 0.5
+const ICONS_SHOW_PLAY := 0.3        # seconds of PLAY the icons stay (fading out)
+const YOU_SHOW_PLAY := 0.3          # seconds of PLAY the YOU tag stays; it fades during the last YOU_FADE
+const YOU_FADE := 0.3
 const HEAD_RADII := 2.9             # world point above the floor, in player radii (the figures are 2..2.8 radii tall)
 const ICON_PX := 26.0
 const ZONE_COLOR := Color("ff2a1f")
