@@ -23,6 +23,12 @@ var _icons: Array = []              # per player: Array[ModIcon]
 var _counts: Array = []             # per player: Array[Label]
 
 
+## Height (player radii) the markers of player `i` stand on: above the head, or above the Hot Potato bomb when this
+## player carries it in `src` (the sim the figure is drawn from), so the markers never overlap the bomb.
+static func anchor_radii(src: Sim, i: int) -> float:
+	return maxf(HEAD_RADII, BombView.TOP_RADII + 0.2) if BombView.holder(src) == i else HEAD_RADII
+
+
 ## Modifiers shown above player `i`: [[id, level], ...] in the build's key order. Empty in free play, for a slot
 ## that does not play, or once the round has run for ICONS_SHOW_PLAY seconds.
 static func icons_for(sim: Sim, i: int) -> Array:

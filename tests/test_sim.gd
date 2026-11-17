@@ -298,6 +298,9 @@ func _initialize() -> void:
 	_match_tests()
 	_eight_tests()
 	_color_tests()
+	_team_tests()
+	_potato_tests()
+	_potato_bot_tests()
 	_coin_tests()
 	_shop_tests()
 	_zone_tests()
@@ -1169,7 +1172,8 @@ func _lobby_tests() -> void:
 	lob.figure_chosen.connect(func(i: int) -> void: chosen.append(i))
 	lob.setup(saved)
 	lob.open()
-	check("lobby: shows the one mode card Last Standing, selected", lob.mode_card != null and lob.mode_card.find_children("*", "Label", true, false).any(func(l: Label) -> bool: return l.text == "Last Standing"))
+	check("lobby: the mode card has the buttons Free-for-all, Teams and Hot Potato, the first one pressed", lob.mode_card != null and lob.mode_buttons.size() == 3 and lob.mode_buttons.map(func(b: Button) -> String: return b.text) == ["Free-for-all", "Teams", "Hot Potato"] and lob.mode_buttons[0].button_pressed and not lob.mode_buttons[1].button_pressed)
+	_lobby_mode_tests(lob, saved)
 	check("lobby: the figure area has one button per figure named after it and a preview", lob.figure_buttons.size() == Config.SKIN_COUNT and lob.figure_buttons[Config.SKIN_COUNT - 1].text == ToyFigure.NAMES[Config.SKIN_COUNT - 1] and lob.figure_preview != null and lob.figure_buttons[0].button_pressed and not lob.figure_buttons[1].button_pressed)
 	check("lobby: the preview shows the saved figure at the start", lob.figure_preview.figure != null and lob.figure_preview.figure.kind == 0)
 	lob.figure_buttons[2].pressed.emit()
@@ -1191,6 +1195,88 @@ func _lobby_tests() -> void:
 	lob.back_btn.pressed.emit()
 	check("lobby: Back reports", backs.size() == 1)
 	lob.queue_free()
+
+
+## The mode buttons of the Play lobby: saved choice, the Players row in Teams, read-only while hosting / connected,
+## the team line and the Start button, the text of a found game.
+func _lobby_mode_tests(lob: PlayLobby, saved: Config) -> void:
+	var saves: Array = []
+	var modes: Array = []
+	var orig_save: Callable = lob.save_fn
+	lob.save_fn = func(c: Config) -> void: saves.append(int(c.game_mode))
+	lob.mode_chosen.connect(func(k: int) -> void: modes.append(k))
+	lob.mode_buttons[1].pressed.emit()
+	check("lobby mode: pressing Teams sets Config.game_mode, saves it and reports it", saved.game_mode == Config.GameMode.TEAMS and saves == [1] and modes == [1] and lob.mode_buttons[1].button_pressed and not lob.mode_buttons[0].button_pressed)
+	var shown := lob.player_buttons.filter(func(b: Button) -> bool: return b.visible)
+	check("lobby mode: in Teams the Players row offers 2v2, 3v3 and 4v4", shown.map(func(b: Button) -> String: return b.text) == ["2v2", "3v3", "4v4"])
+	saved.player_count = 4
+	lob.open()
+	check("lobby mode: ... the pressed one follows the player count (4 = 2v2)", shown[0].button_pressed and not shown[1].button_pressed)
+	saved.player_count = 5
+	lob.open()
+	check("lobby mode: ... an odd saved count snaps up (5 shows 3v3)", shown[1].button_pressed and not shown[0].button_pressed)
+	shown[2].pressed.emit()
+	check("lobby mode: ... 4v4 means eight players", saved.player_count == 8 and shown[2].button_pressed)
+	lob.mode_buttons[2].pressed.emit()
+	check("lobby mode: Hot Potato is saved and the Players row shows 2 to 8 again", saved.game_mode == Config.GameMode.POTATO and lob.player_buttons.all(func(b: Button) -> bool: return b.visible) and lob.player_buttons[0].text == "2" and lob.player_buttons[6].text == "8" and lob.player_buttons[6].button_pressed)
+	lob.mode_buttons[0].pressed.emit()
+	lob.open()
+	check("lobby mode: opening again shows the saved mode", lob.mode_buttons[0].button_pressed and saved.game_mode == Config.GameMode.FFA)
+	lob.mode_buttons[1].pressed.emit()
+	# Hosting: the three rows are read-only.
+	lob.set_session(true, true, "ABCDE", 1)
+	var all_off: bool = (lob.mode_buttons + lob.target_buttons + lob.player_buttons).all(func(b: Button) -> bool: return b.disabled)
+	var before: int = saved.game_mode
+	var tgt: int = saved.target_score
+	var cnt: int = saved.player_count
+	lob.mode_buttons[2].pressed.emit()
+	lob.target_buttons[2].pressed.emit()
+	lob.player_buttons[0].pressed.emit()
+	check("lobby mode: while hosting mode, players and target buttons are disabled and do nothing", all_off and saved.game_mode == before and saved.target_score == tgt and saved.player_count == cnt)
+	# Team line and Start button.
+	lob.set_teams(2, 1, 0, true)
+	check("lobby mode: in Teams while hosting the team line says both teams and the own", lob.team_label.text == "Red 2 · Blue 1 · You: Red" and lob.team_label.get_parent().visible and not lob.switch_btn.disabled)
+	lob.set_teams(1, 2, 1, false)
+	check("lobby mode: ... the switch button is off when the server would refuse", lob.team_label.text == "Red 1 · Blue 2 · You: Blue" and lob.switch_btn.disabled)
+	lob.set_teams(2, 1, 0, true)
+	var sw: Array = []
+	lob.switch_team_requested.connect(func() -> void: sw.append(true))
+	lob.switch_btn.pressed.emit()
+	check("lobby mode: Switch team reports", sw.size() == 1)
+	lob.set_start(true, true, false)
+	check("lobby mode: Start says 'Teams are uneven' when it refuses over uneven teams", lob.start_btn.disabled and lob.start_btn.text == "Teams are uneven")
+	lob.set_teams(2, 2, 0, true)
+	lob.set_start(true, true, true)
+	check("lobby mode: ... and 'Start match' when it can start", not lob.start_btn.disabled and lob.start_btn.text == "Start match")
+	lob.set_start(true, true, false)
+	check("lobby mode: ... a refusal with even teams keeps 'Start match'", lob.start_btn.disabled and lob.start_btn.text == "Start match")
+	# A joiner reads the host's values, read-only, and its own are untouched.
+	lob.set_session(false, true, "", 0)
+	var host_cfg := Config.new()
+	host_cfg.game_mode = Config.GameMode.TEAMS
+	host_cfg.player_count = 6
+	host_cfg.target_score = 15
+	saved.game_mode = Config.GameMode.FFA
+	saved.player_count = 4
+	saved.target_score = 10
+	lob.set_host_cfg(host_cfg)
+	var ts: Array = lob.target_buttons.filter(func(b: Button) -> bool: return b.button_pressed)
+	var ps: Array = lob.player_buttons.filter(func(b: Button) -> bool: return b.button_pressed)
+	check("lobby mode: a joiner sees the host's mode, players and target", lob.mode_buttons[1].button_pressed and not lob.mode_buttons[0].button_pressed and ps.size() == 1 and ps[0].text == "3v3" and ts.size() == 1 and ts[0].text == "15" and lob.mode_buttons[1].disabled)
+	check("lobby mode: ... and the own saved values stay", saved.game_mode == Config.GameMode.FFA and saved.player_count == 4 and saved.target_score == 10)
+	lob.set_session(false, false, "", 0)
+	lob.set_host_cfg(null)
+	check("lobby mode: leaving the session enables the buttons and shows the own values", not lob.mode_buttons[1].disabled and lob.mode_buttons[0].button_pressed and not lob.team_label.get_parent().visible)
+	lob.set_session(true, true, "ABCDE", 1)
+	saved.game_mode = Config.GameMode.POTATO
+	lob.set_teams(1, 1, 0, true)
+	check("lobby mode: no team line outside Teams, even while hosting", not lob.team_label.get_parent().visible)
+	lob.set_session(false, false, "", 0)
+	saved.game_mode = Config.GameMode.FFA
+	# Found games.
+	var g := {"code": "ABCDE", "players": 3, "max": 6, "mode": 1}
+	check("lobby mode: a found game shows the mode", PlayLobby.found_text(g) == "Game %s – 3/6 players – Teams 3v3" % LanCode.grouped("ABCDE") and PlayLobby.found_text({"code": "ABCDE", "players": 1, "max": 4, "mode": 2}).ends_with("– Hot Potato") and PlayLobby.found_text({"code": "ABCDE", "players": 1, "max": 4, "mode": 0}) == "Game %s – 1/4 players" % LanCode.grouped("ABCDE"))
+	lob.save_fn = orig_save
 
 
 # ---------------------------------------------------------------- string = flight path
@@ -2301,6 +2387,548 @@ func _eight_tests() -> void:
 	var twin := Sim.new(cfg, 1)
 	twin.load_state(bytes_to_var(bytes))
 	check("players 8: the state with eight players survives var_to_bytes", var_to_bytes(twin.save_state()) == bytes)
+
+
+# ---------------------------------------------------------------- Teams
+
+## A Teams sim (slots 0 and 2 are Red, 1 and 3 are Blue) with only the slots in `only` enabled, open floor, no train.
+func team_sim(only: Array, map := 0, kind := Config.GameMode.TEAMS) -> Sim:
+	var cfg := Config.new()
+	cfg.game_mode = kind
+	cfg.map = map
+	cfg.train_speed = 0.0
+	cfg.max_range = 8.0
+	cfg.string_length = 9.0
+	var s := Sim.new(cfg, 3)
+	for i in Config.NUM_PLAYERS:
+		s.set_player_enabled(i, i in only)
+	if map == 0:
+		s.statics.resize(s.wall_count)
+	s.crate_pos = Vector2(-50, -50)
+	s.box_active = false
+	s.box_timer = 9999.0
+	for i in only:
+		s.players[i].alive = true
+	return s
+
+## Did the attack `kind` by slot 0 hit player `v` (1: an enemy, 2: its teammate)? Kinds: head, body, explosion, shard,
+## wire_lethal, wire_stun (then: was it stunned), stomp. The third player (3 - v) is parked far away.
+func team_attack(kind: String, v: int) -> bool:
+	var s := team_sim([0, 1, 2], MapDef.Id.BOUNCE if kind == "stomp" else 0)
+	var a := s.players[0]
+	var other := 3 - v
+	place(s, other, Vector2(30, 13))
+	match kind:
+		"head":
+			place(s, 0, Vector2(3, 6.3)); place(s, v, Vector2(10.6, 6.3))
+			throw_i(s, 0, Vector2.RIGHT, 60)
+		"body":
+			setm(s, 0, {"elastic": 3})
+			place(s, 0, Vector2(5, 6.3)); place(s, v, Vector2(5.9, 6.3))
+			a.fling_left = 1.0
+			s.step(idle4())
+		"explosion":
+			place(s, v, Vector2(10, 6))
+			s._explode(a, Vector2(10.5, 6), 2.0)
+		"shard":
+			place(s, v, Vector2(8, 6.3))
+			var sh := SimShard.new()
+			sh.pos = Vector2(5, 6.3); sh.prev_pos = sh.pos; sh.dir = Vector2.RIGHT; sh.range_left = 10.0; sh.owner_id = 0
+			s.shards.append(sh)
+			for _t in 12:
+				s.step(idle4())
+		"wire_lethal", "wire_stun":
+			place(s, v, Vector2(8, 6.3))
+			var w := SimWire.new()
+			w.pts = PackedVector2Array([Vector2(8, 5), Vector2(8, 8)]); w.owner_id = 0; w.ttl = 5.0
+			w.lethal = kind == "wire_lethal"; w.stun = 1.0
+			s.wires.append(w)
+			s.step(idle4())
+			if kind == "wire_stun":
+				return s.players[v].stun_t > 0.0
+		"stomp":
+			var pad: Array = MapDef.PADS[0]
+			place(s, 0, pad[0]); place(s, v, pad[1] + Vector2(1.0, 0.0))
+			step_collect(s, 5)
+			step_collect(s, int(MapDef.AIR_TIME * 60.0) + 2)
+	return s.players[v].deaths > 0
+
+func _team_tests() -> void:
+	var M := MatchMode.Phase
+	# the mode comes from the config; Training forces free for all
+	check("teams: the config picks the mode class", team_sim([0, 1]).mode is TeamStanding and not (team_sim([0, 1], 0, Config.GameMode.FFA).mode is TeamStanding) and not (team_sim([0, 1], 0, Config.GameMode.POTATO).mode is TeamStanding))
+	var cf := Config.new()
+	cf.game_mode = Config.GameMode.TEAMS
+	check("teams: a mode override beats the config (Training)", not (Sim.new(cf, 1, Config.GameMode.FFA).mode is TeamStanding) and Sim.new(cf, 1).mode is TeamStanding)
+	cf.reset()
+	check("teams: Reset leaves the game mode alone", cf.game_mode == Config.GameMode.TEAMS)
+	var c2 := Config.new()
+	c2.from_dict(cf.to_dict())
+	check("teams: the game mode survives to_dict / from_dict", c2.game_mode == Config.GameMode.TEAMS)
+	c2.from_dict({"game_mode": 99})
+	var hi := c2.game_mode
+	c2.from_dict({"game_mode": "x"})
+	var junk := c2.game_mode
+	c2.from_dict({"game_mode": -4})
+	var lo := c2.game_mode
+	check("teams: a bad game mode is clamped or becomes free for all", hi == Config.GameMode.POTATO and junk == Config.GameMode.FFA and lo == Config.GameMode.FFA)
+	check("teams: an odd player count snaps up to even", TeamStanding.even_count(3) == 4 and TeamStanding.even_count(5) == 6 and TeamStanding.even_count(7) == 8 and TeamStanding.even_count(8) == 8 and TeamStanding.even_count(2) == 2)
+
+	# free for all is as before
+	var f := mk([0, 1, 2])
+	check("teams: free for all harms everybody and the scorer scores alone", f.mode.harms(0, 1) and f.mode.harms(0, 2) and f.mode.scores(1, 1) and not f.mode.scores(0, 1) and not f.mode.scores(0, -1) and f.mode.uses_zone() and f.mode.survivor_label() == "survivor")
+
+	# no friendly fire: every attack source
+	for kind in ["head", "body", "explosion", "shard", "wire_lethal", "wire_stun", "stomp"]:
+		check("teams: %s hits an enemy" % kind, team_attack(kind, 1))
+		check("teams: %s spares a teammate" % kind, not team_attack(kind, 2))
+	# a spared wire stays on the floor, and the thrower's own blast still kills the thrower
+	var s := team_sim([0, 1, 2])
+	place(s, 2, Vector2(8, 6.3)); place(s, 1, Vector2(30, 13))
+	var w := SimWire.new()
+	w.pts = PackedVector2Array([Vector2(8, 5), Vector2(8, 8)]); w.owner_id = 0; w.ttl = 5.0; w.lethal = true
+	s.wires.append(w)
+	s.step(idle4())
+	check("teams: a wire a teammate walks over is not used up", s.wires.size() == 1)
+	s = team_sim([0, 1, 2])
+	place(s, 0, Vector2(10, 6)); place(s, 1, Vector2(30, 13)); place(s, 2, Vector2(30, 2))
+	s._explode(s.players[0], Vector2(10, 6), 2.0)
+	check("teams: an own blast still kills the thrower, without a kill for anybody", s.players[0].deaths == 1 and s.players[0].kills == 0)
+	# the train and the zone still kill a teammate
+	var ts := team_sim([0, 1, 2])
+	ts.cfg.train_speed = Config.DEFAULTS["train_speed"]
+	place(ts, 2, car_pos(ts, 0)); place(ts, 0, Vector2(16, 7)); place(ts, 1, Vector2(30, 13))
+	ts.step(idle4())
+	check("teams: the train kills a player of any team", ts.players[2].deaths == 1 and ts.players[2].kills == 0)
+	var z := team_sim([0, 1, 2, 3])
+	z.start_match(10)
+	to_play(z)
+	z.mode.zone_spot = 0
+	z.mode.zone_t = MatchMode.ZONE_FULL_TIME + MatchMode.ZONE_SHRINK_TIME
+	var spot: Rect2 = Config.ZONE_SPOTS[0]
+	for _t in int((MatchMode.ZONE_DEATH_TIME + 0.5) * 60.0):
+		if z.mode.phase != M.PLAY:
+			break
+		place(z, 0, Vector2(30, 13)); place(z, 2, Vector2(30, 13.5)); place(z, 1, spot.get_center()); place(z, 3, spot.get_center() + Vector2(0.4, 0))
+		z.step(idle4())
+	check("teams: the zone kills both teammates outside it", z.players[0].deaths == 1 and z.players[2].deaths == 1 and z.players[1].deaths == 0)
+
+	# heads of teammates pass through each other, enemy heads do not
+	for other in [2, 1]:
+		var hs := team_sim([0, 1, 2])
+		place(hs, 0, Vector2(3, 3)); place(hs, other, Vector2(3, 10))
+		var ha := hs.players[0].heads[0]
+		var hb: SimHead = hs.players[other].heads[0]
+		ha.state = HS.OUT; ha.pos = Vector2(8, 6); ha.prev_pos = ha.pos
+		hb.state = HS.OUT; hb.pos = Vector2(8.2, 6); hb.prev_pos = hb.pos
+		hs._collide_heads()
+		var moved := ha.pos != Vector2(8, 6) or hb.pos != Vector2(8.2, 6)
+		check("teams: yo-yo heads %s" % ("of teammates pass through each other" if other == 2 else "of enemies still collide"), moved == (other == 1))
+
+	# rounds: the team that has a living player scores for EVERY member
+	s = team_sim([0, 1, 2, 3])
+	s.start_match(10)
+	to_play(s)
+	check("teams: the match starts with the teams 0 1 0 1", s.mode.roster.slice(0, 4) == [true, true, true, true] and s.mode.team == [0, 1, 0, 1, 0, 1, 0, 1])
+	kill_i(s, 0); kill_i(s, 3)
+	s.step(idle4())
+	check("teams: one of each team alive, the round goes on", s.mode.phase == M.PLAY)
+	kill_i(s, 2)
+	s.step(idle4())
+	check("teams: the round ends when one team is wiped out", s.mode.phase == M.RESULT and s.mode.last_scorer == 1)
+	check("teams: every member of the winning team scores, the dead one too", s.mode.points.slice(0, 4) == [0, 1, 0, 1] and s.mode.scored(3) and s.mode.scored(1) and not s.mode.scored(0))
+	check("teams: team points are the members' points", (s.mode as TeamStanding).team_points(1) == 1 and (s.mode as TeamStanding).team_points(0) == 0)
+	check("teams: every member of the winning team gets the survivor coins, labelled team win", s.mode.coin_parts(3, s.mode.last_scorer)["survivor"] == Economy.COINS_SURVIVOR and s.mode.coin_parts(1, s.mode.last_scorer)["survivor"] == Economy.COINS_SURVIVOR and s.mode.coin_parts(0, s.mode.last_scorer)["survivor"] == 0 and s.mode.survivor_label() == "team win" and s.mode.earned[3] == s.mode.earned[1] and s.mode.earned[3] > s.mode.earned[0])
+	s = team_sim([0, 1, 2, 3])
+	s.start_match(10)
+	to_play(s)
+	for i in 4:
+		kill_i(s, i)
+	s.step(idle4())
+	check("teams: both teams wiped out in one tick: nobody scores", s.mode.phase == M.RESULT and s.mode.last_scorer == -1 and s.mode.points.slice(0, 4) == [0, 0, 0, 0])
+	s = team_sim([0, 1, 2, 3])
+	s.start_match(10)
+	to_play(s)
+	for i in 4:
+		s.mode.points[i] = 9 if i % 2 == 0 else 3
+	kill_i(s, 1); kill_i(s, 3)
+	s.step(idle4())
+	check("teams: the first team to the target wins the match", s.mode.phase == M.MATCH_OVER and s.mode.winner == 0 and s.mode.won(0) and s.mode.won(2) and not s.mode.won(1) and s.mode.points.slice(0, 4) == [10, 3, 10, 3])
+	check("teams: the match_over event names the winning team", s.events.any(func(e: Dictionary) -> bool: return e["type"] == "match_over" and e["winner"] == 0))
+
+	# colours stay in the team's half
+	var all := team_sim([0, 1, 2, 3, 4, 5, 6, 7])
+	var okc := true
+	var seen := {}
+	for i in 8:
+		okc = okc and TeamStanding.COLOR_HALVES[i % 2].has(all.players[i].color)
+		seen[all.players[i].color] = true
+	check("teams: at the start every colour is in its team's half and unique", okc and seen.size() == 8)
+	all.set_color(0, 1)
+	check("teams: a colour of the other half becomes one of the own half", TeamStanding.COLOR_HALVES[0].has(all.players[0].color))
+	var uniq := {}
+	for p in all.players:
+		uniq[p.color] = true
+	check("teams: colours stay unique when a player asks for a taken one", uniq.size() == 8)
+	all.assign_colors(2)
+	var half_ok := true
+	var uniq2 := {}
+	for i in 8:
+		half_ok = half_ok and TeamStanding.COLOR_HALVES[i % 2].has(all.players[i].color)
+		uniq2[all.players[i].color] = true
+	check("teams: the offline colour layout keeps the halves and stays unique", half_ok and uniq2.size() == 8)
+	# swapping teams
+	var sw := team_sim([0, 1, 2, 3, 4, 5, 6, 7])
+	check("teams: swapping players of different teams works and moves their colours", sw.swap_team(0, 1) and sw.mode.team[0] == 1 and sw.mode.team[1] == 0 and TeamStanding.COLOR_HALVES[1].has(sw.players[0].color) and TeamStanding.COLOR_HALVES[0].has(sw.players[1].color))
+	var n0 := 0
+	for i in 8:
+		if sw.mode.team[i] == 0:
+			n0 += 1
+	var uniq3 := {}
+	for p in sw.players:
+		uniq3[p.color] = true
+	check("teams: a swap keeps the teams the same size and the colours unique", n0 == 4 and uniq3.size() == 8)
+	check("teams: no swap on the same team, out of range or in free for all", not sw.swap_team(0, 3) and not sw.swap_team(0, 0) and not sw.swap_team(0, 9) and not mk([0, 1]).swap_team(0, 1))
+	# can_start
+	check("teams: a match needs the same number on both teams", not team_sim([0, 1, 2]).can_start() and team_sim([0, 1]).can_start() and not team_sim([0, 2]).can_start() and team_sim([0, 1, 2, 3]).can_start() and not team_sim([0, 1, 2]).start_match(10))
+	check("teams: free for all still needs two", mk([0, 1, 2]).can_start() and not mk([0]).can_start())
+	# snapshot round trip
+	s = team_sim([0, 1, 2, 3])
+	s.start_match(15)
+	s.swap_team(0, 1)
+	to_play(s)
+	kill_i(s, 2)
+	s.step(idle4())
+	var copy := Sim.new(s.cfg, 99)
+	copy.load_state(s.save_state())
+	check("teams: a snapshot restores the teams and the points", copy.mode is TeamStanding and copy.mode.team == s.mode.team and copy.mode.points == s.mode.points and copy.mode.target == 15)
+	copy.step(idle4())
+	s.step(idle4())
+	check("teams: a restored sim goes on identically", copy.save_state() == s.save_state())
+
+	# bots never aim at a teammate
+	s = team_sim([0, 1, 2])
+	place(s, 0, Vector2(5, 6.3)); place(s, 2, Vector2(7, 6.3)); place(s, 1, Vector2(20, 6.3))
+	var bot := Bot.new(0, s.cfg, 5)
+	check("teams: a bot picks the enemy, not the nearer teammate", bot._nearest_enemy(s, s.players[0]) == s.players[1] and bot._nearest_visible_enemy(s, s.players[0]) == s.players[1])
+	s.players[1].alive = false
+	check("teams: a bot with only teammates left has no target", bot._nearest_enemy(s, s.players[0]) == null and bot._nearest_visible_enemy(s, s.players[0]) == null)
+	var ff := team_sim([0, 1, 2, 3])
+	ff.start_match(20)
+	to_play(ff)
+	var bots: Array = []
+	for i in 4:
+		bots.append(Bot.new(i, ff.cfg, 60 + i))
+	var friendly := 0
+	var kills := 0
+	for _t in 3000:
+		var ins: Array = []
+		for i in 4:
+			ins.append(bots[i].think(ff, 1.0 / 60.0))
+		if ff.mode.phase == M.SHOP:
+			for i in 4:
+				ff.shop_done(i)
+		elif ff.mode.phase == M.MATCH_OVER:
+			break
+		ff.step(ins)
+		for e: Dictionary in ff.events:
+			if e["type"] == "kill" and e["killer"] >= 0:
+				kills += 1
+				if e["killer"] % 2 == e["victim"] % 2:
+					friendly += 1
+	check("teams: four bots play and nobody ever kills a teammate", friendly == 0 and kills > 0, "kills=%d friendly=%d" % [kills, friendly])
+
+# ---------------------------------------------------------------- Hot Potato
+
+## A Hot Potato match in play with `only` enabled (map 0 stripped of obstacles), the first bomb already given out.
+func potato_sim(only: Array, seed_value := 3) -> Sim:
+	var s := team_sim(only, 0, Config.GameMode.POTATO)
+	s.rng.seed = seed_value
+	s.start_match(10)
+	to_play(s)
+	return s
+
+## Puts the bomb on `holder` (passed by `from`, -1 none) with a fresh full fuse.
+func give_bomb(s: Sim, holder: int, from := -1) -> void:
+	var m: HotPotato = s.mode
+	m.bomb_holder = holder
+	m.bomb_from = from
+	m.bomb_fuse = HotPotato.fuse_for(s.players.filter(func(p: SimPlayer) -> bool: return p.enabled and p.alive).size())
+	m.bomb_t = m.bomb_fuse
+	m.tagback_t = 0.0
+
+func _potato_tests() -> void:
+	var M := MatchMode.Phase
+	var far := [Vector2(30, 13), Vector2(30, 2)]
+	var s := potato_sim([0, 1, 2, 3])
+	check("potato: the rules class is HotPotato, free for all and teams are not", s.mode is HotPotato and not (mk([0, 1]).mode is HotPotato) and not (team_sim([0, 1]).mode is HotPotato) and MatchMode.create(Config.GameMode.POTATO) is HotPotato)
+	check("potato: a bomb is given out with the first tick of play", s.mode.phase == M.PLAY and s.mode.bomb_holder >= 0 and s.players[s.mode.bomb_holder].alive)
+	# first bomb: the same for the same seed
+	var holders := {}
+	var same := true
+	for sd in 12:
+		var a := potato_sim([0, 1, 2, 3], sd)
+		var b := potato_sim([0, 1, 2, 3], sd)
+		same = same and a.mode.bomb_holder == b.mode.bomb_holder and a.mode.bomb_holder >= 0
+		holders[a.mode.bomb_holder] = true
+	check("potato: the first bomb is the same for the same seed", same)
+	check("potato: the first bomb goes to different players with different seeds", holders.size() >= 2, str(holders.keys()))
+
+	# fuse: a formula of the alive players, no dice
+	check("potato: fuse formula is 8 s plus 2 s per player", HotPotato.fuse_for(4) == 16.0 and HotPotato.fuse_for(2) == 12.0 and HotPotato.fuse_for(8) == 24.0)
+	var fuses := {}
+	for sd in 10:
+		fuses[potato_sim([0, 1, 2, 3], sd).mode.bomb_fuse] = true
+	check("potato: the fuse of a bomb is always the same for the same number of players", fuses.size() == 1 and fuses.keys()[0] == 16.0, str(fuses.keys()))
+	check("potato: three players alive give a fuse of 14 s, two give 12 s", potato_sim([0, 1, 2]).mode.bomb_fuse == 14.0 and potato_sim([0, 1]).mode.bomb_fuse == 12.0)
+	# the fuse ticks
+	var t0: float = s.mode.bomb_t
+	for _t in 60:
+		s.step(idle4())
+	check("potato: the fuse runs down one second per second", absf(t0 - s.mode.bomb_t - 1.0) < 0.02, "%f -> %f" % [t0, s.mode.bomb_t])
+
+	# passing: the carrier's hit passes the bomb, the victim is not hurt
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 0)
+	s.mode.bomb_t = 10.0   # burnt down a bit: a pass must not start it again
+	var fuse_before: float = s.mode.bomb_t
+	s._hit(s.players[1], s.players[0])
+	var evs: Array = s.events.filter(func(e: Dictionary) -> bool: return e["type"] == "bomb_pass")
+	check("potato: a hit by the carrier passes the bomb, the victim lives", s.players[1].alive and s.players[1].deaths == 0 and s.mode.bomb_holder == 1 and s.mode.bomb_from == 0 and evs.size() == 1 and evs[0]["from"] == 0 and evs[0]["to"] == 1)
+	check("potato: a pass does not stun the victim and keeps the fuse running", s.players[1].stun_t == 0.0 and s.mode.bomb_t == fuse_before and s.mode.tagback_t == HotPotato.TAGBACK_TIME)
+	# integration: a real yo-yo throw
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 0)
+	place(s, 0, Vector2(3, 6.3)); place(s, 1, Vector2(10.6, 6.3)); place(s, 2, far[0]); place(s, 3, far[1])
+	throw_i(s, 0, Vector2.RIGHT, 60)
+	check("potato: a yo-yo throw of the carrier passes the bomb and does not kill", s.players[1].alive and s.mode.bomb_holder == 1)
+	# a non-carrier's yo-yo never kills and only stuns
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 2)
+	place(s, 0, Vector2(3, 6.3)); place(s, 1, Vector2(10.6, 6.3)); place(s, 2, far[0]); place(s, 3, far[1])
+	var stunned := false
+	var arr := idle4()
+	for t in 60:
+		arr[0] = inp(Vector2.ZERO, Vector2.RIGHT, true)
+		s.step(arr)
+	arr[0] = inp()
+	for t in 120:
+		s.step(arr)
+		stunned = stunned or s.players[1].stun_t > 0.0
+		arr = idle4()
+	check("potato: a yo-yo of a non-carrier stuns and does not kill", stunned and s.players[1].alive and s.players[1].deaths == 0 and s.mode.bomb_holder == 2)
+	# non-carrier hit: stun 0.6 s, no re-stun while stunned, also on the carrier
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 2)
+	s._hit(s.players[1], s.players[0])
+	check("potato: a hit by a non-carrier stuns for 0.6 s", s.players[1].alive and is_equal_approx(s.players[1].stun_t, HotPotato.POTATO_STUN) and s.mode.bomb_holder == 2)
+	s.players[1].stun_t = 0.2
+	s._hit(s.players[1], s.players[0])
+	check("potato: a stunned player is not stunned again", s.players[1].stun_t == 0.2)
+	s._hit(s.players[2], s.players[0])
+	check("potato: stunning the carrier does not move the bomb", s.players[2].stun_t > 0.0 and s.mode.bomb_holder == 2 and s.players[2].alive)
+
+	# tag-back
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 0)
+	s._hit(s.players[1], s.players[0])
+	s._hit(s.players[1], s.players[0])
+	check("potato: the passer's own hit on the new carrier does nothing at once", s.players[1].stun_t == 0.0 and s.mode.bomb_holder == 1)
+	s._hit(s.players[0], s.players[1])
+	check("potato: the new carrier cannot give the bomb straight back, it stuns instead", s.mode.bomb_holder == 1 and s.players[0].stun_t > 0.0 and s.players[0].alive)
+	for _t in int(HotPotato.TAGBACK_TIME * 60.0) + 2:
+		s.step(idle4())
+	check("potato: the lock ends after 1.5 s", s.mode.tagback_t == 0.0 and s.players[0].stun_t == 0.0)
+	s._hit(s.players[0], s.players[1])
+	check("potato: after the lock the bomb can go back", s.mode.bomb_holder == 0 and s.mode.bomb_from == 1)
+
+	# explosion: the carrier dies, credit to the last passer, nobody else is hurt
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 0, 1)
+	s.mode.bomb_t = 0.02
+	var ev := step_collect(s, 3)
+	var kills: Array = ev.filter(func(e: Dictionary) -> bool: return e["type"] == "kill")
+	check("potato: the fuse kills the carrier with the kill for the last passer", not s.players[0].alive and s.players[1].kills == 1 and kills.size() == 1 and kills[0]["victim"] == 0 and kills[0]["killer"] == 1 and has_event(ev, "bomb_explode"))
+	check("potato: a bomb kill pays the passer's coin", s.mode.round_kills[1] == 1)
+	check("potato: the blast hurts nobody else and the bomb is gone", s.players[1].alive and s.players[2].alive and s.players[3].alive and s.mode.bomb_holder == -1 and s.mode.bomb_gap > 1.9)
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 0)
+	s.mode.bomb_t = 0.02
+	ev = step_collect(s, 3)
+	kills = ev.filter(func(e: Dictionary) -> bool: return e["type"] == "kill")
+	check("potato: a bomb nobody passed gives no kill", not s.players[0].alive and kills[0]["killer"] == -1 and kills[0].get("cause") == "bomb" and s.players[0].kills == 0)
+
+	# the next bomb after the gap
+	for _t in int(HotPotato.BOMB_GAP * 60.0) - 6:
+		s.step(idle4())
+	check("potato: no bomb before the gap is over", s.mode.bomb_holder == -1)
+	for _t in 12:
+		s.step(idle4())
+	check("potato: a new bomb after 2 s goes to an alive player with the fuse of the players left", s.mode.bomb_holder >= 1 and s.players[s.mode.bomb_holder].alive and s.mode.bomb_fuse == 14.0 and s.mode.bomb_from == -1)
+	# the carrier dies of the train: the bomb is gone, a new one comes
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 0, 1)
+	kill_i(s, 0)
+	s.step(idle4())
+	check("potato: a carrier who dies another way takes the bomb with him, no explosion", s.mode.bomb_holder == -1 and s.mode.bomb_gap > 1.9 and s.players[1].kills == 0)
+	for _t in 130:
+		s.step(idle4())
+	check("potato: a new bomb comes after such a death", s.mode.bomb_holder >= 1 and s.players[s.mode.bomb_holder].alive)
+	# round end: the last one alive scores
+	s = potato_sim([0, 1, 2, 3])
+	kill_i(s, 1); kill_i(s, 2)
+	give_bomb(s, 3)
+	kill_i(s, 3)
+	s.step(idle4())
+	check("potato: the round ends with one player alive, who scores", s.mode.phase == M.RESULT and s.mode.points[0] == 1 and s.mode.points[1] == 0)
+
+	# zone off
+	s = potato_sim([0, 1])
+	s.mode.bomb_holder = -1
+	s.mode.bomb_gap = 1e9
+	place(s, 0, Vector2(16, 6.5)); place(s, 1, Vector2(16.0, 9))
+	for _t in 3300:
+		s.step(idle4())
+	check("potato: no shrinking zone: the whole arena all round, nobody dies of it", not s.zone_active() and s.zone_rect() == Rect2(Vector2.ZERO, Config.ARENA_SIZE) and s.mode.zone_t == 0.0 and s.players[0].alive and s.players[1].alive and s.players[0].zone_t == 0.0)
+	check("potato: the zone number over a head shows nothing", OverheadView.zone_number(s, 0) == 0)
+
+	# carrier speed
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 0)
+	place(s, 0, Vector2(3, 3.0)); place(s, 1, Vector2(3, 9.0)); place(s, 2, far[0]); place(s, 3, far[1])
+	var go := [inp(Vector2.RIGHT), inp(Vector2.RIGHT), inp(), inp()]
+	for _t in 30:
+		s.step(go)
+	var dc: float = s.players[0].pos.x - 3.0
+	var dn: float = s.players[1].pos.x - 3.0
+	check("potato: the carrier walks 15 % faster", absf(dc / dn - HotPotato.CARRIER_SPEED) < 0.01, "%f %f" % [dc, dn])
+	check("potato: speed factors are 1 for everybody else and in the other modes", s.mode.speed_mult(1) == 1.0 and mk([0, 1]).mode.speed_mult(0) == 1.0 and team_sim([0, 1]).mode.speed_mult(0) == 1.0)
+
+	# own blast
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 2)
+	place(s, 0, Vector2(10, 6)); place(s, 1, far[0]); place(s, 3, far[1])
+	s._explode(s.players[0], Vector2(10, 6), 2.0)
+	check("potato: an own blast does nothing to the owner", s.players[0].alive and s.players[0].deaths == 0)
+	place(s, 1, Vector2(10.5, 6))
+	s._explode(s.players[0], Vector2(10, 6), 2.0)
+	check("potato: a blast of a non-carrier stuns another player and kills nobody", s.players[1].alive and s.players[1].stun_t > 0.0)
+	# free for all and teams: nothing changed
+	var f := mk([0, 1, 2])
+	var tm := team_sim([0, 1, 2, 3])
+	check("potato: free for all and teams still kill, blast their owner and use the zone", f.mode.on_hit(f, 0, 1) and f.mode.own_blast_kills() and f.mode.uses_zone() and tm.mode.on_hit(tm, 0, 1) and not tm.mode.on_hit(tm, 0, 2) and tm.mode.own_blast_kills() and tm.mode.uses_zone())
+	f = mk([0, 1])
+	place(f, 0, Vector2(10, 6)); f._explode(f.players[0], Vector2(10, 6), 2.0)
+	check("potato: a free for all blast still kills its owner", f.players[0].deaths == 1)
+
+	# free play (no match) in this mode: hits kill as before
+	var fp := team_sim([0, 1], 0, Config.GameMode.POTATO)
+	fp._hit(fp.players[1], fp.players[0])
+	check("potato: outside a match a hit kills as usual", fp.players[1].deaths == 1)
+
+	# a new round starts clean
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 1, 0)
+	s.mode.tagback_t = 1.0
+	kill_i(s, 1); kill_i(s, 2); kill_i(s, 3)
+	s.step(idle4())
+	s.mode.bomb_holder = 1   # a bomb left over from the finished round
+	s.mode.bomb_from = 0
+	next_round(s)
+	check("potato: a new round starts without a bomb", s.mode.phase == M.COUNTDOWN and s.mode.bomb_holder == -1 and s.mode.bomb_from == -1 and s.mode.tagback_t == 0.0 and s.mode.bomb_gap == 0.0)
+
+	# save / load
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 2, 1)
+	s.mode.tagback_t = 0.8
+	for _t in 100:
+		s.step(idle4())
+	var twin := Sim.new(s.cfg, 99)
+	twin.load_state(bytes_to_var(var_to_bytes(s.save_state())))
+	var tw: HotPotato = twin.mode
+	check("potato: a restored sim has the same bomb", tw.bomb_holder == 2 and tw.bomb_from == 1 and tw.bomb_t == s.mode.bomb_t and tw.bomb_fuse == 16.0 and tw.tagback_t == s.mode.tagback_t and tw.bomb_gap == s.mode.bomb_gap)
+	for _t in 60:
+		s.step(idle4()); twin.step(idle4())
+	check("potato: a restored sim goes on identically", var_to_bytes(s.save_state()) == var_to_bytes(twin.save_state()))
+	s.mode.bomb_t = 0.05; twin.mode.bomb_t = 0.05
+	for _t in 400:
+		s.step(idle4()); twin.step(idle4())
+	check("potato: the restored sim explodes and picks the same next bomb", s.mode.bomb_holder == twin.mode.bomb_holder and s.mode.bomb_holder >= 0 and var_to_bytes(s.save_state()) == var_to_bytes(twin.save_state()))
+
+# Bots in Hot Potato: the carrier closes in on somebody, the others get away from the carrier.
+func _potato_bot_tests() -> void:
+	var gain := true
+	for sd in 4:
+		var s := potato_sim([0, 1, 2], 10 + sd)
+		give_bomb(s, 0)
+		s.mode.bomb_t = 99.0
+		place(s, 0, Vector2(12, 6.5)); place(s, 1, Vector2(19, 6.5)); place(s, 2, Vector2(14, 11.0))
+		var bots := [Bot.new(0, s.cfg, 5 + sd), Bot.new(1, s.cfg, 6 + sd), Bot.new(2, s.cfg, 7 + sd)]
+		var nearest0 := minf(s.players[0].pos.distance_to(s.players[1].pos), s.players[0].pos.distance_to(s.players[2].pos))
+		var min_d := 99.0
+		for t in 120:
+			var ins := [bots[0].think(s, 1.0 / 60.0), inp(), inp(), inp()]
+			# the test keeps the bomb on slot 0 and the others still: only the carrier's movement is judged
+			s.mode.bomb_holder = 0
+			s.mode.tagback_t = 0.0
+			s.step(ins)
+			min_d = minf(min_d, minf(s.players[0].pos.distance_to(s.players[1].pos), s.players[0].pos.distance_to(s.players[2].pos)))
+		gain = gain and (min_d < nearest0 - 1.5 or min_d < 1.8)
+	check("potato bots: the carrier closes in on the nearest player", gain)
+	# the others get farther from the carrier within 2 s (the carrier stands still)
+	var ok := true
+	for sd in 4:
+		var s := potato_sim([0, 1, 2], 20 + sd)
+		give_bomb(s, 0)
+		s.mode.bomb_t = 99.0
+		place(s, 0, Vector2(16, 6.5)); place(s, 1, Vector2(19, 6.5)); place(s, 2, Vector2(13, 8.5))
+		var b1 := Bot.new(1, s.cfg, 5 + sd)
+		var b2 := Bot.new(2, s.cfg, 6 + sd)
+		var d1 := s.players[1].pos.distance_to(s.players[0].pos)
+		var d2 := s.players[2].pos.distance_to(s.players[0].pos)
+		for t in 120:
+			s.step([inp(), b1.think(s, 1.0 / 60.0), b2.think(s, 1.0 / 60.0), inp()])
+		ok = ok and s.players[1].pos.distance_to(s.players[0].pos) > d1 + 1.0 and s.players[2].pos.distance_to(s.players[0].pos) > d2 + 1.0
+	check("potato bots: a player who is not the carrier gets farther from him within 2 s", ok)
+	# the carrier does not hunt the player who just passed the bomb
+	var s := potato_sim([0, 1, 2])
+	give_bomb(s, 0, 1)
+	s.mode.tagback_t = 1.0
+	place(s, 0, Vector2(10, 6.5)); place(s, 1, Vector2(12, 6.5)); place(s, 2, Vector2(20, 6.5))
+	var b := Bot.new(0, s.cfg, 3)
+	check("potato bots: the carrier does not hunt the player who just passed him the bomb", b._nearest_potato_prey(s, s.players[0]) == s.players[2])
+	# a match of bots in Hot Potato goes on, bombs explode and no yo-yo kills
+	var cfg := Config.new()
+	cfg.game_mode = Config.GameMode.POTATO
+	cfg.train_speed = 0.0
+	cfg.player_count = 4
+	var m := Sim.new(cfg, 4)
+	var bs: Array = []
+	for i in 4:
+		bs.append(Bot.new(i, cfg, 30 + i))
+	m.start_match(10)
+	var bombs := 0
+	var yoyo_kills := 0
+	for t in 60 * 400:
+		var ins: Array = []
+		for i in Config.NUM_PLAYERS:
+			ins.append(bs[i].think(m, 1.0 / 60.0) if i < 4 else inp())
+		m.step(ins)
+		var blown := []
+		for e: Dictionary in m.events:
+			if e["type"] == "bomb_explode":
+				bombs += 1
+				blown.append(e["victim"])
+		for e: Dictionary in m.events:
+			# a kill with a killer that is no bomb kill (the bomb's kill carries the passer as the killer)
+			if e["type"] == "kill" and e["killer"] >= 0 and not blown.has(e["victim"]):
+				yoyo_kills += 1
+		if m.mode.phase == MatchMode.Phase.SHOP:
+			for i in 4:
+				m.shop_done(i)
+		if m.mode.phase == MatchMode.Phase.MATCH_OVER:
+			break
+	check("potato bots: four bots keep playing rounds, bombs explode, no yo-yo kills", m.mode.round >= 4 and bombs > 8 and yoyo_kills == 0, "bombs=%d yoyo=%d round=%d" % [bombs, yoyo_kills, m.mode.round])
 
 
 func _coin_tests() -> void:

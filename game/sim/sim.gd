@@ -31,17 +31,19 @@ var lava_wave := 0                     # Lava Mats: waves drawn so far this roun
 var pig_coins := 0                     # Piggy Bank: coins on the pig's back
 var pig_t := 0.0                       # Piggy Bank: seconds towards the next coin
 ## Rounds and score. Phase OFF (the default) is free play with respawns; `start_match` begins a match.
-var mode: MatchMode = LastStanding.new()
+var mode: MatchMode = LastStanding.new()   # replaced in _init by the class of `Config.game_mode`
 ## Events of the last tick (dictionaries with "type"): kill, bounce, ricochet, box_break, respawn,
-## explosion, wire, stun, round_start, round_end ("scorer"), match_over ("winner"). A kill by the train has "killer": -1 and "cause": "train", a death by the own explosion "killer": -1 and "cause": "self".
+## explosion, wire, stun, bomb_pass (from, to), bomb_explode (pos, victim), round_start, round_end ("scorer"), match_over ("winner"). A kill by the train has "killer": -1 and "cause": "train", a death by the own explosion "killer": -1 and "cause": "self".
 var events: Array = []
 
-var _hit := false  # scratch flag set by head sweeps
+var _head_hit := false  # scratch flag set by head sweeps
 var _built_map := -1  # the map `statics` was built for
 
 
-func _init(config: Config, seed_value: int) -> void:
+## `mode_kind`: a `Config.GameMode` that overrides `config.game_mode` (Training forces free for all); -1 = the config's.
+func _init(config: Config, seed_value: int, mode_kind := -1) -> void:
 	cfg = config
+	mode = MatchMode.create(config.game_mode if mode_kind < 0 else mode_kind)
 	rng.seed = seed_value
 	var a := Config.ARENA_SIZE
 	map_id = MapDef.valid(cfg.map)
@@ -53,6 +55,8 @@ func _init(config: Config, seed_value: int) -> void:
 		p.id = i
 		p.skin = i % Config.SKIN_COUNT
 		p.color = i % Config.COLOR_COUNT
+		if mode.is_team_mode():
+			p.color = mode.allowed_colors(i)[i / 2]   # slot i: team i % 2, place i / 2 in it
 		p.enabled = i < cfg.player_count   # the others are switched on by whoever fills the slots (bots, joiners)
 		if not p.enabled:
 			p.alive = false
@@ -120,8 +124,16 @@ func set_color(i: int, k: int) -> void:
 
 func _resolve_color(i: int) -> void:
 	var p := players[i]
-	for step in Config.COLOR_COUNT:
-		var c := posmod(p.color + step, Config.COLOR_COUNT)
+	var pool: Array = mode.allowed_colors(i)
+	var start := pool.find(p.color)
+	if start < 0:   # the colour is not in this player's half (a team change): the next one of the half
+		start = 0
+		for k in pool.size():
+			if pool[k] >= p.color:
+				start = k
+				break
+	for step in pool.size():
+		var c: int = pool[(start + step) % pool.size()]
 		var taken := false
 		for o in players:
 			if o != p and o.enabled and o.color == c:
@@ -135,6 +147,15 @@ func _resolve_color(i: int) -> void:
 ## Offline: player 0 gets colour k, every other slot the remaining colours in order (idempotent, all unique).
 func assign_colors(k: int) -> void:
 	var mine := posmod(k, Config.COLOR_COUNT)
+	if mode.is_team_mode():
+		for p in players:
+			p.color = -1   # nobody holds a colour while they are handed out
+		players[0].color = mine
+		for i in players.size():
+			if i > 0:
+				players[i].color = mode.allowed_colors(i)[0]
+			_resolve_color(i)
+		return
 	players[0].color = mine
 	var c := 0
 	for i in range(1, players.size()):
@@ -156,14 +177,45 @@ func apply_mods(i: int, levels: Dictionary) -> void:
 		p.dash_cd = 0.0
 
 
-## Starts a match for the players enabled right now (needs at least two). A target that is not offered
+## True when a match can start with the players enabled right now: free for all needs two, Teams needs the same
+## number (at least one) on each team.
+func can_start() -> bool:
+	var n := 0
+	var per_team := [0, 0]
+	for i in players.size():
+		if players[i].enabled:
+			n += 1
+			if mode.is_team_mode():
+				per_team[mode.team_of(i)] += 1
+	if mode.is_team_mode():
+		return per_team[0] >= 1 and per_team[0] == per_team[1]
+	return n >= 2
+
+
+## Teams: slots `i` and `j` on different teams exchange their teams (a player and a bot, or an empty seat), so the
+## sizes of the teams stay as they are. The two exchange colours, so each colour lands in its new half. False when not Teams, out of range
+## or on the same team.
+func swap_team(i: int, j: int) -> bool:
+	if not mode.is_team_mode() or i == j or i < 0 or j < 0 or i >= players.size() or j >= players.size():
+		return false
+	var t: Array = mode.team
+	if t[i] == t[j]:
+		return false
+	var tmp: int = t[i]
+	t[i] = t[j]
+	t[j] = tmp
+	var c: int = players[i].color   # the colours change places: each lands in its new half, still unique
+	players[i].color = players[j].color
+	players[j].color = c
+	_resolve_color(i)
+	_resolve_color(j)
+	return true
+
+
+## Starts a match for the players enabled right now (`can_start`). A target that is not offered
 ## becomes the default. Also the rematch: points are zeroed.
 func start_match(target: int) -> bool:
-	var n := 0
-	for p in players:
-		if p.enabled:
-			n += 1
-	if n < 2:
+	if not can_start():
 		return false
 	mode.target = target if MatchMode.TARGETS.has(target) else MatchMode.DEFAULT_TARGET
 	for i in players.size():
@@ -395,8 +447,9 @@ func _check_round_end() -> void:
 		return
 	var scorer := m.round_scorer(self)
 	m.award_coins(scorer)
-	if scorer >= 0:
-		m.points[scorer] += 1
+	for i in m.roster.size():
+		if m.roster[i] and m.scores(i, scorer):
+			m.points[i] += 1
 	m.last_scorer = scorer
 	m.phase_t = 0.0
 	events.append({"type": "round_end", "scorer": scorer, "round": m.round})
@@ -428,7 +481,7 @@ func step(inputs: Array) -> void:
 	_separate_players()
 	_step_train(dt)
 	_step_map(dt)
-	if mode.phase == MatchMode.Phase.PLAY:
+	if mode.phase == MatchMode.Phase.PLAY and mode.uses_zone():
 		_step_zone(dt)
 	_collide_heads()
 	_step_shards(dt)
@@ -436,6 +489,7 @@ func step(inputs: Array) -> void:
 	_check_kills()
 	_step_box(dt)
 	if mode.phase == MatchMode.Phase.PLAY:
+		mode.step(self, dt)
 		_check_round_end()
 
 
@@ -658,6 +712,7 @@ func _move_player(p: SimPlayer, inp: SimInput, dt: float) -> void:
 		var speed := cfg.player_speed
 		if p.charging:
 			speed *= cfg.charge_speed_mult
+		speed *= mode.speed_mult(p.id)
 		delta = mvec * speed * dt
 	_slide_player(p, delta, phase)
 	if phase and p.dash_t <= 0.0:
@@ -1335,7 +1390,7 @@ func _sweep_head(pos: Vector2, delta: Vector2, r: float, breaks_box: bool, pass_
 		var start := pos + sv
 		pos = _resolve_head(start, r, breaks_box, pass_level)
 		if (pos - start).length_squared() > 1e-10:
-			_hit = true
+			_head_hit = true
 	return pos
 
 
@@ -1391,9 +1446,10 @@ func _explode(owner: SimPlayer, pos: Vector2, radius: float) -> void:
 	for v in players:
 		if _hittable(v) and pos.distance_to(v.pos) - cfg.player_radius < radius:
 			if v == owner:
-				_kill(v, null, "self")  # own explosions hurt the owner: a death, no kill for anybody
+				if mode.own_blast_kills():
+					_kill(v, null, "self")  # own explosions hurt the owner: a death, no kill for anybody
 			else:
-				_kill(v, owner)
+				_hit(v, owner)
 
 
 ## Lays the current string of head `h` on the ground as a wire (Tripwire).
@@ -1443,14 +1499,14 @@ func _step_wires(dt: float) -> void:
 		var used := w.ttl <= 0.0
 		if not used:
 			for v in players:
-				if v.id == w.owner_id or not _hittable(v):
+				if v.id == w.owner_id or not _hittable(v) or not mode.harms(w.owner_id, v.id):
 					continue
 				if not w.lethal and v.stun_t > 0.0:
 					continue
 				var nearest := closest_on_path(v.pos, w.pts)
 				if nearest.distance_to(v.pos) < reach:
 					if w.lethal:
-						_kill(v, players[w.owner_id])
+						_hit(v, players[w.owner_id])
 					else:
 						_stun(v, w.stun)
 					events.append({"type": "wire", "pos": nearest, "owner": w.owner_id})
@@ -1525,7 +1581,7 @@ func _step_shard(s: SimShard, dt: float) -> bool:
 			continue
 		var nearest := Geometry2D.get_closest_point_to_segment(v.pos, s.prev_pos, res)
 		if nearest.distance_to(v.pos) < s.radius + cfg.player_radius:
-			_kill(v, owner)
+			_hit(v, owner)
 	s.pos = res
 	s.range_left -= move
 	if blocked:
@@ -1546,8 +1602,8 @@ func _collide_heads() -> void:
 			continue
 		for j in range(i + 1, players.size()):
 			var b := players[j]
-			if not (b.enabled and b.alive and b.any_out()):
-				continue
+			if not (b.enabled and b.alive and b.any_out()) or not (mode.harms(i, j) or mode.harms(j, i)):
+				continue   # teammates' yo-yos pass through each other
 			for ha in a.heads:
 				if not ha.lethal():
 					continue
@@ -1606,7 +1662,7 @@ func _check_kills() -> void:
 				# Swept check along this tick's head path, so a fast head cannot skip over a player.
 				var nearest := Geometry2D.get_closest_point_to_segment(v.pos, h.prev_pos, h.pos)
 				if nearest.distance_to(v.pos) < reach:
-					_kill(v, a)
+					_hit(v, a)
 		var br := body_lethal_r(a)
 		if br > 0.0 and a.alive:
 			for v in players:
@@ -1614,7 +1670,14 @@ func _check_kills() -> void:
 					continue
 				var nearest := Geometry2D.get_closest_point_to_segment(v.pos, a.prev_pos, a.pos)
 				if nearest.distance_to(v.pos) < br + pr + Mods.BODY_LETHAL_MARGIN:
-					_kill(v, a)
+					_hit(v, a)
+
+
+## Every harm done by an attacker (yo-yo head, body, blast, shard, wire, stomp) goes through here, so the mode can
+## spare players (Teams: no friendly fire). Kills of the train, the zone, lava and an own blast do not.
+func _hit(victim: SimPlayer, attacker: SimPlayer) -> void:
+	if mode.on_hit(self, attacker.id, victim.id):
+		_kill(victim, attacker)
 
 
 ## `killer` null = a death for the victim, a kill for nobody; `cause` then says why ("train", "self" or "zone").
@@ -1657,7 +1720,7 @@ func _push_train(pos: Vector2, r: float) -> Vector2:
 
 ## True while a shrinking zone exists: in a match (any phase but OFF). Free play has none.
 func zone_active() -> bool:
-	return mode.phase != MatchMode.Phase.OFF
+	return mode.phase != MatchMode.Phase.OFF and mode.uses_zone()
 
 
 ## The safe rectangle now: the whole arena in free play and for the first ZONE_FULL_TIME seconds of a round, then
@@ -1992,7 +2055,7 @@ func _step_air(p: SimPlayer, dt: float) -> void:
 		events.append({"type": "land", "pos": p.pos, "player": p.id})
 		for v in players:
 			if v != p and _hittable(v) and v.pos.distance_to(p.pos) < MapDef.STOMP_RADIUS:
-				_kill(v, p)
+				_hit(v, p)
 	for h in p.heads:
 		h.pos = p.pos
 

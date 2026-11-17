@@ -5,6 +5,8 @@ extends RefCounted
 
 enum OutVariant { DRAG, LEASH, RIGID }  # A, B, C
 enum BotMode { OFF, DUMMY, ACTIVE }
+## The rules of a Play match: free for all, two teams (no friendly fire) or Hot Potato (later; plays like FFA for now).
+enum GameMode { FFA, TEAMS, POTATO }
 
 # --- Arena layout (fixed) ---
 const ARENA_SIZE := Vector2(32.0, 14.4)   # 20:9 like a phone screen
@@ -146,6 +148,8 @@ var character := 0
 var player_color := 0
 ## Points that win a Play match (one of MatchMode.TARGETS). Saved with the settings like `character`, not reset.
 var target_score := MatchMode.DEFAULT_TARGET
+## The game mode of a Play match (GameMode). Saved with the settings like `target_score`, not reset by Reset; Training ignores it.
+var game_mode := GameMode.FFA
 ## Players in a Play match (MIN_PLAYERS..NUM_PLAYERS): you plus bots in Solo, the room size when hosting. Saved with the
 ## settings like `character`, not reset by Reset.
 var player_count := DEFAULT_PLAYERS
@@ -197,6 +201,7 @@ func to_dict() -> Dictionary:
 	d["character"] = character
 	d["player_color"] = player_color
 	d["target_score"] = target_score
+	d["game_mode"] = int(game_mode)
 	d["player_count"] = player_count
 	d["map"] = map
 	return d
@@ -211,6 +216,8 @@ func from_dict(d: Dictionary) -> void:
 	player_color = posmod(int(pcol), COLOR_COUNT) if (pcol is int or (pcol is float and is_finite(pcol))) else 0
 	var ts: Variant = d.get("target_score")
 	target_score = int(ts) if (ts is int or (ts is float and is_finite(ts))) and MatchMode.TARGETS.has(int(ts)) else MatchMode.DEFAULT_TARGET
+	var gm: Variant = d.get("game_mode")
+	game_mode = (clampi(int(clampf(float(gm), -1000.0, 1000.0)), GameMode.FFA, GameMode.POTATO) as GameMode) if (gm is int or (gm is float and is_finite(gm))) else GameMode.FFA
 	var pc: Variant = d.get("player_count")
 	player_count = clampi(int(clampf(float(pc), -1000.0, 1000.0)), MIN_PLAYERS, NUM_PLAYERS) if (pc is int or (pc is float and is_finite(pc))) else DEFAULT_PLAYERS
 	var mp: Variant = d.get("map")

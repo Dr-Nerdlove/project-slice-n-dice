@@ -9,6 +9,17 @@ const PLAYER_COLORS: Array[Color] = [Color("ff2e88"), Color("00c2ff"), Color("7d
 	Color("a45cff"), Color("ffd400"), Color("e53935"), Color("2f4bd9")]
 
 
+## The two team colours of the floor ring in Teams (Red, Blue): clear and far apart from each other.
+const TEAM_COLORS: Array[Color] = [Color("e8201a"), Color("1f5cff")]
+
+
+## The colour of the floor ring under a figure: the team colour in Teams, else the personal colour.
+static func ring_color_of(sim: Sim, i: int) -> Color:
+	if sim.mode.is_team_mode():
+		return TEAM_COLORS[clampi(sim.mode.team_of(i), 0, TEAM_COLORS.size() - 1)]
+	return color_of(sim.players[i])
+
+
 ## The drawn colour of a player.
 static func color_of(p: SimPlayer) -> Color:
 	return PLAYER_COLORS[posmod(p.color, PLAYER_COLORS.size())]
@@ -29,6 +40,8 @@ const WIRE_LETHAL_COLOR := Color(1.0, 0.1, 0.08)
 const WIRE_BLINK_TIME := 0.8
 const SHARD_COLOR := Color(1.0, 0.95, 0.5)
 const EXPLOSION_COLOR := Color(1.0, 0.55, 0.15)
+## Hot Potato: the radius of the explosion picture when a bomb goes off (the blast itself hurts nobody).
+const BOMB_BLAST_VIEW := 2.2
 const FLASH_PERIOD := 0.08
 const GROW_TIME := 0.15           # a thrown yo-yo grows to its real size over this time, a caught one shrinks back
 const HELD_SCALE := 0.7           # a yo-yo in the hand is drawn at this fraction of the NORMAL head radius
@@ -53,6 +66,7 @@ var _figures: Array[ToyFigure] = []
 var playroom: Playroom
 var _zone: ZoneView
 var _overhead: OverheadView
+var _bombs: BombView
 var _heads: Array = []     # per player: Array[Node3D]
 var _grow: Array = []      # per player: Array[float], 0 = drawn as held (normal size), 1 = thrown (real size)
 var _string_segs: Array[MeshInstance3D] = []   # pool: one box per string segment, reused every frame
@@ -65,6 +79,7 @@ var _wire_glow: Array[MeshInstance3D] = []
 var _shard_nodes: Array[MeshInstance3D] = []
 var _aim_marks: Array[MeshInstance3D] = []
 var _ring: MeshInstance3D
+var _shown_ring: Array[Color] = []   # per player: the colour of the floor ring its figure was built with
 var _shown_color: Array[int] = []   # per player: the palette index its figure, yo-yos and aim mark are built with
 var _spin := 0.0
 var _time := 0.0
@@ -174,6 +189,10 @@ func _build_arena() -> void:
 	_overhead.name = "Overhead"
 	add_child(_overhead)
 	_overhead.build(sim.players.size())
+	_bombs = BombView.new()
+	_bombs.name = "Bombs"
+	add_child(_bombs)
+	_bombs.build(sim.players.size())
 
 
 ## The room for the map of the sim that is drawn now, in place of the old one.
@@ -192,7 +211,8 @@ func _build_players() -> void:
 	for i in sim.players.size():
 		var col := color_of(sim.players[i])
 		_shown_color.append(posmod(sim.players[i].color, PLAYER_COLORS.size()))
-		var fig := ToyFigure.new(posmod(sim.players[i].skin, ToyFigure.NAMES.size()), col)
+		_shown_ring.append(ring_color_of(sim, i))
+		var fig := ToyFigure.new(posmod(sim.players[i].skin, ToyFigure.NAMES.size()), col, _shown_ring[i])
 		add_child(fig)
 		_bodies.append(fig)
 		_figures.append(fig)
@@ -366,6 +386,13 @@ func handle_event(e: Dictionary) -> void:
 		"explosion":
 			_explosion(pos, e["radius"] as float)
 			shake(Config.SHAKE_STRENGTH * 0.5, Config.SHAKE_TIME * 0.6)
+		"bomb_pass":
+			var to_pos: Vector2 = sim.players[e["to"] as int].pos
+			burst(to_pos, Color(1.0, 0.7, 0.2), 14, 4.5)
+			burst(sim.players[e["from"] as int].pos, Color(1, 1, 1), 6, 2.5)
+		"bomb_explode":
+			_explosion(pos, BOMB_BLAST_VIEW)
+			shake(Config.SHAKE_STRENGTH * 0.7, Config.SHAKE_TIME)
 		"wire":
 			burst(pos, color_of(sim.players[e["owner"] as int]), 12, 4.0)
 		"pickup":
@@ -530,7 +557,7 @@ func _recolor_extras(i: int) -> void:
 ## Replaces the figure of player `i` by another kind (the player chose a different one).
 func _swap_figure(i: int, skin: int) -> ToyFigure:
 	var old := _figures[i]
-	var fig := ToyFigure.new(posmod(skin, ToyFigure.NAMES.size()), PLAYER_COLORS[_shown_color[i]])
+	var fig := ToyFigure.new(posmod(skin, ToyFigure.NAMES.size()), PLAYER_COLORS[_shown_color[i]], _shown_ring[i])
 	add_child(fig)
 	if _ring.get_parent() == old:
 		old.remove_child(_ring)
@@ -595,9 +622,11 @@ func render(alpha: float, delta: float) -> void:
 		var ci := posmod(p.color, PLAYER_COLORS.size())
 		if ci != _shown_color[i]:
 			_shown_color[i] = ci
+			_shown_ring[i] = ring_color_of(src, i)
 			_recolor_extras(i)
 			fig = _swap_figure(i, p.skin)
-		elif fig.kind != posmod(p.skin, ToyFigure.NAMES.size()):
+		elif fig.kind != posmod(p.skin, ToyFigure.NAMES.size()) or ring_color_of(src, i) != _shown_ring[i]:
+			_shown_ring[i] = ring_color_of(src, i)   # a skin change, or the team changed (or the mode)
 			fig = _swap_figure(i, p.skin)
 		var base_r: float = src.cfg.head_radius
 		# A yo-yo in the left hand (Twin): the left arm is held out like the right one.
@@ -621,8 +650,9 @@ func render(alpha: float, delta: float) -> void:
 			lift = MapDef.air_height(p.air_t + (1.0 - a) / Config.TICK_RATE)
 			fig.position.y = lift
 		# Markers above the head (modifiers, YOU, zone countdown); the zone timer comes from the figure's source.
-		var top := Vector3(pos.x, HEAD_RADII_Y * pr + lift, pos.y)
+		var top := Vector3(pos.x, OverheadView.anchor_radii(src, i) * pr + lift, pos.y)
 		_overhead.show_player(i, camera, top, src, sim, _local_slot, color_of(p))
+		_bombs.show_player(i, src, pos, lift, pr, _time)   # Hot Potato: from the same sim as the figure
 		_aim_marks[i].visible = false
 		_lethal_discs[i].visible = false
 		var heads: Array = _heads[i]

@@ -169,6 +169,47 @@ model for rhythm and feel only; nothing of an existing game is copied (see secti
 - The mode is its own unit in the code, so later modes (e.g. teams, kill count) can plug in their own rules for
   "round over", "who scores" and "match over".
 
+### Game modes and Teams (decided by the owner on 2026-11-17)
+
+- **Modes:** `Config.GameMode` = FFA (Last Standing, as above), TEAMS, POTATO (Hot Potato, see below). The host picks the mode in the Play lobby; it is saved with the settings, copied into the Play config
+  and sent to joiners in the welcome. Training is always free for all.
+- **Targets stay 10 / 15 / 20 in every mode** (decided by the owner; no per-mode targets). In Teams the target counts
+  the team's points.
+- **Teams:** two teams, Red and Blue, 2v2, 3v3 or 4v4 (the player count is even: an odd one snaps up). **No friendly
+  fire**: a player's yo-yo, body, blast, shard, wire and stomp never hurt a teammate (heads of teammates pass through
+  each other). The train, the zone, lava and the thrower's own blast hit everybody.
+- **A round ends when at most one team has a living player; that team scores one point for every member**, dead or
+  away ones included. If both teams are wiped out in the same tick nobody scores. The first team to the target wins.
+  Coins are per player with the usual formulas; every member of the scoring team gets the survivor coins ("team win").
+  The shop is unchanged.
+- **Lobby:** the host's bots fill the empty seats. A joining human is placed on the team with fewer humans (replacing
+  a bot there). Before a match and after one a player can switch to the other team: the switch **swaps** with a bot (or
+  an empty seat) of the other team, so the teams stay the same size; refused when every seat there is a human or while
+  a match runs. A match starts only with the same number of players on each team.
+- **Colours:** Red uses the warm half of the palette, Blue the cool half.
+
+#### Hot Potato (decided by the owner on 2026-11-17, free for all)
+
+- **One bomb at a time.** The carrier passes it on by hitting someone with the yo-yo or any attack of his modifiers
+  (everything that goes through `Sim._hit`): the victim takes the bomb and is not hurt. **Yo-yo hits are never lethal
+  in this mode.** A hit by anybody else only stuns the victim for 0.6 s (no new stun while stunned; stunning the
+  carrier helps to escape). Only the bomb, the train, lava and the other hazards of a map kill. A player's own blast
+  does nothing to him.
+- **No tag-back:** for 1.5 s the bomb cannot go back to the player who just passed it; the new carrier's hits on him
+  only stun, and the passer's own yo-yo on the new carrier does nothing meanwhile.
+- **The carrier is 15 % faster** (walking, not dashes).
+- **The fuse has no dice** (competitive, must be readable): 8 s plus 2 s per player alive, fixed when the bomb is given
+  out and not reset by passes. The first bomb goes to a random alive player (the sim's seeded rng) with the first tick
+  of PLAY. When the fuse runs out the carrier dies; the last passer gets the kill (and the coin), the blast hurts
+  nobody else. If the carrier dies another way the bomb is gone. The next bomb comes 2 s after a bomb is gone, to a
+  random alive player. A round ends like Last Standing (the last one alive scores one point); targets 10 / 15 / 20.
+- **No shrinking zone** in this mode; the shop is unchanged.
+- **Bots:** the carrier hunts the nearest player he can see (not the one in the tag-back lock) with a short wait
+  (0.3 to 0.8 s) before a throw; the others run to a free spot away from the carrier while he is within 7 m, throw at
+  him when they have a clear line (a stun) and rarely at anybody else.
+- **Look:** a toy bomb over the carrier's head, a fuse stick that shrinks with the fuse and a spark at its tip; in the
+  last 3 s it blinks red, faster towards 0. No numbers on screen.
+
 ### Maps and map rotation
 
 More maps with their own design follow later (decided by the owner on 2026-11-15), so the match needs a **map

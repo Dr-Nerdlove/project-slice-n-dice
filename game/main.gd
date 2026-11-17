@@ -136,6 +136,7 @@ func _ready() -> void:
 	lobby.stop_requested.connect(func() -> void: _leave_online("closed"))
 	lobby.start_match_requested.connect(_start_hosted_match)
 	lobby.rejoin_requested.connect(_rejoin)
+	lobby.switch_team_requested.connect(_switch_team)
 
 	pause = PauseMenu.new()
 	add_child(pause)
@@ -169,7 +170,8 @@ func _make_play_cfg() -> Config:
 	c.character = train_cfg.character
 	c.player_color = train_cfg.player_color
 	c.target_score = train_cfg.target_score
-	c.player_count = train_cfg.player_count
+	c.game_mode = train_cfg.game_mode
+	c.player_count = TeamStanding.even_count(train_cfg.player_count) if c.game_mode == Config.GameMode.TEAMS else train_cfg.player_count   # Teams: even
 	c.map = Config.MAP_ROTATE   # Play rotates the maps; the map chosen in Training is never used here
 	c.bot_mode = Config.BotMode.ACTIVE
 	return c
@@ -210,9 +212,9 @@ func _update_blocked() -> void:
 
 
 ## Replaces the offline sim (and the bots) by a fresh one built from `c`, and points view and HUD at it.
-func _new_sim(c: Config) -> void:
+func _new_sim(c: Config, mode_kind := -1) -> void:
 	cfg = c
-	sim = Sim.new(cfg, SIM_SEED)
+	sim = Sim.new(cfg, SIM_SEED, mode_kind)
 	bots = _make_bots()
 	_applied_bot_mode = -1
 	_apply_bot_mode()
@@ -269,7 +271,7 @@ func start_training() -> void:
 		_leave_online("closed", false)
 	_forget_last_game()
 	training = true
-	_new_sim(train_cfg)
+	_new_sim(train_cfg, Config.GameMode.FFA)   # Training is always free for all, whatever game mode is saved
 	_set_screen(Screen.GAME)
 
 
@@ -312,16 +314,28 @@ func _can_rematch() -> bool:
 	return (not _online and not _reconnecting) or local_host != null
 
 
-## The start controls of the lobby (host: Start match, enabled with two players; joiner: waiting).
+## The start controls of the lobby (host: Start match, enabled when `Sim.can_start`; joiner: waiting).
 func _refresh_start() -> void:
 	var can := false
 	if local_host != null and _online:
-		var n := 0
-		for p in local_host.core.sim.players:
-			if p.enabled:
-				n += 1
-		can = n >= 2
+		can = local_host.core.sim.can_start()
 	lobby.set_start(local_host != null, _online, can)
+	# A joiner reads the host's game settings from the welcome; Teams: the team line and the switch button.
+	lobby.set_host_cfg(client.cfg if _online and local_host == null and client.state == ClientCore.State.ONLINE else null)
+	if _online and client.sim.mode.is_team_mode():
+		var tm := client.sim.mode
+		var counts := [0, 0]
+		for i in client.sim.players.size():
+			if client.sim.players[i].enabled:
+				counts[clampi(tm.team_of(i), 0, 1)] += 1
+		var ph := tm.phase
+		lobby.set_teams(counts[0], counts[1], tm.team_of(client.slot), ph == MatchMode.Phase.OFF or ph == MatchMode.Phase.MATCH_OVER)
+
+
+## "Switch team" in the lobby: asks the server to move the own player to the other team.
+func _switch_team() -> void:
+	if client != null and _online:
+		client.send_team()
 
 
 ## The pause button, Escape, and Resume. Training opens / closes the tuning menu, Play the pause panel.

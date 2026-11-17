@@ -4,15 +4,16 @@ extends RefCounted
 ## broadcast; a phone that looks for games listens for those. This is an extra: joining by code (LanCode)
 ## works without it, and on iOS broadcast needs an Apple entitlement.
 ##
-## Packet (10 bytes, big endian): "SND1", protocol version u16, game port u16, players u8, max players u8.
+## Packet (11 bytes, big endian): "SND2", protocol version u16, game port u16, players u8, max players u8, game mode u8
+## (`Config.GameMode`).
 ## Hand-rolled instead of var_to_bytes: a malformed packet from anyone on the network must not make the
 ## engine print errors.
 
 const PORT := 24566
 const INTERVAL_MS := 1000
 const EXPIRE_MS := 3500
-const MAGIC := "SND1"
-const PACKET_SIZE := 10
+const MAGIC := "SND2"
+const PACKET_SIZE := 11
 const MAX_PACKETS_PER_POLL := 64
 const MAX_GAMES := 16
 
@@ -21,10 +22,10 @@ var _dest_port := PORT
 var _extra_targets: Array = []
 var _next_announce_ms := 0
 var _announced := false
-var _games := {}    # "ip:port" -> {"ip", "port", "players", "max", "seen"}
+var _games := {}    # "ip:port" -> {"ip", "port", "players", "max", "mode", "seen"}
 
 
-static func build(proto_version: int, game_port: int, players: int, max_players: int) -> PackedByteArray:
+static func build(proto_version: int, game_port: int, players: int, max_players: int, game_mode := 0) -> PackedByteArray:
 	var b := PackedByteArray()
 	b.resize(PACKET_SIZE)
 	var m := MAGIC.to_ascii_buffer()
@@ -34,19 +35,21 @@ static func build(proto_version: int, game_port: int, players: int, max_players:
 	b.encode_u16(6, clampi(game_port, 0, 65535))
 	b[8] = clampi(players, 0, 255)
 	b[9] = clampi(max_players, 0, 255)
+	b[10] = clampi(game_mode, 0, 255)
 	return b
 
 
-## {"version", "port", "players", "max"}, or {} when the packet is not a valid announcement.
+## {"version", "port", "players", "max", "mode"}, or {} when the packet is not a valid announcement.
 static func parse(data: PackedByteArray) -> Dictionary:
 	if data.size() != PACKET_SIZE or data.slice(0, 4) != MAGIC.to_ascii_buffer():
 		return {}
 	var port := data.decode_u16(6)
 	var players := data[8]
 	var max_players := data[9]
-	if port == 0 or players > max_players:
+	var mode := data[10]
+	if port == 0 or players > max_players or mode > Config.GameMode.POTATO:
 		return {}
-	return {"version": data.decode_u16(4), "port": port, "players": players, "max": max_players}
+	return {"version": data.decode_u16(4), "port": port, "players": players, "max": max_players, "mode": mode}
 
 
 # ---------------------------------------------------------------- announcer (the host)
@@ -63,12 +66,12 @@ func start_announcing(dest_port := PORT, extra_targets: Array = []) -> void:
 
 ## Sends at most once per INTERVAL_MS: to the global broadcast address, to the directed broadcast of every
 ## local IPv4 network (assuming /24) and to the extra targets. Errors are ignored.
-func announce(now_ms: int, players: int, max_players: int, game_port := NetProto.DEFAULT_PORT) -> void:
+func announce(now_ms: int, players: int, max_players: int, game_port := NetProto.DEFAULT_PORT, game_mode := 0) -> void:
 	if _sock == null or (_announced and now_ms < _next_announce_ms):
 		return
 	_announced = true
 	_next_announce_ms = now_ms + INTERVAL_MS
-	var packet := build(NetProto.VERSION, game_port, players, max_players)
+	var packet := build(NetProto.VERSION, game_port, players, max_players, game_mode)
 	for target: String in broadcast_targets(IP.get_local_interfaces(), _extra_targets):
 		if _sock.set_dest_address(target, _dest_port) == OK:
 			_sock.put_packet(packet)
@@ -111,7 +114,7 @@ func start_listening(port := PORT) -> int:
 	return OK
 
 
-## The games heard so far, as [{"ip", "port", "players", "max", "code"}] sorted by address and port. Games of
+## The games heard so far, as [{"ip", "port", "players", "max", "mode", "code"}] sorted by address and port. Games of
 ## another protocol version are ignored, entries not heard for EXPIRE_MS vanish. `now_ms` is a parameter so a
 ## test can use a fake clock.
 func poll(now_ms: int) -> Array:
@@ -129,7 +132,7 @@ func poll(now_ms: int) -> Array:
 			var key := "%s:%d" % [ip, g["port"]]
 			if not _games.has(key) and _games.size() >= MAX_GAMES:
 				continue
-			_games[key] = {"ip": ip, "port": g["port"], "players": g["players"], "max": g["max"], "seen": now_ms}
+			_games[key] = {"ip": ip, "port": g["port"], "players": g["players"], "max": g["max"], "mode": g["mode"], "seen": now_ms}
 	for key: String in _games.keys():
 		if now_ms - int(_games[key]["seen"]) > EXPIRE_MS:
 			_games.erase(key)
@@ -138,7 +141,7 @@ func poll(now_ms: int) -> Array:
 	var out: Array = []
 	for key: String in keys:
 		var e: Dictionary = _games[key]
-		out.append({"ip": e["ip"], "port": e["port"], "players": e["players"], "max": e["max"], "code": LanCode.encode(e["ip"])})
+		out.append({"ip": e["ip"], "port": e["port"], "players": e["players"], "max": e["max"], "mode": e["mode"], "code": LanCode.encode(e["ip"])})
 	return out
 
 

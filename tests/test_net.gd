@@ -560,7 +560,7 @@ func test_color() -> void:
 	check("colour net: out-of-range choices on the client wrap into range", (func() -> bool:
 		a.set_color(Config.COLOR_COUNT * 4 + 2)
 		return a._wanted_color == 2).call())
-	check("map net: the protocol version is 15", NetProto.VERSION == 15)
+	check("map net: the protocol version is at least 15", NetProto.VERSION >= 15)
 
 
 func test_skin_delayed() -> void:
@@ -1661,6 +1661,126 @@ func hello_reason(rig: Dictionary, token: Variant = "0123456789abcdef0123456789a
 	return ""
 
 
+# ---------------------------------------------------------------- Teams over the net
+
+## A rig in Teams mode (`players` seats, the server's bots fill them when `with_bots`).
+func team_rig(n_clients: int, with_bots: bool, players := 4, mode := Config.GameMode.TEAMS) -> Dictionary:
+	var hub := LoopbackHub.new(5)
+	var cfg := Config.new()
+	cfg.train_speed = 0.0
+	cfg.game_mode = mode
+	cfg.player_count = players
+	var server := ServerCore.new(cfg, hub.server, 7, with_bots)
+	var clients: Array[ClientCore] = []
+	for i in n_clients:
+		var c := ClientCore.new(hub.connect_client())
+		c.token = "%016x%016x" % [i + 1, 77]
+		clients.append(c)
+	var rig := {"hub": hub, "server": server, "clients": clients}
+	warm_up(rig)
+	return rig
+
+
+func settle(rig: Dictionary, ticks := 12) -> void:
+	for _t in ticks:
+		step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
+
+
+func test_teams_net() -> void:
+	check("teams net: the protocol version is at least 16", NetProto.VERSION >= 16)
+	var rig := team_rig(3, false)
+	var server: ServerCore = rig["server"]
+	var cl: Array = rig["clients"]
+	check("teams net: the welcome carries the game mode and the client builds the Teams rules", cl[0].cfg.game_mode == Config.GameMode.TEAMS and cl[0].sim.mode is TeamStanding and server.sim.mode is TeamStanding)
+	check("teams net: joiners land on the team with fewer humans (slots 0, 1, 2)", [cl[0].slot, cl[1].slot, cl[2].slot] == [0, 1, 2])
+	var ffa := team_rig(1, false, 4, Config.GameMode.FFA)
+	check("teams net: a free for all server gives a free for all client", not (ffa["clients"][0].sim.mode is TeamStanding) and not (ffa["server"].sim.mode is TeamStanding))
+	var dropped := server.dropped_packets
+	cl[0].send_team()
+	settle(rig)
+	check("teams net: a switch swaps with an empty seat of the other team", server.sim.mode.team[0] == 1 and server.sim.mode.team[3] == 0 and server.dropped_packets == dropped)
+	check("teams net: the clients see the new teams in the snapshots", cl[1].sim.mode.team[0] == 1 and cl[0].sim.mode.team[3] == 0)
+	check("teams net: a switch moves the colour into the new half", TeamStanding.COLOR_HALVES[1].has(server.sim.players[0].color))
+	# a fourth human fills the room: the other team has only humans, a switch is refused
+	var rig4 := team_rig(4, false)
+	var s4: ServerCore = rig4["server"]
+	var before: Array = s4.sim.mode.team.duplicate()
+	var d4 := s4.dropped_packets
+	rig4["clients"][0].send_team()
+	settle(rig4)
+	check("teams net: a switch is refused when every seat on the other team is a human", s4.sim.mode.team == before and s4.dropped_packets == d4 + 1)
+	# with bots: a switch swaps with a bot, the bot goes to the other team
+	var rb := team_rig(1, true)
+	var sb: ServerCore = rb["server"]
+	check("teams net: a human replaces a bot, the room stays full", rb["clients"][0].slot == 0 and sb.sim.players.filter(func(p: SimPlayer) -> bool: return p.enabled).size() == 4)
+	rb["clients"][0].send_team()
+	settle(rb)
+	check("teams net: a switch swaps with the first bot of the other team", sb.sim.mode.team[0] == 1 and sb.sim.mode.team[1] == 0 and sb.sim.can_start())
+	var rb2 := team_rig(2, true)
+	check("teams net: a second human joins the team with fewer humans", rb2["clients"][0].slot == 0 and rb2["clients"][1].slot == 1)
+	# a joiner goes to the team with fewer humans even when a lower slot is free on the other team
+	var rj := team_rig(0, true)
+	rj["server"].sim.swap_team(0, 1)   # slot 0 is now on team 1, slot 1 on team 0
+	var late := add_client(rj, "00000000000000aa00000000000000bb")
+	settle(rj)
+	check("teams net: the first human is placed on team 0 (slot 1), not on the lowest free slot", late.state == ClientCore.State.ONLINE and late.slot == 1)
+	# during a match no switch, after it yes; a late stranger is still refused, the returning token is not
+	sb.start_match(10)
+	settle(rb, 30)
+	var team_before: Array = sb.sim.mode.team.duplicate()
+	var d := sb.dropped_packets
+	rb["clients"][0].send_team()
+	settle(rb)
+	check("teams net: no switch while a match runs", sb.sim.mode.team == team_before and sb.dropped_packets == d + 1)
+	check("teams net: a stranger is still refused as started during a match", hello_reason(rb, "abcdef0123456789abcdef0123456789") == "started")
+	sb.sim.mode.phase = MatchMode.Phase.MATCH_OVER
+	rb["clients"][0].send_team()
+	settle(rb, 4)
+	check("teams net: a switch works again when the match is over", sb.sim.mode.team != team_before)
+	# free for all refuses it
+	ffa["clients"][0].send_team()
+	var df: int = ffa["server"].dropped_packets
+	settle(ffa)
+	check("teams net: a free for all server refuses a team switch", ffa["server"].dropped_packets == df + 1)
+	# malformed
+	var raw: LoopbackHub.LoopbackEndpoint = rig["clients"][1].net
+	var dm := server.dropped_packets
+	raw.send(1, NetProto.pack([NetProto.T_TEAM, 1]), true)
+	settle(rig, 4)
+	check("teams net: a switch message with extra data is dropped", server.dropped_packets == dm + 1)
+
+	# the beacon carries the mode
+	var pk := LanBeacon.build(NetProto.VERSION, 24565, 2, 4, Config.GameMode.TEAMS)
+	check("teams net: the beacon packet carries the game mode", LanBeacon.parse(pk).get("mode", -1) == Config.GameMode.TEAMS and LanBeacon.parse(LanBeacon.build(NetProto.VERSION, 24565, 2, 4)).get("mode", -1) == 0 and LanBeacon.parse(LanBeacon.build(NetProto.VERSION, 24565, 2, 4, 9)).is_empty())
+
+# ---------------------------------------------------------------- Hot Potato over the net
+
+func test_potato_net() -> void:
+	check("potato net: the protocol version is at least 17 (the snapshot has the bomb)", NetProto.VERSION >= 17)
+	var rig := team_rig(4, false, 4, Config.GameMode.POTATO)
+	var server: ServerCore = rig["server"]
+	var cl: Array = rig["clients"]
+	check("potato net: the welcome gives the client the Hot Potato rules", cl[0].sim.mode is HotPotato and server.sim.mode is HotPotato)
+	check("potato net: the server starts a match", server.start_match(10))
+	settle(rig, 260)
+	var sm: HotPotato = server.sim.mode
+	check("potato net: a bomb is out on the server", sm.phase == MatchMode.Phase.PLAY and sm.bomb_holder >= 0 and sm.bomb_fuse > 0.0)
+	var c0: HotPotato = cl[0].sim.mode
+	var c1: HotPotato = cl[1].sim.mode
+	check("potato net: the bomb state is the same on the clients", c0.bomb_holder == sm.bomb_holder and c1.bomb_holder == sm.bomb_holder and c0.bomb_fuse == sm.bomb_fuse and c0.bomb_from == sm.bomb_from and absf(c0.bomb_t - sm.bomb_t) < 0.15 and absf(c1.bomb_t - sm.bomb_t) < 0.15, "%d/%d/%d %f/%f/%f" % [sm.bomb_holder, c0.bomb_holder, c1.bomb_holder, sm.bomb_t, c0.bomb_t, c1.bomb_t])
+	# a pass on the server reaches the clients
+	var from: int = sm.bomb_holder
+	var to := (from + 1) % 4
+	server.sim._hit(server.sim.players[to], server.sim.players[from])
+	settle(rig, 30)
+	check("potato net: a pass reaches the clients, with its lock", sm.bomb_holder == to and c0.bomb_holder == to and c1.bomb_holder == to and c0.bomb_from == from and c0.tagback_t > 0.0 and c0.tagback_t <= HotPotato.TAGBACK_TIME)
+	# the fuse runs out on the server: the carrier dies for everybody, the bomb is gone, the clients agree
+	sm.bomb_t = 0.05
+	settle(rig, 20)
+	check("potato net: an explosion kills the carrier on the clients too and the bomb is gone", not cl[0].sim.players[to].alive and not server.sim.players[to].alive and c0.bomb_holder == -1 and c1.bomb_holder == -1 and sm.bomb_holder == -1)
+	settle(rig, 160)
+	check("potato net: the next bomb arrives on the clients", sm.bomb_holder >= 0 and c0.bomb_holder == sm.bomb_holder and c1.bomb_holder == sm.bomb_holder and c0.bomb_fuse == sm.bomb_fuse and sm.bomb_fuse == 14.0)
+
 func test_maps() -> void:
 	var M := MatchMode.Phase
 	# rotation: the client and the server show the same map after every round change
@@ -2630,12 +2750,12 @@ func lan_wait(listener: LanBeacon, now: int, want: Callable, tries := 60) -> Arr
 func test_lan_beacon() -> void:
 	var pk := LanBeacon.build(NetProto.VERSION, 24565, 2, 4)
 	var g := LanBeacon.parse(pk)
-	check("beacon: build and parse round trip", pk.size() == LanBeacon.PACKET_SIZE and g == {"version": NetProto.VERSION, "port": 24565, "players": 2, "max": 4}, str(g))
+	check("beacon: build and parse round trip", pk.size() == LanBeacon.PACKET_SIZE and g == {"version": NetProto.VERSION, "port": 24565, "players": 2, "max": 4, "mode": 0}, str(g))
 	var wrong_magic := pk.duplicate()
 	wrong_magic[0] = 88
 	var pl_over := LanBeacon.build(NetProto.VERSION, 24565, 5, 4)
 	check("beacon: parse refuses a wrong magic, length, port 0 and more players than places",
-			LanBeacon.parse(wrong_magic).is_empty() and LanBeacon.parse(pk.slice(0, 9)).is_empty() and LanBeacon.parse(pk + PackedByteArray([0])).is_empty()
+			LanBeacon.parse(wrong_magic).is_empty() and LanBeacon.parse(pk.slice(0, 10)).is_empty() and LanBeacon.parse(pk + PackedByteArray([0])).is_empty()
 			and LanBeacon.parse(PackedByteArray()).is_empty() and LanBeacon.parse(LanBeacon.build(NetProto.VERSION, 0, 1, 4)).is_empty() and LanBeacon.parse(pl_over).is_empty())
 	check("beacon: garbage of any kind is refused without an engine error", LanBeacon.parse("hello world!".to_utf8_buffer()).is_empty() and LanBeacon.parse(var_to_bytes([1, 2])).is_empty())
 	var targets := LanBeacon.broadcast_targets([{"name": "wlan0", "addresses": ["192.168.1.7", "fe80::1"]}, {"name": "lo", "addresses": ["127.0.0.1"]},
@@ -2650,10 +2770,10 @@ func test_lan_beacon() -> void:
 	check("beacon: nothing heard at the start", listener.poll(0).is_empty())
 	var ann := LanBeacon.new()
 	ann.start_announcing(port, ["127.0.0.1"])
-	ann.announce(0, 2, 4)
+	ann.announce(0, 2, 4, NetProto.DEFAULT_PORT, Config.GameMode.TEAMS)
 	var games := lan_local_only(lan_wait(listener, 100, func(a: Array) -> bool: return not lan_local_only(a).is_empty()))
 	check("beacon: a real UDP round trip finds the game", games.size() == 1 and games[0]["ip"] == "127.0.0.1" and games[0]["port"] == NetProto.DEFAULT_PORT
-			and games[0]["players"] == 2 and games[0]["max"] == 4 and games[0]["code"] == LanCode.encode("127.0.0.1"), str(games))
+			and games[0]["players"] == 2 and games[0]["max"] == 4 and games[0]["mode"] == Config.GameMode.TEAMS and games[0]["code"] == LanCode.encode("127.0.0.1"), str(games))
 	check("beacon: an entry stays while it is heard recently and expires after EXPIRE_MS",
 			listener.poll(100 + LanBeacon.EXPIRE_MS - 100).size() >= 1 and listener.poll(100 + LanBeacon.EXPIRE_MS + 1).is_empty())
 	ann.close()
@@ -3620,13 +3740,214 @@ func test_main_eight() -> void:   # async
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online%d.json" % PORT_OFFSET))
 
 
+## The mode texts of the overlay and the Teams scoreboard (two columns, headers in the team colours).
+func test_mode_overlay() -> void:   # async
+	var ov := MatchOverlay.new()
+	root.add_child(ov)
+	ov.setup()
+	var cfg := Config.new()
+	cfg.game_mode = Config.GameMode.TEAMS
+	cfg.train_speed = 0.0
+	var s := Sim.new(cfg, 3)
+	for k in Config.NUM_PLAYERS:
+		s.set_player_enabled(k, k < 6)
+	s.start_match(10)
+	var m: MatchMode = s.mode
+	m.points = [4, 2, 4, 2, 4, 2, 0, 0]
+	m.phase = MatchMode.Phase.RESULT
+	m.phase_t = 1.0
+	m.last_scorer = 0
+	ov.update(s, 0, true, true, true, 0.0)
+	check("mode overlay: Teams round, own team scores", ov.scorer_label.text == "Your team scores!", ov.scorer_label.text)
+	m.last_scorer = 1
+	ov.update(s, 0, true, true, true, 0.0)
+	check("mode overlay: Teams round, the other team scores", ov.scorer_label.text == "Blue team scores!", ov.scorer_label.text)
+	m.last_scorer = 0
+	ov.update(s, 1, true, true, true, 0.0)
+	check("mode overlay: ... named by its colour for a Blue player", ov.scorer_label.text == "Red team scores!", ov.scorer_label.text)
+	m.last_scorer = -1
+	ov.update(s, 0, true, true, true, 0.0)
+	check("mode overlay: Teams round nobody scores", ov.scorer_label.text == "Nobody scores")
+	m.last_scorer = 0
+	ov.update(s, 0, true, true, true, 0.0)
+	var board: Control = ov.rows_box.get_node_or_null("TeamBoard")
+	var red: Control = board.get_node_or_null("Red") if board != null else null
+	var blue: Control = board.get_node_or_null("Blue") if board != null else null
+	check("mode overlay: the Teams scoreboard has a Red and a Blue column", board != null and red != null and blue != null and board.get_child_count() == 2 and ov.rows_box.get_child_count() == 1)
+	var same := func(a: Color, b: Color) -> bool: return absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b) < 0.02
+	check("mode overlay: each header is in its team colour and says the team's name", red.get_node("Header").text == "Red" and blue.get_node("Header").text == "Blue" and same.call(red.get_node("Header").get_theme_color("font_color"), ArenaView.TEAM_COLORS[0]) and same.call(blue.get_node("Header").get_theme_color("font_color"), ArenaView.TEAM_COLORS[1]))
+	check("mode overlay: the team's points are shown as pips (Red 4, Blue 2 of 10)", (red.get_node("Pips") as ScorePips).points == 4 and (blue.get_node("Pips") as ScorePips).points == 2 and (red.get_node("Pips") as ScorePips).target == 10)
+	check("mode overlay: three member rows per team, the own one first-slot Red", red.get_child_count() == 2 + 3 and blue.get_child_count() == 2 + 3, "%d %d" % [red.get_child_count(), blue.get_child_count()])
+	var dots := 0
+	for row in red.get_children() + blue.get_children():
+		if row is HBoxContainer and row.get_child_count() == 3 and row.get_child(0).has_meta("swatch_color"):
+			dots += 1
+	check("mode overlay: a member row is swatch, name and coin tag", dots == 6)
+	m.phase = MatchMode.Phase.MATCH_OVER
+	m.winner = 0
+	ov.update(s, 0, true, true, true, 0.0)
+	check("mode overlay: own team wins the match", ov.heading_label.text == "Your team wins the match!", ov.heading_label.text)
+	m.winner = 1
+	ov.update(s, 0, true, true, true, 0.0)
+	check("mode overlay: the other team wins the match", ov.heading_label.text == "Blue team wins the match!", ov.heading_label.text)
+	# Hot Potato: who survived the bombs
+	var c2 := Config.new()
+	c2.game_mode = Config.GameMode.POTATO
+	c2.train_speed = 0.0
+	var p := Sim.new(c2, 3)
+	for k in Config.NUM_PLAYERS:
+		p.set_player_enabled(k, k < 4)
+	p.start_match(10)
+	p.mode.phase = MatchMode.Phase.RESULT
+	p.mode.phase_t = 1.0
+	p.mode.last_scorer = 2
+	var nm: String = ToyFigure.NAMES[posmod(p.players[2].skin, ToyFigure.NAMES.size())]
+	ov.update(p, 0, true, true, false, 0.0)
+	check("mode overlay: Hot Potato names who survived the bombs", ov.scorer_label.text == nm + " survived the bombs!", ov.scorer_label.text)
+	p.mode.last_scorer = 0
+	ov.update(p, 0, true, true, false, 0.0)
+	check("mode overlay: ... and says 'You survived the bombs!' for the own slot", ov.scorer_label.text == "You survived the bombs!", ov.scorer_label.text)
+	# free for all: unchanged
+	var f := Sim.new(Config.new(), 3)
+	f.mode.last_scorer = 1
+	check("mode overlay: free for all keeps its words", MatchOverlay.round_text(f, 0, true) == "%s (bot) scores!" % ToyFigure.NAMES[posmod(f.players[1].skin, ToyFigure.NAMES.size())] and MatchOverlay.round_text(f, 1, true) == "You score!")
+	ov.queue_free()
+	await process_frame
+
+
+## Pressing the mode buttons in the real main scene: Solo starts the chosen rules (you on Red in Teams), hosting
+## shows the team line and the Switch team button, Start follows Sim.can_start, found games show their mode.
+func test_main_modes() -> void:   # async
+	NetStore.path = "user://test_online%d.json" % PORT_OFFSET
+	var port := lan_free_port(LAN_PORT_BASE + 130)
+	var bport := lan_free_port(LAN_PORT_BASE + 144)
+	if port == 0 or bport == 0:
+		check("modes main: test ports are free", false)
+		return
+	var main: Node = load("res://main.tscn").instantiate()
+	root.add_child(main)
+	main.local_port = port
+	main.beacon_port = bport
+	main.beacon_targets = ["127.0.0.1"]
+	main.lobby.discovery_port = bport
+	for _i in 5:
+		await process_frame
+	var saved: Array = []
+	main.lobby.save_fn = func(c: Config) -> void: saved.append(int(c.game_mode))
+	main.main_menu.play_btn.pressed.emit()
+	await process_frame
+	main.lobby.mode_buttons[1].pressed.emit()
+	check("modes main: the Teams button is saved and reaches the Play config (even player count)", saved == [1] and main.train_cfg.game_mode == Config.GameMode.TEAMS and main._make_play_cfg().game_mode == Config.GameMode.TEAMS and main._make_play_cfg().player_count % 2 == 0)
+	main.lobby.player_buttons.filter(func(b: Button) -> bool: return b.visible and b.text == "3v3")[0].pressed.emit()
+	main.lobby.solo_btn.pressed.emit()
+	for _i in 3:
+		await process_frame
+	check("modes main: Solo in Teams is a TeamStanding match with 3v3, you on Red, no switch button", main.sim.mode is TeamStanding and main.sim.mode.roster.count(true) == 6 and main.sim.mode.team_of(0) == 0 and main.sim.mode.phase == MatchMode.Phase.COUNTDOWN and not main.lobby.team_label.get_parent().visible)
+	main.pause.main_menu_btn.pressed.emit()
+	main.main_menu.play_btn.pressed.emit()
+	main.lobby.mode_buttons[2].pressed.emit()
+	main.lobby.solo_btn.pressed.emit()
+	for _i in 3:
+		await process_frame
+	check("modes main: Solo in Hot Potato is a HotPotato match", main.sim.mode is HotPotato and main.sim.mode.phase == MatchMode.Phase.COUNTDOWN)
+	main.pause.main_menu_btn.pressed.emit()
+	main.main_menu.play_btn.pressed.emit()
+	main.lobby.mode_buttons[0].pressed.emit()
+	main.lobby.solo_btn.pressed.emit()
+	for _i in 3:
+		await process_frame
+	check("modes main: Solo in free for all is the plain Last Standing", main.sim.mode is LastStanding and not (main.sim.mode is HotPotato) and not (main.sim.mode is TeamStanding))
+	main.pause.main_menu_btn.pressed.emit()
+	# Hosting in Teams with bots: 2v2, the human replaces a bot
+	main.main_menu.play_btn.pressed.emit()
+	main.lobby.mode_buttons[1].pressed.emit()
+	main.lobby.player_buttons.filter(func(b: Button) -> bool: return b.visible and b.text == "2v2")[0].pressed.emit()
+	main._host_local(true)
+	var lob: PlayLobby = main.lobby
+	for _i in 300:
+		await process_frame
+		OS.delay_msec(5)
+		if main.client != null and main.client.state == ClientCore.State.ONLINE and main.client.snapshots_applied > 3:
+			break
+	await process_frame
+	await process_frame
+	check("modes main: hosting in Teams shows the team line and the Switch team button", main.local_host != null and lob.team_label.get_parent().visible and lob.team_label.text == "Red 2 · Blue 2 · You: Red" and not lob.switch_btn.disabled, lob.team_label.text)
+	check("modes main: ... the mode, players and target buttons are disabled", (lob.mode_buttons + lob.target_buttons + lob.player_buttons).all(func(b: Button) -> bool: return b.disabled))
+	var core: ServerCore = main.local_host.core
+	check("modes main: Start follows can_start (even teams: enabled, 'Start match')", lob.start_btn.visible and not lob.start_btn.disabled and lob.start_btn.text == "Start match" and core.sim.can_start())
+	core.sim.set_player_enabled(3, false)
+	# The button reads the client's sim too: wait for a snapshot with the change (slow CI machines need more frames).
+	for _i in 120:
+		await process_frame
+		OS.delay_msec(5)
+		if lob.start_btn.text == "Teams are uneven":
+			break
+	check("modes main: ... uneven teams: disabled and 'Teams are uneven'", lob.start_btn.disabled and lob.start_btn.text == "Teams are uneven" and not core.sim.can_start(), lob.start_btn.text)
+	core.sim.set_player_enabled(3, true)
+	lob.switch_btn.pressed.emit()
+	for _i in 120:
+		await process_frame
+		OS.delay_msec(5)
+		if core.sim.mode.team_of(0) == 1:
+			break
+	for _i in 6:
+		await process_frame
+		OS.delay_msec(5)
+	check("modes main: Switch team sends T_TEAM: the server moved the host's slot to Blue and the line follows", core.sim.mode.team_of(0) == 1 and lob.team_label.text.ends_with("You: Blue"), lob.team_label.text)
+	lob.stop_requested.emit()
+	for _i in 3:
+		await process_frame
+	check("modes main: leaving enables the buttons again", not lob.mode_buttons[0].disabled and not lob.team_label.get_parent().visible)
+	# A found game shows its mode
+	var ann := LocalHost.new()
+	var hcfg := Config.new()
+	hcfg.game_mode = Config.GameMode.TEAMS
+	hcfg.player_count = 6
+	ann.beacon_port = bport
+	ann.beacon_targets = ["127.0.0.1"]
+	var port2 := lan_free_port(LAN_PORT_BASE + 158)
+	if port2 != 0 and ann.start(hcfg, true, port2) == OK:
+		var got := ""
+		for _i in 300:
+			ann.process(0.05)
+			await process_frame
+			OS.delay_msec(10)
+			for key in lob._found_buttons:
+				got = (lob._found_buttons[key] as Button).text
+			if got != "":
+				break
+		check("modes main: a found Teams game shows 'Teams 3v3'", got.ends_with("– Teams 3v3"), got)
+		# Joining it: the lobby shows the HOST's mode, players and target, read-only
+		main.train_cfg.game_mode = Config.GameMode.FFA
+		main.train_cfg.player_count = 4
+		main._join_local("127.0.0.1", port2)
+		for _i in 400:
+			ann.process(0.02)
+			await process_frame
+			OS.delay_msec(5)
+			if main.client != null and main.client.state == ClientCore.State.ONLINE and main.client.snapshots_applied > 3:
+				break
+		for _i in 4:
+			ann.process(0.02)
+			await process_frame
+			OS.delay_msec(5)
+		var shown_p: Array = lob.player_buttons.filter(func(b: Button) -> bool: return b.button_pressed)
+		check("modes main: a joiner sees the host's Teams 3v3 read-only while its own settings stay", main.client != null and main.client.state == ClientCore.State.ONLINE and lob.mode_buttons[1].button_pressed and lob.mode_buttons[1].disabled and shown_p.size() == 1 and shown_p[0].text == "3v3" and main.train_cfg.game_mode == Config.GameMode.FFA and main.train_cfg.player_count == 4 and lob.team_label.get_parent().visible and lob.wait_label.visible)
+		ann.stop()
+	else:
+		check("modes main: second host starts", false)
+	main.queue_free()
+	await process_frame
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_online%d.json" % PORT_OFFSET))
+
+
 ## The Play lobby fits on one screen without scrolling, at every screen size and in its fullest states. The project
 ## stretches with "expand" from 1280 x 576, so the viewport the UI sees is never smaller than that.
 func test_lobby_fits() -> void:   # async
 	var windows := [Vector2(1280, 576), Vector2(1280, 720), Vector2(1024, 768), Vector2(960, 540), Vector2(576, 1280), Vector2(2400, 1080)]
 	var games := [
-		{"ip": "10.0.0.1", "port": 24565, "code": "ABCDE", "players": 3, "max": 8},
-		{"ip": "10.0.0.6", "port": 24565, "code": "WXYZA", "players": 4, "max": 8},
+		{"ip": "10.0.0.1", "port": 24565, "code": "ABCDE", "players": 3, "max": 8, "mode": 1},
+		{"ip": "10.0.0.6", "port": 24565, "code": "WXYZA", "players": 4, "max": 8, "mode": 2},
 		{"ip": "10.0.0.2", "port": 24565, "code": "ABCDE", "players": 3, "max": 8},
 		{"ip": "10.0.0.3", "port": 24565, "code": "FGHJK", "players": 1, "max": 8},
 		{"ip": "10.0.0.4", "port": 24565, "code": "LMNPQ", "players": 7, "max": 8},
@@ -3645,46 +3966,65 @@ func test_lobby_fits() -> void:   # async
 		lobby.discovery_port = 24566 + PORT_OFFSET + 800
 		lobby.open()
 		lobby.set_process(false)   # (the live game list would overwrite the games set below)
-		var states := {
-			"idle": func() -> void:
-				lobby.set_session(false, false, "", 0)
-				lobby._show_found(games)
-				lobby.set_rejoin(true)
-				lobby.set_status("Server is full"),
-			"hosting": func() -> void:
-				lobby._show_found([])
-				lobby.set_session(true, true, "ABCDEFG", 8)
-				lobby.set_start(true, true, true)
-				lobby.set_status("Connected as player 1"),
-			"hosting without address": func() -> void:
-				lobby.set_session(true, true, "", 1)
-				lobby.set_start(true, true, false),
-			"joined": func() -> void:
-				lobby.set_session(false, true, "", 0)
-				lobby.set_start(false, true, false)
-				lobby.set_status("Connected as player 5"),
-		}
-		for state: String in states:
-			states[state].call()
-			for _i in 3:
-				await process_frame
-			var label := "%dx%d (viewport %dx%d) %s" % [w.x, w.y, vp.x, vp.y, state]
-			var joining: bool = state == "idle"
-			check("lobby fits: %s: the joining half and the hint show only when not hosting or connected" % label, lobby._join_box.visible == joining and lobby._hint.visible == joining)
-			check("lobby fits: %s: at most %d games are listed" % [label, PlayLobby.MAX_FOUND], lobby._found_buttons.size() <= PlayLobby.MAX_FOUND and (not joining or lobby._found_buttons.size() == PlayLobby.MAX_FOUND))
-			var margin: Control = lobby.cols.get_parent().get_parent()
-			var need := margin.get_combined_minimum_size()
-			check("lobby fits: %s: the combined minimum size fits the screen" % label, need.x <= vp.x and need.y <= vp.y, "need %s" % str(need))
-			var out := ""
-			for c in lobby.find_children("*", "Control", true, false):
-				var ctl := c as Control
-				if ctl.is_visible_in_tree() and ctl.size.x > 0.0:
-					var r := ctl.get_global_rect()
-					if r.end.x > vp.x + 1.0 or r.end.y > vp.y + 1.0 or r.position.x < -1.0 or r.position.y < -1.0:
-						out = "%s %s" % [ctl.get_class(), str(r)]
-						break
-			check("lobby fits: %s: every control lies inside the screen" % label, out == "", out)
+		for gm: Config.GameMode in [Config.GameMode.FFA, Config.GameMode.TEAMS, Config.GameMode.POTATO]:
+			lobby.set_host_cfg(null)
+			lobby.set_session(false, false, "", 0)
+			lobby.cfg.game_mode = gm
+			lobby._refresh_card()
+			var states := {
+				"idle": func() -> void:
+					lobby.set_host_cfg(null)
+					lobby.set_session(false, false, "", 0)
+					lobby._show_found(games)
+					lobby.set_rejoin(true)
+					lobby.set_status("Server is full"),
+				"hosting": func() -> void:
+					lobby._show_found([])
+					lobby.set_session(true, true, "ABCDEFG", 8)
+					lobby.set_teams(4, 4, 0, true)
+					lobby.set_start(true, true, true)
+					lobby.set_status("Connected as player 1"),
+				"hosting without address": func() -> void:
+					lobby.set_session(true, true, "", 1)
+					lobby.set_teams(3, 4, 1, true)
+					lobby.set_start(true, true, false),
+				"joined": func() -> void:
+					lobby.set_session(false, true, "", 0)
+					var hc := Config.new()
+					hc.game_mode = lobby.cfg.game_mode
+					hc.player_count = 8
+					lobby.set_host_cfg(hc)
+					lobby.set_teams(4, 4, 1, false)
+					lobby.set_start(false, true, false)
+					lobby.set_status("Connected as player 5"),
+			}
+			for state: String in states:
+				states[state].call()
+				for _i in 3:
+					await process_frame
+				var label := "%dx%d (viewport %dx%d) %s, mode %d" % [w.x, w.y, vp.x, vp.y, state, gm]
+				var joining: bool = state == "idle"
+				check("lobby fits: %s: the joining half and the hint show only when not hosting or connected" % label, lobby._join_box.visible == joining and lobby._hint.visible == joining)
+				var in_teams: bool = gm == Config.GameMode.TEAMS
+				check("lobby fits: %s: the team line shows in Teams while hosting or connected only, the mode rows are read-only then" % label, lobby.team_label.get_parent().visible == (in_teams and not joining) and lobby.mode_buttons[1].disabled == (not joining) and lobby.mode_buttons[int(gm)].button_pressed)
+				check("lobby fits: %s: the Players row shows %s" % [label, "2v2 3v3 4v4" if in_teams else "2 to 8"], lobby.player_buttons.filter(func(b: Button) -> bool: return b.visible).size() == (3 if in_teams else 7))
+				check("lobby fits: %s: at most %d games are listed" % [label, PlayLobby.MAX_FOUND], lobby._found_buttons.size() <= PlayLobby.MAX_FOUND and (not joining or lobby._found_buttons.size() == PlayLobby.MAX_FOUND))
+				var margin: Control = lobby.cols.get_parent().get_parent()
+				var need := margin.get_combined_minimum_size()
+				check("lobby fits: %s: the combined minimum size fits the screen" % label, need.x <= vp.x and need.y <= vp.y, "need %s" % str(need))
+				var out := ""
+				for c in lobby.find_children("*", "Control", true, false):
+					var ctl := c as Control
+					if ctl.is_visible_in_tree() and ctl.size.x > 0.0:
+						var r := ctl.get_global_rect()
+						if r.end.x > vp.x + 1.0 or r.end.y > vp.y + 1.0 or r.position.x < -1.0 or r.position.y < -1.0:
+							out = "%s %s" % [ctl.get_class(), str(r)]
+							break
+				check("lobby fits: %s: every control lies inside the screen" % label, out == "", out)
+		lobby.set_host_cfg(null)
 		lobby.set_session(false, false, "", 0)
+		lobby.cfg.game_mode = Config.GameMode.FFA
+		lobby._refresh_card()
 		lobby._show_found([])
 		for kind in Config.SKIN_COUNT:
 			lobby._choose_figure(kind)
@@ -3692,6 +4032,10 @@ func test_lobby_fits() -> void:   # async
 				await process_frame
 			var pv: FigurePreview = lobby.figure_preview
 			check("lobby fits: %dx%d: the preview shows figure %d (%s) completely" % [w.x, w.y, kind, ToyFigure.NAMES[kind]], pv.figure.kind == kind and pv.fits(), "preview size %s" % str(pv.size))
+			if w == Vector2(1280, 576):
+				# Big enough to see (0.14.0: 120 px tall, figures 0.62 to 0.79 of it = 74 to 95 px; now 1.4 to 2.1x that).
+				check("lobby fits: 1280x576: the preview is tall (%d px)" % int(pv.size.y), pv.size.y >= 200.0)
+				check("lobby fits: 1280x576: figure %d (%s) fills at least 50%% of the preview height" % [kind, ToyFigure.NAMES[kind]], pv.height_fraction() >= 0.5, "fraction %.3f" % pv.height_fraction())
 		check("lobby fits: %dx%d: no scroll container anywhere" % [w.x, w.y], lobby.find_children("*", "ScrollContainer", true, false).is_empty())
 		sv.queue_free()
 		await process_frame
@@ -3840,6 +4184,34 @@ func test_screens_fit() -> void:   # async
 	for _i in 3:
 		await process_frame
 	check("shop slots: empty slots have no sell tag", (shop_ui.slots[0]["sell"] as Control).visible and not (shop_ui.slots[1]["sell"] as Control).visible and shop_ui.slots[1]["name"].text == "")
+	# Teams with eight players and target 20: the two-column scoreboard
+	main.pause.main_menu_btn.pressed.emit()
+	main.train_cfg.game_mode = Config.GameMode.TEAMS
+	main.train_cfg.player_count = 8
+	main.train_cfg.target_score = 20
+	main.main_menu.play_btn.pressed.emit()
+	main.lobby.solo_btn.pressed.emit()
+	for _i in 3:
+		await process_frame
+	m = main.sim.mode
+	for k in 8:
+		m.points[k] = 17 + (k % 2)
+		m.coins[k] = 120 + k
+		m.earned[k] = 12
+	m.phase = MatchMode.Phase.RESULT
+	m.phase_t = 1.0
+	m.last_scorer = 1
+	await process_frame
+	var board: Control = main.overlay.rows_box.get_node_or_null("TeamBoard")
+	check("screens fit: the Teams round result with 4 + 4 rows fits", board != null and board.get_child_count() == 2 and main.overlay.panel.visible and first_outside(main.overlay, vp) == "", first_outside(main.overlay, vp))
+	m.phase = MatchMode.Phase.MATCH_OVER
+	m.winner = 0
+	m.phase_t = 1.0
+	await process_frame
+	check("screens fit: the Teams match over panel with Rematch fits", main.overlay.panel.visible and main.overlay.rematch_btn.visible and first_outside(main.overlay, vp) == "" and main.overlay.panel.get_combined_minimum_size().y <= vp.y, str(main.overlay.panel.get_combined_minimum_size()))
+	main.train_cfg.game_mode = Config.GameMode.FFA
+	main.train_cfg.target_score = 10
+	main.train_cfg.player_count = 4
 	check("screens fit: no scroll container in the menus, the lobby and the overlays", main.main_menu.find_children("*", "ScrollContainer", true, false).is_empty() and main.lobby.find_children("*", "ScrollContainer", true, false).is_empty() and main.overlay.find_children("*", "ScrollContainer", true, false).is_empty() and main.pause.find_children("*", "ScrollContainer", true, false).is_empty())
 	main.queue_free()
 	await process_frame
@@ -3853,8 +4225,8 @@ func _initialize() -> void:
 		test_lan_code, test_pick_address, test_lan_beacon, test_local_host, test_menu_local, test_main_local,
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_color, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
-		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_maps, test_zone, test_shop, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
-		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_touch_menu, test_match_flow, test_score_panel_fit, test_main_rejoin, test_eight, test_main_eight, test_lobby_fits, test_screens_fit,
+		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_teams_net, test_potato_net, test_maps, test_zone, test_shop, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
+		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_touch_menu, test_match_flow, test_score_panel_fit, test_main_rejoin, test_eight, test_main_eight, test_main_modes, test_mode_overlay, test_lobby_fits, test_screens_fit,
 	]
 	for g in groups:
 		if stop_early and fails > 0:

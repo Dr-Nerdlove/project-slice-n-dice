@@ -355,6 +355,9 @@ func _on_packet(peer: int, data: PackedByteArray) -> void:
 				sim.set_color(i, msg[1])
 			else:
 				dropped_packets += 1
+		NetProto.T_TEAM:
+			if msg.size() != 1 or not request_team_switch(i):
+				dropped_packets += 1
 		NetProto.T_SHOP:
 			if msg.size() == 4 and msg[1] is int and msg[2] is int and msg[3] is int:
 				apply_shop(i, msg[1], msg[2], msg[3])
@@ -367,6 +370,25 @@ func _on_packet(peer: int, data: PackedByteArray) -> void:
 				dropped_packets += 1
 		_:
 			dropped_packets += 1
+
+
+## Teams: moves human slot `i` to the other team by swapping teams with a seat there that is not a human (a bot or an
+## empty seat inside the room). Only before a match or after one; false (refused) otherwise or when every seat on the
+## other team is a human.
+func request_team_switch(i: int) -> bool:
+	var ph := sim.mode.phase
+	if not sim.mode.is_team_mode() or (ph != MatchMode.Phase.OFF and ph != MatchMode.Phase.MATCH_OVER):
+		return false
+	if i < 0 or i >= cfg.player_count:
+		return false
+	for j in mini(slots.size(), cfg.player_count):
+		if sim.mode.team_of(j) != sim.mode.team_of(i) and not _is_human(j):
+			return sim.swap_team(i, j)
+	return false
+
+
+func _is_human(k: int) -> bool:
+	return slots[k].peer >= 0 or slots[k].away
 
 
 ## One shop action of slot `i` (from the network or the host's own client); the sim checks everything.
@@ -428,9 +450,13 @@ func _on_hello(peer: int, msg: Array) -> void:
 		_reject(peer, "started")
 		return
 	var free := -1
-	for k in mini(slots.size(), cfg.player_count):   # the room holds `player_count` players
-		if slots[k].peer < 0 and not slots[k].away:
-			free = k
+	var want_team := _team_with_fewer_humans()   # Teams: the joiner helps the team with fewer humans (-1: no teams)
+	for only_team in [want_team, -1]:   # first a free seat there, else any free seat
+		for k in mini(slots.size(), cfg.player_count):   # the room holds `player_count` players
+			if slots[k].peer < 0 and not slots[k].away and (only_team < 0 or sim.mode.team_of(k) == only_team):
+				free = k
+				break
+		if free >= 0:
 			break
 	if free < 0:
 		_log("refused a client: server full")
@@ -444,6 +470,17 @@ func _on_hello(peer: int, msg: Array) -> void:
 	sim.set_player_enabled(free, true)
 	net.send(peer, NetProto.pack([NetProto.T_WELCOME, NetProto.VERSION, free, cfg.to_dict()]), true)
 	_log("player %d joined (%d online)" % [free + 1, _peer_slot.size()])
+
+
+## Teams: the team with fewer human players (ties: team 0); -1 without teams.
+func _team_with_fewer_humans() -> int:
+	if not sim.mode.is_team_mode():
+		return -1
+	var n := [0, 0]
+	for k in mini(slots.size(), cfg.player_count):
+		if _is_human(k):
+			n[sim.mode.team_of(k)] += 1
+	return 0 if n[0] <= n[1] else 1
 
 
 func _on_input(s: Slot, msg: Array) -> void:

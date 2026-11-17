@@ -60,6 +60,8 @@ func _initialize() -> void:
 	await test_map_views()
 	await test_wall_rows()
 	await test_overhead()
+	await test_bomb_view()
+	await test_team_ring()
 	await test_preview_framing()
 	await test_main_scene()
 	quit(fails)
@@ -1356,15 +1358,15 @@ func test_overhead() -> void:
 	await process_frame
 ## True when every visible mesh of the preview's figure lies inside the preview's bounds.
 func preview_inside(pv: FigurePreview) -> bool:
-	var box := pv.bounds
+	var box := pv.bounds   # (in the picture's world: the figure stands at the middle, turned as it is drawn)
 	for m in pv.figure.find_children("*", "MeshInstance3D", true, false):
 		var mi := m as MeshInstance3D
-		if not mi.is_visible_in_tree() or mi == pv.figure._shadow:
+		if not mi.is_visible_in_tree() or mi == pv.figure._shadow or mi.name == &"ColorRing":
 			continue
-		var t := pv.figure.global_transform.affine_inverse() * mi.global_transform
+		var t: Transform3D = mi.global_transform   # (the viewport is the world: the figure stands at its origin)
 		for i in 8:
-			var q := t * mi.get_aabb().get_endpoint(i)
-			if Vector2(q.x, q.z).length() > box.size.x * 0.5 + 0.001 or q.y < box.position.y - 0.001 or q.y > box.end.y + 0.001:
+			var q: Vector3 = t * mi.get_aabb().get_endpoint(i)
+			if absf(q.x) > box.size.x * 0.5 + 0.001 or absf(q.z) > box.size.z * 0.5 + 0.001 or q.y < box.position.y - 0.001 or q.y > box.end.y + 0.001:
 				return false
 	return true
 
@@ -1390,3 +1392,172 @@ func test_preview_framing() -> void:   # async
 			check("preview framing: %s: all 8 corners of the bounds are in the picture" % nm, pv.fits())
 			check("preview framing: %s: the figure stays inside its bounds while it walks" % nm, inside and preview_inside(pv))
 	pv.queue_free()
+
+# ---------------------------------------------------------------- Hot Potato bomb
+
+func potato_view_sim(kind := Config.GameMode.POTATO) -> Sim:
+	var cfg := Config.new()
+	cfg.game_mode = kind
+	cfg.train_speed = 0.0
+	var s := Sim.new(cfg, 5)
+	for k in Config.NUM_PLAYERS:
+		s.set_player_enabled(k, k < 4)
+		s.players[k].alive = k < 4
+		s.players[k].prev_pos = s.players[k].pos
+	s.start_match(10)
+	for _t in 200:
+		s.step([SimInput.new(), SimInput.new(), SimInput.new(), SimInput.new(), SimInput.new(), SimInput.new(), SimInput.new(), SimInput.new()])
+	return s
+
+func blink_edges(from_t: float, to_t: float) -> int:
+	var edges := 0
+	var last: bool = BombView.blink_red(from_t)
+	var t := from_t
+	while t > to_t:
+		t -= 0.001
+		var now: bool = BombView.blink_red(t)
+		if now and not last:
+			edges += 1
+		last = now
+	return edges
+
+func test_bomb_view() -> void:
+	var s := potato_view_sim()
+	var m: HotPotato = s.mode
+	check("bomb view: the sim is in a Hot Potato round with a bomb", m.phase == MatchMode.Phase.PLAY and m.bomb_holder >= 0)
+	m.bomb_holder = 1
+	m.bomb_fuse = 16.0
+	m.bomb_t = 16.0
+	check("bomb view: the holder is the carrier, a full fuse is 1", BombView.holder(s) == 1 and is_equal_approx(BombView.fuse_fraction(s), 1.0))
+	m.bomb_t = 4.0
+	check("bomb view: the fuse fraction follows bomb_t", is_equal_approx(BombView.fuse_fraction(s), 0.25))
+	check("bomb view: a shorter fuse draws a shorter stick", BombView.fuse_length(1.0) > BombView.fuse_length(0.5) and BombView.fuse_length(0.5) > BombView.fuse_length(0.1) and BombView.fuse_length(0.0) > 0.0)
+	check("bomb view: no blinking above 3 s, blinking below", not BombView.blink_red(16.0) and not BombView.blink_red(3.01) and BombView.blink_red(2.99) and not BombView.blink_red(-1.0))
+	var early := blink_edges(3.0, 2.0)
+	var late := blink_edges(1.0, 0.0)
+	check("bomb view: the blinking gets faster towards the end", early >= 1 and late > early + 1, "%d vs %d" % [early, late])
+	m.bomb_holder = -1
+	check("bomb view: nobody carries it when there is no bomb", BombView.holder(s) == -1)
+	m.bomb_holder = 2
+	s.players[2].alive = false
+	check("bomb view: a dead player shows no bomb", BombView.holder(s) == -1)
+	s.players[2].alive = true
+	m.phase = MatchMode.Phase.RESULT
+	check("bomb view: no bomb outside a round", BombView.holder(s) == -1)
+	m.phase = MatchMode.Phase.PLAY
+	check("bomb view: no bomb in free for all", BombView.holder(potato_view_sim(Config.GameMode.FFA)) == -1 and BombView.fuse_fraction(potato_view_sim(Config.GameMode.FFA)) == 0.0)
+
+	# on the real arena view
+	var view := ArenaView.new()
+	root.add_child(view)
+	await process_frame
+	view.setup(s)
+	view.use_sim(s, 0)
+	m.bomb_holder = 1
+	m.bomb_fuse = 16.0
+	m.bomb_t = 16.0
+	view.render(1.0, 1.0 / 60.0)
+	var bombs: BombView = view.find_child("Bombs", true, false)
+	var shown: Array = []
+	for i in Config.NUM_PLAYERS:
+		if bombs._nodes[i].visible:
+			shown.append(i)
+	var node: Node3D = bombs._nodes[1]
+	var fig_pos: Vector2 = s.players[1].pos
+	check("bomb view: the bomb shows over the carrier only", shown == [1], str(shown))
+	check("bomb view: ... above his head", is_equal_approx(node.position.x, fig_pos.x) and is_equal_approx(node.position.z, fig_pos.y) and node.position.y > 3.0 * s.cfg.player_radius)
+	var full_len: float = bombs._fuses[1].scale.y
+	m.bomb_t = 4.0
+	view.render(1.0, 1.0 / 60.0)
+	check("bomb view: the fuse stick is shorter after the fuse has burnt down", bombs._fuses[1].scale.y < full_len * 0.6 and bombs._fuses[1].scale.y > 0.0, "%f %f" % [full_len, bombs._fuses[1].scale.y])
+	var calm: Material = bombs._bodies[1].material_override
+	m.bomb_t = 2.99
+	view.render(1.0, 1.0 / 60.0)
+	var red: Material = bombs._bodies[1].material_override
+	check("bomb view: the body turns red when it blinks", red != calm and (red as StandardMaterial3D).albedo_color == BombView.RED and (calm as StandardMaterial3D).albedo_color == BombView.BODY_COLOR)
+	m.bomb_holder = 3
+	view.render(1.0, 1.0 / 60.0)
+	check("bomb view: a pass moves the bomb to the new carrier", bombs._nodes[3].visible and not bombs._nodes[1].visible)
+	# the other players come from the display sim: the bomb follows THAT sim's carrier
+	var other := potato_view_sim()
+	other.mode.bomb_holder = 2
+	other.mode.bomb_fuse = 16.0
+	other.mode.bomb_t = 10.0
+	view.set_others(other, 1.0)
+	view.render(1.0, 1.0 / 60.0)
+	check("bomb view: a figure drawn from the display sim shows that sim's bomb", bombs._nodes[2].visible and not bombs._nodes[3].visible)
+	# the overhead markers (here: YOU) stand above the bomb when their player carries it
+	view.set_others(null, 1.0)
+	m.phase_t = 0.1
+	var pr: float = s.cfg.player_radius
+	m.bomb_holder = 0
+	m.bomb_t = m.bomb_fuse
+	view.render(1.0, 1.0 / 60.0)
+	var spark_top: float = bombs._nodes[0].position.y + (bombs._sparks[0].position.y + 0.1) * pr   # the highest point drawn of the bomb
+	check("bomb view: the marker anchor is above the highest point of the bomb (%.2f above %.2f)" % [OverheadView.anchor_radii(s, 0) * pr, spark_top], OverheadView.anchor_radii(s, 0) * pr > spark_top)
+	var ovh: OverheadView = view._overhead
+	var p0 := s.players[0].pos
+	var bomb_top_y := view.camera.unproject_position(Vector3(p0.x, BombView.TOP_RADII * pr, p0.y)).y
+	check("bomb view: the YOU marker of the carrier is shown", ovh._boxes[0].visible and ovh._you[0].visible)
+	check("bomb view: ... and stands above the bomb (marker anchor y %.0f above bomb top y %.0f)" % [ovh._boxes[0].position.y, bomb_top_y], ovh._boxes[0].position.y < bomb_top_y)
+	m.bomb_holder = 1
+	view.render(1.0, 1.0 / 60.0)
+	var head_y := view.camera.unproject_position(Vector3(p0.x, OverheadView.HEAD_RADII * pr, p0.y)).y
+	check("bomb view: ... but only the carrier's: without the bomb the anchor is the head again", absf(ovh._boxes[0].position.y - head_y) < 0.5, "%f %f" % [ovh._boxes[0].position.y, head_y])
+	check("bomb view: the anchor is higher than the old one by the bomb", OverheadView.anchor_radii(s, 1) > BombView.TOP_RADII and OverheadView.anchor_radii(s, 0) == OverheadView.HEAD_RADII)
+	view.queue_free()
+
+
+## The floor ring under a figure is the team colour in Teams (Red or Blue), the personal colour otherwise; the figure
+## is rebuilt when its team changes; yo-yo and the rest keep the personal colour.
+func test_team_ring() -> void:
+	var ring_of := func(view: ArenaView, i: int) -> Color:
+		var fig: ToyFigure = view._figures[i]
+		return ((fig.find_child("ColorRing", true, false) as MeshInstance3D).material_override as StandardMaterial3D).albedo_color
+	var cfg := Config.new()
+	cfg.game_mode = Config.GameMode.TEAMS
+	cfg.train_speed = 0.0
+	var s := Sim.new(cfg, 5)
+	for k in Config.NUM_PLAYERS:
+		s.set_player_enabled(k, k < 4)
+	var view := ArenaView.new()
+	root.add_child(view)
+	await process_frame
+	view.setup(s)
+	view.use_sim(s, 0)
+	view.render(1.0, 1.0 / 60.0)
+	var red: Color = ArenaView.TEAM_COLORS[0]
+	var blue: Color = ArenaView.TEAM_COLORS[1]
+	var near := func(a: Color, b: Color) -> bool: return absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b) < 0.02
+	check("team ring: the teams have two clearly different colours", ArenaView.TEAM_COLORS.size() == 2 and not near.call(red, blue))
+	check("team ring: in Teams the rings are the team colours (slots 0 and 2 Red, 1 and 3 Blue)", near.call(ring_of.call(view, 0), red) and near.call(ring_of.call(view, 2), red) and near.call(ring_of.call(view, 1), blue) and near.call(ring_of.call(view, 3), blue))
+	var fig0: ToyFigure = view._figures[0]
+	check("team ring: ... while the figure keeps its personal colour for ghosts and the rest", near.call(fig0.player_color, ArenaView.color_of(s.players[0])) and not near.call(fig0.player_color, red))
+	s.swap_team(0, 1)
+	view.render(1.0, 1.0 / 60.0)
+	check("team ring: a switch rebuilds the figure with the new team's ring", near.call(ring_of.call(view, 0), blue) and near.call(ring_of.call(view, 1), red) and view._figures[0] != fig0)
+	var fig2: ToyFigure = view._figures[2]
+	s.mode.team[2] = 1   # only the team changes (the colour stays): the ring still follows
+	view.render(1.0, 1.0 / 60.0)
+	check("team ring: a team change without a colour change rebuilds the figure too", near.call(ring_of.call(view, 2), blue) and view._figures[2] != fig2)
+	view.queue_free()
+	await process_frame
+	for kind in [Config.GameMode.FFA, Config.GameMode.POTATO]:
+		var c2 := Config.new()
+		c2.game_mode = kind
+		c2.train_speed = 0.0
+		var s2 := Sim.new(c2, 5)
+		for k in Config.NUM_PLAYERS:
+			s2.set_player_enabled(k, k < 4)
+		var v2 := ArenaView.new()
+		root.add_child(v2)
+		await process_frame
+		v2.setup(s2)
+		v2.use_sim(s2, 0)
+		v2.render(1.0, 1.0 / 60.0)
+		var ok := true
+		for i in 4:
+			ok = ok and near.call(ring_of.call(v2, i), ArenaView.color_of(s2.players[i]))
+		check("team ring: mode %d keeps the personal colour ring" % kind, ok)
+		v2.queue_free()
+		await process_frame
