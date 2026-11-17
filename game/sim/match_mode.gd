@@ -60,11 +60,12 @@ var map_bag_i := 0
 
 
 ## The rules object for a game mode (`Config.GameMode`). Client and server must build the same class: a snapshot
-## restore keeps the existing instance and only fills its variables. Hot Potato comes later and plays like Last
-## Standing until then.
+## restore keeps the existing instance and only fills its variables. 
 static func create(kind: int) -> MatchMode:
 	if kind == Config.GameMode.TEAMS:
 		return TeamStanding.new()
+	if kind == Config.GameMode.POTATO:
+		return HotPotato.new()
 	return LastStanding.new()
 
 
@@ -125,6 +126,22 @@ func sell_refund(i: int, id: String) -> int:
 ## train, the zone, lava or an own blast.) Free for all: always.
 func harms(_a: int, _v: int) -> bool:
 	return true
+
+
+## Rule hook: an attacker's hit (every harm goes through `Sim._hit`). Returns true when the normal hit (a kill)
+## proceeds. A mode may do something else instead (Hot Potato: pass the bomb or stun). Free for all: `harms`.
+func on_hit(_sim: Sim, a: int, v: int) -> bool:
+	return harms(a, v)
+
+
+## Rule hook: does a player's own blast kill the owner?
+func own_blast_kills() -> bool:
+	return true
+
+
+## Rule hook: factor on the walking speed of slot `i` (not on dashes).
+func speed_mult(_i: int) -> float:
+	return 1.0
 
 
 ## Rule hook: does slot `i` score for the round whose scorer id is `scorer` (what `round_scorer` returned)? Free for

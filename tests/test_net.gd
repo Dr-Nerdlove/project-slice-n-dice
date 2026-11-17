@@ -1687,7 +1687,7 @@ func settle(rig: Dictionary, ticks := 12) -> void:
 
 
 func test_teams_net() -> void:
-	check("teams net: the protocol version is 16", NetProto.VERSION == 16)
+	check("teams net: the protocol version is at least 16", NetProto.VERSION >= 16)
 	var rig := team_rig(3, false)
 	var server: ServerCore = rig["server"]
 	var cl: Array = rig["clients"]
@@ -1752,6 +1752,34 @@ func test_teams_net() -> void:
 	# the beacon carries the mode
 	var pk := LanBeacon.build(NetProto.VERSION, 24565, 2, 4, Config.GameMode.TEAMS)
 	check("teams net: the beacon packet carries the game mode", LanBeacon.parse(pk).get("mode", -1) == Config.GameMode.TEAMS and LanBeacon.parse(LanBeacon.build(NetProto.VERSION, 24565, 2, 4)).get("mode", -1) == 0 and LanBeacon.parse(LanBeacon.build(NetProto.VERSION, 24565, 2, 4, 9)).is_empty())
+
+# ---------------------------------------------------------------- Hot Potato over the net
+
+func test_potato_net() -> void:
+	check("potato net: the protocol version is at least 17 (the snapshot has the bomb)", NetProto.VERSION >= 17)
+	var rig := team_rig(4, false, 4, Config.GameMode.POTATO)
+	var server: ServerCore = rig["server"]
+	var cl: Array = rig["clients"]
+	check("potato net: the welcome gives the client the Hot Potato rules", cl[0].sim.mode is HotPotato and server.sim.mode is HotPotato)
+	check("potato net: the server starts a match", server.start_match(10))
+	settle(rig, 260)
+	var sm: HotPotato = server.sim.mode
+	check("potato net: a bomb is out on the server", sm.phase == MatchMode.Phase.PLAY and sm.bomb_holder >= 0 and sm.bomb_fuse > 0.0)
+	var c0: HotPotato = cl[0].sim.mode
+	var c1: HotPotato = cl[1].sim.mode
+	check("potato net: the bomb state is the same on the clients", c0.bomb_holder == sm.bomb_holder and c1.bomb_holder == sm.bomb_holder and c0.bomb_fuse == sm.bomb_fuse and c0.bomb_from == sm.bomb_from and absf(c0.bomb_t - sm.bomb_t) < 0.15 and absf(c1.bomb_t - sm.bomb_t) < 0.15, "%d/%d/%d %f/%f/%f" % [sm.bomb_holder, c0.bomb_holder, c1.bomb_holder, sm.bomb_t, c0.bomb_t, c1.bomb_t])
+	# a pass on the server reaches the clients
+	var from: int = sm.bomb_holder
+	var to := (from + 1) % 4
+	server.sim._hit(server.sim.players[to], server.sim.players[from])
+	settle(rig, 30)
+	check("potato net: a pass reaches the clients, with its lock", sm.bomb_holder == to and c0.bomb_holder == to and c1.bomb_holder == to and c0.bomb_from == from and c0.tagback_t > 0.0 and c0.tagback_t <= HotPotato.TAGBACK_TIME)
+	# the fuse runs out on the server: the carrier dies for everybody, the bomb is gone, the clients agree
+	sm.bomb_t = 0.05
+	settle(rig, 20)
+	check("potato net: an explosion kills the carrier on the clients too and the bomb is gone", not cl[0].sim.players[to].alive and not server.sim.players[to].alive and c0.bomb_holder == -1 and c1.bomb_holder == -1 and sm.bomb_holder == -1)
+	settle(rig, 160)
+	check("potato net: the next bomb arrives on the clients", sm.bomb_holder >= 0 and c0.bomb_holder == sm.bomb_holder and c1.bomb_holder == sm.bomb_holder and c0.bomb_fuse == sm.bomb_fuse and sm.bomb_fuse == 14.0)
 
 func test_maps() -> void:
 	var M := MatchMode.Phase
@@ -3945,7 +3973,7 @@ func _initialize() -> void:
 		test_lan_code, test_pick_address, test_lan_beacon, test_local_host, test_menu_local, test_main_local,
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_color, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
-		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_teams_net, test_maps, test_zone, test_shop, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
+		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_teams_net, test_potato_net, test_maps, test_zone, test_shop, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
 		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_touch_menu, test_match_flow, test_score_panel_fit, test_main_rejoin, test_eight, test_main_eight, test_lobby_fits, test_screens_fit,
 	]
 	for g in groups:

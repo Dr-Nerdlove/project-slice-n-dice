@@ -29,6 +29,8 @@ const WIRE_LETHAL_COLOR := Color(1.0, 0.1, 0.08)
 const WIRE_BLINK_TIME := 0.8
 const SHARD_COLOR := Color(1.0, 0.95, 0.5)
 const EXPLOSION_COLOR := Color(1.0, 0.55, 0.15)
+## Hot Potato: the radius of the explosion picture when a bomb goes off (the blast itself hurts nobody).
+const BOMB_BLAST_VIEW := 2.2
 const FLASH_PERIOD := 0.08
 const GROW_TIME := 0.15           # a thrown yo-yo grows to its real size over this time, a caught one shrinks back
 const HELD_SCALE := 0.7           # a yo-yo in the hand is drawn at this fraction of the NORMAL head radius
@@ -53,6 +55,7 @@ var _figures: Array[ToyFigure] = []
 var playroom: Playroom
 var _zone: ZoneView
 var _overhead: OverheadView
+var _bombs: BombView
 var _heads: Array = []     # per player: Array[Node3D]
 var _grow: Array = []      # per player: Array[float], 0 = drawn as held (normal size), 1 = thrown (real size)
 var _string_segs: Array[MeshInstance3D] = []   # pool: one box per string segment, reused every frame
@@ -174,6 +177,10 @@ func _build_arena() -> void:
 	_overhead.name = "Overhead"
 	add_child(_overhead)
 	_overhead.build(sim.players.size())
+	_bombs = BombView.new()
+	_bombs.name = "Bombs"
+	add_child(_bombs)
+	_bombs.build(sim.players.size())
 
 
 ## The room for the map of the sim that is drawn now, in place of the old one.
@@ -366,6 +373,13 @@ func handle_event(e: Dictionary) -> void:
 		"explosion":
 			_explosion(pos, e["radius"] as float)
 			shake(Config.SHAKE_STRENGTH * 0.5, Config.SHAKE_TIME * 0.6)
+		"bomb_pass":
+			var to_pos: Vector2 = sim.players[e["to"] as int].pos
+			burst(to_pos, Color(1.0, 0.7, 0.2), 14, 4.5)
+			burst(sim.players[e["from"] as int].pos, Color(1, 1, 1), 6, 2.5)
+		"bomb_explode":
+			_explosion(pos, BOMB_BLAST_VIEW)
+			shake(Config.SHAKE_STRENGTH * 0.7, Config.SHAKE_TIME)
 		"wire":
 			burst(pos, color_of(sim.players[e["owner"] as int]), 12, 4.0)
 		"pickup":
@@ -623,6 +637,7 @@ func render(alpha: float, delta: float) -> void:
 		# Markers above the head (modifiers, YOU, zone countdown); the zone timer comes from the figure's source.
 		var top := Vector3(pos.x, HEAD_RADII_Y * pr + lift, pos.y)
 		_overhead.show_player(i, camera, top, src, sim, _local_slot, color_of(p))
+		_bombs.show_player(i, src, pos, lift, pr, _time)   # Hot Potato: from the same sim as the figure
 		_aim_marks[i].visible = false
 		_lethal_discs[i].visible = false
 		var heads: Array = _heads[i]

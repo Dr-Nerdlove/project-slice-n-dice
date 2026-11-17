@@ -299,6 +299,8 @@ func _initialize() -> void:
 	_eight_tests()
 	_color_tests()
 	_team_tests()
+	_potato_tests()
+	_potato_bot_tests()
 	_coin_tests()
 	_shop_tests()
 	_zone_tests()
@@ -2552,6 +2554,299 @@ func _team_tests() -> void:
 				if e["killer"] % 2 == e["victim"] % 2:
 					friendly += 1
 	check("teams: four bots play and nobody ever kills a teammate", friendly == 0 and kills > 0, "kills=%d friendly=%d" % [kills, friendly])
+
+# ---------------------------------------------------------------- Hot Potato
+
+## A Hot Potato match in play with `only` enabled (map 0 stripped of obstacles), the first bomb already given out.
+func potato_sim(only: Array, seed_value := 3) -> Sim:
+	var s := team_sim(only, 0, Config.GameMode.POTATO)
+	s.rng.seed = seed_value
+	s.start_match(10)
+	to_play(s)
+	return s
+
+## Puts the bomb on `holder` (passed by `from`, -1 none) with a fresh full fuse.
+func give_bomb(s: Sim, holder: int, from := -1) -> void:
+	var m: HotPotato = s.mode
+	m.bomb_holder = holder
+	m.bomb_from = from
+	m.bomb_fuse = HotPotato.fuse_for(s.players.filter(func(p: SimPlayer) -> bool: return p.enabled and p.alive).size())
+	m.bomb_t = m.bomb_fuse
+	m.tagback_t = 0.0
+
+func _potato_tests() -> void:
+	var M := MatchMode.Phase
+	var far := [Vector2(30, 13), Vector2(30, 2)]
+	var s := potato_sim([0, 1, 2, 3])
+	check("potato: the rules class is HotPotato, free for all and teams are not", s.mode is HotPotato and not (mk([0, 1]).mode is HotPotato) and not (team_sim([0, 1]).mode is HotPotato) and MatchMode.create(Config.GameMode.POTATO) is HotPotato)
+	check("potato: a bomb is given out with the first tick of play", s.mode.phase == M.PLAY and s.mode.bomb_holder >= 0 and s.players[s.mode.bomb_holder].alive)
+	# first bomb: the same for the same seed
+	var holders := {}
+	var same := true
+	for sd in 12:
+		var a := potato_sim([0, 1, 2, 3], sd)
+		var b := potato_sim([0, 1, 2, 3], sd)
+		same = same and a.mode.bomb_holder == b.mode.bomb_holder and a.mode.bomb_holder >= 0
+		holders[a.mode.bomb_holder] = true
+	check("potato: the first bomb is the same for the same seed", same)
+	check("potato: the first bomb goes to different players with different seeds", holders.size() >= 2, str(holders.keys()))
+
+	# fuse: a formula of the alive players, no dice
+	check("potato: fuse formula is 8 s plus 2 s per player", HotPotato.fuse_for(4) == 16.0 and HotPotato.fuse_for(2) == 12.0 and HotPotato.fuse_for(8) == 24.0)
+	var fuses := {}
+	for sd in 10:
+		fuses[potato_sim([0, 1, 2, 3], sd).mode.bomb_fuse] = true
+	check("potato: the fuse of a bomb is always the same for the same number of players", fuses.size() == 1 and fuses.keys()[0] == 16.0, str(fuses.keys()))
+	check("potato: three players alive give a fuse of 14 s, two give 12 s", potato_sim([0, 1, 2]).mode.bomb_fuse == 14.0 and potato_sim([0, 1]).mode.bomb_fuse == 12.0)
+	# the fuse ticks
+	var t0: float = s.mode.bomb_t
+	for _t in 60:
+		s.step(idle4())
+	check("potato: the fuse runs down one second per second", absf(t0 - s.mode.bomb_t - 1.0) < 0.02, "%f -> %f" % [t0, s.mode.bomb_t])
+
+	# passing: the carrier's hit passes the bomb, the victim is not hurt
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 0)
+	s.mode.bomb_t = 10.0   # burnt down a bit: a pass must not start it again
+	var fuse_before: float = s.mode.bomb_t
+	s._hit(s.players[1], s.players[0])
+	var evs: Array = s.events.filter(func(e: Dictionary) -> bool: return e["type"] == "bomb_pass")
+	check("potato: a hit by the carrier passes the bomb, the victim lives", s.players[1].alive and s.players[1].deaths == 0 and s.mode.bomb_holder == 1 and s.mode.bomb_from == 0 and evs.size() == 1 and evs[0]["from"] == 0 and evs[0]["to"] == 1)
+	check("potato: a pass does not stun the victim and keeps the fuse running", s.players[1].stun_t == 0.0 and s.mode.bomb_t == fuse_before and s.mode.tagback_t == HotPotato.TAGBACK_TIME)
+	# integration: a real yo-yo throw
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 0)
+	place(s, 0, Vector2(3, 6.3)); place(s, 1, Vector2(10.6, 6.3)); place(s, 2, far[0]); place(s, 3, far[1])
+	throw_i(s, 0, Vector2.RIGHT, 60)
+	check("potato: a yo-yo throw of the carrier passes the bomb and does not kill", s.players[1].alive and s.mode.bomb_holder == 1)
+	# a non-carrier's yo-yo never kills and only stuns
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 2)
+	place(s, 0, Vector2(3, 6.3)); place(s, 1, Vector2(10.6, 6.3)); place(s, 2, far[0]); place(s, 3, far[1])
+	var stunned := false
+	var arr := idle4()
+	for t in 60:
+		arr[0] = inp(Vector2.ZERO, Vector2.RIGHT, true)
+		s.step(arr)
+	arr[0] = inp()
+	for t in 120:
+		s.step(arr)
+		stunned = stunned or s.players[1].stun_t > 0.0
+		arr = idle4()
+	check("potato: a yo-yo of a non-carrier stuns and does not kill", stunned and s.players[1].alive and s.players[1].deaths == 0 and s.mode.bomb_holder == 2)
+	# non-carrier hit: stun 0.6 s, no re-stun while stunned, also on the carrier
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 2)
+	s._hit(s.players[1], s.players[0])
+	check("potato: a hit by a non-carrier stuns for 0.6 s", s.players[1].alive and is_equal_approx(s.players[1].stun_t, HotPotato.POTATO_STUN) and s.mode.bomb_holder == 2)
+	s.players[1].stun_t = 0.2
+	s._hit(s.players[1], s.players[0])
+	check("potato: a stunned player is not stunned again", s.players[1].stun_t == 0.2)
+	s._hit(s.players[2], s.players[0])
+	check("potato: stunning the carrier does not move the bomb", s.players[2].stun_t > 0.0 and s.mode.bomb_holder == 2 and s.players[2].alive)
+
+	# tag-back
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 0)
+	s._hit(s.players[1], s.players[0])
+	s._hit(s.players[1], s.players[0])
+	check("potato: the passer's own hit on the new carrier does nothing at once", s.players[1].stun_t == 0.0 and s.mode.bomb_holder == 1)
+	s._hit(s.players[0], s.players[1])
+	check("potato: the new carrier cannot give the bomb straight back, it stuns instead", s.mode.bomb_holder == 1 and s.players[0].stun_t > 0.0 and s.players[0].alive)
+	for _t in int(HotPotato.TAGBACK_TIME * 60.0) + 2:
+		s.step(idle4())
+	check("potato: the lock ends after 1.5 s", s.mode.tagback_t == 0.0 and s.players[0].stun_t == 0.0)
+	s._hit(s.players[0], s.players[1])
+	check("potato: after the lock the bomb can go back", s.mode.bomb_holder == 0 and s.mode.bomb_from == 1)
+
+	# explosion: the carrier dies, credit to the last passer, nobody else is hurt
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 0, 1)
+	s.mode.bomb_t = 0.02
+	var ev := step_collect(s, 3)
+	var kills: Array = ev.filter(func(e: Dictionary) -> bool: return e["type"] == "kill")
+	check("potato: the fuse kills the carrier with the kill for the last passer", not s.players[0].alive and s.players[1].kills == 1 and kills.size() == 1 and kills[0]["victim"] == 0 and kills[0]["killer"] == 1 and has_event(ev, "bomb_explode"))
+	check("potato: a bomb kill pays the passer's coin", s.mode.round_kills[1] == 1)
+	check("potato: the blast hurts nobody else and the bomb is gone", s.players[1].alive and s.players[2].alive and s.players[3].alive and s.mode.bomb_holder == -1 and s.mode.bomb_gap > 1.9)
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 0)
+	s.mode.bomb_t = 0.02
+	ev = step_collect(s, 3)
+	kills = ev.filter(func(e: Dictionary) -> bool: return e["type"] == "kill")
+	check("potato: a bomb nobody passed gives no kill", not s.players[0].alive and kills[0]["killer"] == -1 and kills[0].get("cause") == "bomb" and s.players[0].kills == 0)
+
+	# the next bomb after the gap
+	for _t in int(HotPotato.BOMB_GAP * 60.0) - 6:
+		s.step(idle4())
+	check("potato: no bomb before the gap is over", s.mode.bomb_holder == -1)
+	for _t in 12:
+		s.step(idle4())
+	check("potato: a new bomb after 2 s goes to an alive player with the fuse of the players left", s.mode.bomb_holder >= 1 and s.players[s.mode.bomb_holder].alive and s.mode.bomb_fuse == 14.0 and s.mode.bomb_from == -1)
+	# the carrier dies of the train: the bomb is gone, a new one comes
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 0, 1)
+	kill_i(s, 0)
+	s.step(idle4())
+	check("potato: a carrier who dies another way takes the bomb with him, no explosion", s.mode.bomb_holder == -1 and s.mode.bomb_gap > 1.9 and s.players[1].kills == 0)
+	for _t in 130:
+		s.step(idle4())
+	check("potato: a new bomb comes after such a death", s.mode.bomb_holder >= 1 and s.players[s.mode.bomb_holder].alive)
+	# round end: the last one alive scores
+	s = potato_sim([0, 1, 2, 3])
+	kill_i(s, 1); kill_i(s, 2)
+	give_bomb(s, 3)
+	kill_i(s, 3)
+	s.step(idle4())
+	check("potato: the round ends with one player alive, who scores", s.mode.phase == M.RESULT and s.mode.points[0] == 1 and s.mode.points[1] == 0)
+
+	# zone off
+	s = potato_sim([0, 1])
+	s.mode.bomb_holder = -1
+	s.mode.bomb_gap = 1e9
+	place(s, 0, Vector2(16, 6.5)); place(s, 1, Vector2(16.0, 9))
+	for _t in 3300:
+		s.step(idle4())
+	check("potato: no shrinking zone: the whole arena all round, nobody dies of it", not s.zone_active() and s.zone_rect() == Rect2(Vector2.ZERO, Config.ARENA_SIZE) and s.mode.zone_t == 0.0 and s.players[0].alive and s.players[1].alive and s.players[0].zone_t == 0.0)
+	check("potato: the zone number over a head shows nothing", OverheadView.zone_number(s, 0) == 0)
+
+	# carrier speed
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 0)
+	place(s, 0, Vector2(3, 3.0)); place(s, 1, Vector2(3, 9.0)); place(s, 2, far[0]); place(s, 3, far[1])
+	var go := [inp(Vector2.RIGHT), inp(Vector2.RIGHT), inp(), inp()]
+	for _t in 30:
+		s.step(go)
+	var dc: float = s.players[0].pos.x - 3.0
+	var dn: float = s.players[1].pos.x - 3.0
+	check("potato: the carrier walks 15 % faster", absf(dc / dn - HotPotato.CARRIER_SPEED) < 0.01, "%f %f" % [dc, dn])
+	check("potato: speed factors are 1 for everybody else and in the other modes", s.mode.speed_mult(1) == 1.0 and mk([0, 1]).mode.speed_mult(0) == 1.0 and team_sim([0, 1]).mode.speed_mult(0) == 1.0)
+
+	# own blast
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 2)
+	place(s, 0, Vector2(10, 6)); place(s, 1, far[0]); place(s, 3, far[1])
+	s._explode(s.players[0], Vector2(10, 6), 2.0)
+	check("potato: an own blast does nothing to the owner", s.players[0].alive and s.players[0].deaths == 0)
+	place(s, 1, Vector2(10.5, 6))
+	s._explode(s.players[0], Vector2(10, 6), 2.0)
+	check("potato: a blast of a non-carrier stuns another player and kills nobody", s.players[1].alive and s.players[1].stun_t > 0.0)
+	# free for all and teams: nothing changed
+	var f := mk([0, 1, 2])
+	var tm := team_sim([0, 1, 2, 3])
+	check("potato: free for all and teams still kill, blast their owner and use the zone", f.mode.on_hit(f, 0, 1) and f.mode.own_blast_kills() and f.mode.uses_zone() and tm.mode.on_hit(tm, 0, 1) and not tm.mode.on_hit(tm, 0, 2) and tm.mode.own_blast_kills() and tm.mode.uses_zone())
+	f = mk([0, 1])
+	place(f, 0, Vector2(10, 6)); f._explode(f.players[0], Vector2(10, 6), 2.0)
+	check("potato: a free for all blast still kills its owner", f.players[0].deaths == 1)
+
+	# free play (no match) in this mode: hits kill as before
+	var fp := team_sim([0, 1], 0, Config.GameMode.POTATO)
+	fp._hit(fp.players[1], fp.players[0])
+	check("potato: outside a match a hit kills as usual", fp.players[1].deaths == 1)
+
+	# a new round starts clean
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 1, 0)
+	s.mode.tagback_t = 1.0
+	kill_i(s, 1); kill_i(s, 2); kill_i(s, 3)
+	s.step(idle4())
+	s.mode.bomb_holder = 1   # a bomb left over from the finished round
+	s.mode.bomb_from = 0
+	next_round(s)
+	check("potato: a new round starts without a bomb", s.mode.phase == M.COUNTDOWN and s.mode.bomb_holder == -1 and s.mode.bomb_from == -1 and s.mode.tagback_t == 0.0 and s.mode.bomb_gap == 0.0)
+
+	# save / load
+	s = potato_sim([0, 1, 2, 3])
+	give_bomb(s, 2, 1)
+	s.mode.tagback_t = 0.8
+	for _t in 100:
+		s.step(idle4())
+	var twin := Sim.new(s.cfg, 99)
+	twin.load_state(bytes_to_var(var_to_bytes(s.save_state())))
+	var tw: HotPotato = twin.mode
+	check("potato: a restored sim has the same bomb", tw.bomb_holder == 2 and tw.bomb_from == 1 and tw.bomb_t == s.mode.bomb_t and tw.bomb_fuse == 16.0 and tw.tagback_t == s.mode.tagback_t and tw.bomb_gap == s.mode.bomb_gap)
+	for _t in 60:
+		s.step(idle4()); twin.step(idle4())
+	check("potato: a restored sim goes on identically", var_to_bytes(s.save_state()) == var_to_bytes(twin.save_state()))
+	s.mode.bomb_t = 0.05; twin.mode.bomb_t = 0.05
+	for _t in 400:
+		s.step(idle4()); twin.step(idle4())
+	check("potato: the restored sim explodes and picks the same next bomb", s.mode.bomb_holder == twin.mode.bomb_holder and s.mode.bomb_holder >= 0 and var_to_bytes(s.save_state()) == var_to_bytes(twin.save_state()))
+
+# Bots in Hot Potato: the carrier closes in on somebody, the others get away from the carrier.
+func _potato_bot_tests() -> void:
+	var gain := true
+	for sd in 4:
+		var s := potato_sim([0, 1, 2], 10 + sd)
+		give_bomb(s, 0)
+		s.mode.bomb_t = 99.0
+		place(s, 0, Vector2(12, 6.5)); place(s, 1, Vector2(19, 6.5)); place(s, 2, Vector2(14, 11.0))
+		var bots := [Bot.new(0, s.cfg, 5 + sd), Bot.new(1, s.cfg, 6 + sd), Bot.new(2, s.cfg, 7 + sd)]
+		var nearest0 := minf(s.players[0].pos.distance_to(s.players[1].pos), s.players[0].pos.distance_to(s.players[2].pos))
+		var min_d := 99.0
+		for t in 120:
+			var ins := [bots[0].think(s, 1.0 / 60.0), inp(), inp(), inp()]
+			# the test keeps the bomb on slot 0 and the others still: only the carrier's movement is judged
+			s.mode.bomb_holder = 0
+			s.mode.tagback_t = 0.0
+			s.step(ins)
+			min_d = minf(min_d, minf(s.players[0].pos.distance_to(s.players[1].pos), s.players[0].pos.distance_to(s.players[2].pos)))
+		gain = gain and (min_d < nearest0 - 1.5 or min_d < 1.8)
+	check("potato bots: the carrier closes in on the nearest player", gain)
+	# the others get farther from the carrier within 2 s (the carrier stands still)
+	var ok := true
+	for sd in 4:
+		var s := potato_sim([0, 1, 2], 20 + sd)
+		give_bomb(s, 0)
+		s.mode.bomb_t = 99.0
+		place(s, 0, Vector2(16, 6.5)); place(s, 1, Vector2(19, 6.5)); place(s, 2, Vector2(13, 8.5))
+		var b1 := Bot.new(1, s.cfg, 5 + sd)
+		var b2 := Bot.new(2, s.cfg, 6 + sd)
+		var d1 := s.players[1].pos.distance_to(s.players[0].pos)
+		var d2 := s.players[2].pos.distance_to(s.players[0].pos)
+		for t in 120:
+			s.step([inp(), b1.think(s, 1.0 / 60.0), b2.think(s, 1.0 / 60.0), inp()])
+		ok = ok and s.players[1].pos.distance_to(s.players[0].pos) > d1 + 1.0 and s.players[2].pos.distance_to(s.players[0].pos) > d2 + 1.0
+	check("potato bots: a player who is not the carrier gets farther from him within 2 s", ok)
+	# the carrier does not hunt the player who just passed the bomb
+	var s := potato_sim([0, 1, 2])
+	give_bomb(s, 0, 1)
+	s.mode.tagback_t = 1.0
+	place(s, 0, Vector2(10, 6.5)); place(s, 1, Vector2(12, 6.5)); place(s, 2, Vector2(20, 6.5))
+	var b := Bot.new(0, s.cfg, 3)
+	check("potato bots: the carrier does not hunt the player who just passed him the bomb", b._nearest_potato_prey(s, s.players[0]) == s.players[2])
+	# a match of bots in Hot Potato goes on, bombs explode and no yo-yo kills
+	var cfg := Config.new()
+	cfg.game_mode = Config.GameMode.POTATO
+	cfg.train_speed = 0.0
+	cfg.player_count = 4
+	var m := Sim.new(cfg, 4)
+	var bs: Array = []
+	for i in 4:
+		bs.append(Bot.new(i, cfg, 30 + i))
+	m.start_match(10)
+	var bombs := 0
+	var yoyo_kills := 0
+	for t in 60 * 400:
+		var ins: Array = []
+		for i in Config.NUM_PLAYERS:
+			ins.append(bs[i].think(m, 1.0 / 60.0) if i < 4 else inp())
+		m.step(ins)
+		var blown := []
+		for e: Dictionary in m.events:
+			if e["type"] == "bomb_explode":
+				bombs += 1
+				blown.append(e["victim"])
+		for e: Dictionary in m.events:
+			# a kill with a killer that is no bomb kill (the bomb's kill carries the passer as the killer)
+			if e["type"] == "kill" and e["killer"] >= 0 and not blown.has(e["victim"]):
+				yoyo_kills += 1
+		if m.mode.phase == MatchMode.Phase.SHOP:
+			for i in 4:
+				m.shop_done(i)
+		if m.mode.phase == MatchMode.Phase.MATCH_OVER:
+			break
+	check("potato bots: four bots keep playing rounds, bombs explode, no yo-yo kills", m.mode.round >= 4 and bombs > 8 and yoyo_kills == 0, "bombs=%d yoyo=%d round=%d" % [bombs, yoyo_kills, m.mode.round])
+
 
 func _coin_tests() -> void:
 	var E := Economy

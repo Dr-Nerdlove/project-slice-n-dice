@@ -11,6 +11,8 @@ Draft, not released yet.
 - **Teams mode (work in progress)**: the rules are in the game (two teams, no friendly fire, every member of the
   winning team scores) and bots play it, but the lobby does not offer it yet. Players on different versions can no
   longer play together.
+- **Hot Potato mode (work in progress)**: one player carries a bomb with a fuse and passes it on by hitting someone;
+  when the fuse runs out he is out. Bots play it, but the lobby does not offer it yet.
 
 ## 0.14.0
 
