@@ -2607,6 +2607,7 @@ func _potato_tests() -> void:
 	# passing: the carrier's hit passes the bomb, the victim is not hurt
 	s = potato_sim([0, 1, 2, 3])
 	give_bomb(s, 0)
+	s.mode.bomb_t = 10.0   # burnt down a bit: a pass must not start it again
 	var fuse_before: float = s.mode.bomb_t
 	s._hit(s.players[1], s.players[0])
 	var evs: Array = s.events.filter(func(e: Dictionary) -> bool: return e["type"] == "bomb_pass")
@@ -2748,6 +2749,8 @@ func _potato_tests() -> void:
 	s.mode.tagback_t = 1.0
 	kill_i(s, 1); kill_i(s, 2); kill_i(s, 3)
 	s.step(idle4())
+	s.mode.bomb_holder = 1   # a bomb left over from the finished round
+	s.mode.bomb_from = 0
 	next_round(s)
 	check("potato: a new round starts without a bomb", s.mode.phase == M.COUNTDOWN and s.mode.bomb_holder == -1 and s.mode.bomb_from == -1 and s.mode.tagback_t == 0.0 and s.mode.bomb_gap == 0.0)
 

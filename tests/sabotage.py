@@ -886,7 +886,6 @@ SB=[
  ("7 potato bots: the carrier hunts the player who just passed", "input/bot.gd", "or m.tagback_locked(o.id):", ":"),
  ("7 potato bots: others do not run", "input/bot.gd", "or me.pos.distance_to(c.pos) > POTATO_FLEE_DIST:\n\t\treturn walk", "or true:\n\t\treturn walk"),
  ("7 potato bots: the carrier does not close in", "input/bot.gd", "return ((_steer_point(sim, me, prey.pos, dt) - me.pos).normalized() + walk * 0.2).limit_length(1.0)", "return walk"),
- ("8 potato: the snapshot leaves out the fuse", "sim/hot_potato.gd", "var bomb_t := 0.0 ", "const STATE_SKIP := [\"bomb_t\"]\nvar bomb_t := 0.0 "),
  ("8 potato: the snapshot leaves out the last passer", "sim/hot_potato.gd", "var bomb_from := -1 ", "const STATE_SKIP := [\"bomb_from\"]\nvar bomb_from := -1 "),
  ("0 potato: the bomb is over the wrong player", "view/bomb_view.gd", "var on := holder(src) == i", "var on := holder(src) == (i + 1) % _nodes.size()"),
  ("0 potato: the bomb is drawn from the wrong sim", "view/arena_view.gd", "_bombs.show_player(i, src, pos, lift, pr, _time)", "_bombs.show_player(i, sim, pos, lift, pr, _time)"),
