@@ -119,6 +119,13 @@ func send_shop(action: int, arg := 0) -> void:
 	net.send(1, NetProto.pack([NetProto.T_SHOP, action, arg, int(sim.mode.shop_seq[slot])]), true)
 
 
+## Asks the server to move the own player to the other team (Teams mode; the server decides, the next snapshots show it).
+func send_team() -> void:
+	if state != State.ONLINE or sim == null:
+		return
+	net.send(1, NetProto.pack([NetProto.T_TEAM]), true)
+
+
 ## The figure the local player wants; sent to the server when it changes.
 func set_skin(k: int) -> void:
 	var clean := posmod(k, Config.SKIN_COUNT)

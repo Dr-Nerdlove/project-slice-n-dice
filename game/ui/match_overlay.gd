@@ -112,8 +112,15 @@ static func coin_text(m: MatchMode, slot: int) -> String:
 	var bits: Array[String] = []
 	for k: String in ["base", "kills", "survivor", "underdog", "leader", "bonus"]:
 		if parts[k] > 0:
-			bits.append("%s %d" % [{"base": "round", "kills": "kills", "survivor": "survivor", "underdog": "underdog", "leader": "leader kill", "bonus": "piggy bank"}[k], parts[k]])
+			bits.append("%s %d" % [{"base": "round", "kills": "kills", "survivor": m.survivor_label(), "underdog": "underdog", "leader": "leader kill", "bonus": "piggy bank"}[k], parts[k]])
 	return "+%d coins: %s" % [m.earned[slot], ", ".join(bits)]
+
+
+## Name of a scorer or winner id: a team name in Teams (the id is a team there), else a slot name.
+static func _side_name(sim: Sim, id: int, own: int, bots_offline: bool) -> String:
+	if sim.mode.is_team_mode():
+		return TeamStanding.NAMES[clampi(id, 0, TeamStanding.TEAM_COUNT - 1)]
+	return player_name(sim, id, own, bots_offline)
 
 
 static func player_name(sim: Sim, slot: int, own: int, bots_offline: bool) -> String:
@@ -170,12 +177,12 @@ func update(sim: Sim, own: int, show_it: bool, can_rematch: bool, bots_offline: 
 func _fill(sim: Sim, own: int, over: bool, bots_offline: bool) -> void:
 	var m := sim.mode
 	if over:
-		var w := player_name(sim, m.winner, own, bots_offline) if m.winner >= 0 else ""
-		heading_label.text = "You win the match!" if m.winner == own else "%s wins the match!" % w
+		var w := _side_name(sim, m.winner, own, bots_offline) if m.winner >= 0 else ""
+		heading_label.text = "You win the match!" if m.won(own) else "%s wins the match!" % w
 		scorer_label.text = ""
 	else:
 		heading_label.text = "Round %d" % m.round
-		scorer_label.text = "Nobody scores" if m.last_scorer < 0 else ("You score!" if m.last_scorer == own else "%s scores!" % player_name(sim, m.last_scorer, own, bots_offline))
+		scorer_label.text = "Nobody scores" if m.last_scorer < 0 else ("You score!" if m.scored(own) else "%s scores!" % _side_name(sim, m.last_scorer, own, bots_offline))
 	for c in rows_box.get_children():
 		rows_box.remove_child(c)
 		c.queue_free()
@@ -189,7 +196,7 @@ func _fill(sim: Sim, own: int, over: bool, bots_offline: bool) -> void:
 		_pop_round = m.round
 	for i: int in slots:
 		rows_box.add_child(make_row(player_name(sim, i, own, bots_offline), ArenaView.color_of(sim.players[i]),
-				m.points[i], m.target, i == own, pop_now and not over and i == m.last_scorer, m.coins[i], m.earned[i]))
+				m.points[i], m.target, i == own, pop_now and not over and m.scored(i), m.coins[i], m.earned[i]))
 	coins_label.text = coin_text(m, own)
 	target_label.text = ("First to %d" % m.target).to_upper()
 

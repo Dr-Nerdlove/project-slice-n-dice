@@ -298,6 +298,7 @@ func _initialize() -> void:
 	_match_tests()
 	_eight_tests()
 	_color_tests()
+	_team_tests()
 	_coin_tests()
 	_shop_tests()
 	_zone_tests()
@@ -2302,6 +2303,255 @@ func _eight_tests() -> void:
 	twin.load_state(bytes_to_var(bytes))
 	check("players 8: the state with eight players survives var_to_bytes", var_to_bytes(twin.save_state()) == bytes)
 
+
+# ---------------------------------------------------------------- Teams
+
+## A Teams sim (slots 0 and 2 are Red, 1 and 3 are Blue) with only the slots in `only` enabled, open floor, no train.
+func team_sim(only: Array, map := 0, kind := Config.GameMode.TEAMS) -> Sim:
+	var cfg := Config.new()
+	cfg.game_mode = kind
+	cfg.map = map
+	cfg.train_speed = 0.0
+	cfg.max_range = 8.0
+	cfg.string_length = 9.0
+	var s := Sim.new(cfg, 3)
+	for i in Config.NUM_PLAYERS:
+		s.set_player_enabled(i, i in only)
+	if map == 0:
+		s.statics.resize(s.wall_count)
+	s.crate_pos = Vector2(-50, -50)
+	s.box_active = false
+	s.box_timer = 9999.0
+	for i in only:
+		s.players[i].alive = true
+	return s
+
+## Did the attack `kind` by slot 0 hit player `v` (1: an enemy, 2: its teammate)? Kinds: head, body, explosion, shard,
+## wire_lethal, wire_stun (then: was it stunned), stomp. The third player (3 - v) is parked far away.
+func team_attack(kind: String, v: int) -> bool:
+	var s := team_sim([0, 1, 2], MapDef.Id.BOUNCE if kind == "stomp" else 0)
+	var a := s.players[0]
+	var other := 3 - v
+	place(s, other, Vector2(30, 13))
+	match kind:
+		"head":
+			place(s, 0, Vector2(3, 6.3)); place(s, v, Vector2(10.6, 6.3))
+			throw_i(s, 0, Vector2.RIGHT, 60)
+		"body":
+			setm(s, 0, {"elastic": 3})
+			place(s, 0, Vector2(5, 6.3)); place(s, v, Vector2(5.9, 6.3))
+			a.fling_left = 1.0
+			s.step(idle4())
+		"explosion":
+			place(s, v, Vector2(10, 6))
+			s._explode(a, Vector2(10.5, 6), 2.0)
+		"shard":
+			place(s, v, Vector2(8, 6.3))
+			var sh := SimShard.new()
+			sh.pos = Vector2(5, 6.3); sh.prev_pos = sh.pos; sh.dir = Vector2.RIGHT; sh.range_left = 10.0; sh.owner_id = 0
+			s.shards.append(sh)
+			for _t in 12:
+				s.step(idle4())
+		"wire_lethal", "wire_stun":
+			place(s, v, Vector2(8, 6.3))
+			var w := SimWire.new()
+			w.pts = PackedVector2Array([Vector2(8, 5), Vector2(8, 8)]); w.owner_id = 0; w.ttl = 5.0
+			w.lethal = kind == "wire_lethal"; w.stun = 1.0
+			s.wires.append(w)
+			s.step(idle4())
+			if kind == "wire_stun":
+				return s.players[v].stun_t > 0.0
+		"stomp":
+			var pad: Array = MapDef.PADS[0]
+			place(s, 0, pad[0]); place(s, v, pad[1] + Vector2(1.0, 0.0))
+			step_collect(s, 5)
+			step_collect(s, int(MapDef.AIR_TIME * 60.0) + 2)
+	return s.players[v].deaths > 0
+
+func _team_tests() -> void:
+	var M := MatchMode.Phase
+	# the mode comes from the config; Training forces free for all
+	check("teams: the config picks the mode class", team_sim([0, 1]).mode is TeamStanding and not (team_sim([0, 1], 0, Config.GameMode.FFA).mode is TeamStanding) and not (team_sim([0, 1], 0, Config.GameMode.POTATO).mode is TeamStanding))
+	var cf := Config.new()
+	cf.game_mode = Config.GameMode.TEAMS
+	check("teams: a mode override beats the config (Training)", not (Sim.new(cf, 1, Config.GameMode.FFA).mode is TeamStanding) and Sim.new(cf, 1).mode is TeamStanding)
+	cf.reset()
+	check("teams: Reset leaves the game mode alone", cf.game_mode == Config.GameMode.TEAMS)
+	var c2 := Config.new()
+	c2.from_dict(cf.to_dict())
+	check("teams: the game mode survives to_dict / from_dict", c2.game_mode == Config.GameMode.TEAMS)
+	c2.from_dict({"game_mode": 99})
+	var hi := c2.game_mode
+	c2.from_dict({"game_mode": "x"})
+	var junk := c2.game_mode
+	c2.from_dict({"game_mode": -4})
+	var lo := c2.game_mode
+	check("teams: a bad game mode is clamped or becomes free for all", hi == Config.GameMode.POTATO and junk == Config.GameMode.FFA and lo == Config.GameMode.FFA)
+	check("teams: an odd player count snaps up to even", TeamStanding.even_count(3) == 4 and TeamStanding.even_count(5) == 6 and TeamStanding.even_count(7) == 8 and TeamStanding.even_count(8) == 8 and TeamStanding.even_count(2) == 2)
+
+	# free for all is as before
+	var f := mk([0, 1, 2])
+	check("teams: free for all harms everybody and the scorer scores alone", f.mode.harms(0, 1) and f.mode.harms(0, 2) and f.mode.scores(1, 1) and not f.mode.scores(0, 1) and not f.mode.scores(0, -1) and f.mode.uses_zone() and f.mode.survivor_label() == "survivor")
+
+	# no friendly fire: every attack source
+	for kind in ["head", "body", "explosion", "shard", "wire_lethal", "wire_stun", "stomp"]:
+		check("teams: %s hits an enemy" % kind, team_attack(kind, 1))
+		check("teams: %s spares a teammate" % kind, not team_attack(kind, 2))
+	# a spared wire stays on the floor, and the thrower's own blast still kills the thrower
+	var s := team_sim([0, 1, 2])
+	place(s, 2, Vector2(8, 6.3)); place(s, 1, Vector2(30, 13))
+	var w := SimWire.new()
+	w.pts = PackedVector2Array([Vector2(8, 5), Vector2(8, 8)]); w.owner_id = 0; w.ttl = 5.0; w.lethal = true
+	s.wires.append(w)
+	s.step(idle4())
+	check("teams: a wire a teammate walks over is not used up", s.wires.size() == 1)
+	s = team_sim([0, 1, 2])
+	place(s, 0, Vector2(10, 6)); place(s, 1, Vector2(30, 13)); place(s, 2, Vector2(30, 2))
+	s._explode(s.players[0], Vector2(10, 6), 2.0)
+	check("teams: an own blast still kills the thrower, without a kill for anybody", s.players[0].deaths == 1 and s.players[0].kills == 0)
+	# the train and the zone still kill a teammate
+	var ts := team_sim([0, 1, 2])
+	ts.cfg.train_speed = Config.DEFAULTS["train_speed"]
+	place(ts, 2, car_pos(ts, 0)); place(ts, 0, Vector2(16, 7)); place(ts, 1, Vector2(30, 13))
+	ts.step(idle4())
+	check("teams: the train kills a player of any team", ts.players[2].deaths == 1 and ts.players[2].kills == 0)
+	var z := team_sim([0, 1, 2, 3])
+	z.start_match(10)
+	to_play(z)
+	z.mode.zone_spot = 0
+	z.mode.zone_t = MatchMode.ZONE_FULL_TIME + MatchMode.ZONE_SHRINK_TIME
+	var spot: Rect2 = Config.ZONE_SPOTS[0]
+	for _t in int((MatchMode.ZONE_DEATH_TIME + 0.5) * 60.0):
+		if z.mode.phase != M.PLAY:
+			break
+		place(z, 0, Vector2(30, 13)); place(z, 2, Vector2(30, 13.5)); place(z, 1, spot.get_center()); place(z, 3, spot.get_center() + Vector2(0.4, 0))
+		z.step(idle4())
+	check("teams: the zone kills both teammates outside it", z.players[0].deaths == 1 and z.players[2].deaths == 1 and z.players[1].deaths == 0)
+
+	# heads of teammates pass through each other, enemy heads do not
+	for other in [2, 1]:
+		var hs := team_sim([0, 1, 2])
+		place(hs, 0, Vector2(3, 3)); place(hs, other, Vector2(3, 10))
+		var ha := hs.players[0].heads[0]
+		var hb: SimHead = hs.players[other].heads[0]
+		ha.state = HS.OUT; ha.pos = Vector2(8, 6); ha.prev_pos = ha.pos
+		hb.state = HS.OUT; hb.pos = Vector2(8.2, 6); hb.prev_pos = hb.pos
+		hs._collide_heads()
+		var moved := ha.pos != Vector2(8, 6) or hb.pos != Vector2(8.2, 6)
+		check("teams: yo-yo heads %s" % ("of teammates pass through each other" if other == 2 else "of enemies still collide"), moved == (other == 1))
+
+	# rounds: the team that has a living player scores for EVERY member
+	s = team_sim([0, 1, 2, 3])
+	s.start_match(10)
+	to_play(s)
+	check("teams: the match starts with the teams 0 1 0 1", s.mode.roster.slice(0, 4) == [true, true, true, true] and s.mode.team == [0, 1, 0, 1, 0, 1, 0, 1])
+	kill_i(s, 0); kill_i(s, 3)
+	s.step(idle4())
+	check("teams: one of each team alive, the round goes on", s.mode.phase == M.PLAY)
+	kill_i(s, 2)
+	s.step(idle4())
+	check("teams: the round ends when one team is wiped out", s.mode.phase == M.RESULT and s.mode.last_scorer == 1)
+	check("teams: every member of the winning team scores, the dead one too", s.mode.points.slice(0, 4) == [0, 1, 0, 1] and s.mode.scored(3) and s.mode.scored(1) and not s.mode.scored(0))
+	check("teams: team points are the members' points", (s.mode as TeamStanding).team_points(1) == 1 and (s.mode as TeamStanding).team_points(0) == 0)
+	check("teams: every member of the winning team gets the survivor coins, labelled team win", s.mode.coin_parts(3, s.mode.last_scorer)["survivor"] == Economy.COINS_SURVIVOR and s.mode.coin_parts(1, s.mode.last_scorer)["survivor"] == Economy.COINS_SURVIVOR and s.mode.coin_parts(0, s.mode.last_scorer)["survivor"] == 0 and s.mode.survivor_label() == "team win" and s.mode.earned[3] == s.mode.earned[1] and s.mode.earned[3] > s.mode.earned[0])
+	s = team_sim([0, 1, 2, 3])
+	s.start_match(10)
+	to_play(s)
+	for i in 4:
+		kill_i(s, i)
+	s.step(idle4())
+	check("teams: both teams wiped out in one tick: nobody scores", s.mode.phase == M.RESULT and s.mode.last_scorer == -1 and s.mode.points.slice(0, 4) == [0, 0, 0, 0])
+	s = team_sim([0, 1, 2, 3])
+	s.start_match(10)
+	to_play(s)
+	for i in 4:
+		s.mode.points[i] = 9 if i % 2 == 0 else 3
+	kill_i(s, 1); kill_i(s, 3)
+	s.step(idle4())
+	check("teams: the first team to the target wins the match", s.mode.phase == M.MATCH_OVER and s.mode.winner == 0 and s.mode.won(0) and s.mode.won(2) and not s.mode.won(1) and s.mode.points.slice(0, 4) == [10, 3, 10, 3])
+	check("teams: the match_over event names the winning team", s.events.any(func(e: Dictionary) -> bool: return e["type"] == "match_over" and e["winner"] == 0))
+
+	# colours stay in the team's half
+	var all := team_sim([0, 1, 2, 3, 4, 5, 6, 7])
+	var okc := true
+	var seen := {}
+	for i in 8:
+		okc = okc and TeamStanding.COLOR_HALVES[i % 2].has(all.players[i].color)
+		seen[all.players[i].color] = true
+	check("teams: at the start every colour is in its team's half and unique", okc and seen.size() == 8)
+	all.set_color(0, 1)
+	check("teams: a colour of the other half becomes one of the own half", TeamStanding.COLOR_HALVES[0].has(all.players[0].color))
+	var uniq := {}
+	for p in all.players:
+		uniq[p.color] = true
+	check("teams: colours stay unique when a player asks for a taken one", uniq.size() == 8)
+	all.assign_colors(2)
+	var half_ok := true
+	var uniq2 := {}
+	for i in 8:
+		half_ok = half_ok and TeamStanding.COLOR_HALVES[i % 2].has(all.players[i].color)
+		uniq2[all.players[i].color] = true
+	check("teams: the offline colour layout keeps the halves and stays unique", half_ok and uniq2.size() == 8)
+	# swapping teams
+	var sw := team_sim([0, 1, 2, 3, 4, 5, 6, 7])
+	check("teams: swapping players of different teams works and moves their colours", sw.swap_team(0, 1) and sw.mode.team[0] == 1 and sw.mode.team[1] == 0 and TeamStanding.COLOR_HALVES[1].has(sw.players[0].color) and TeamStanding.COLOR_HALVES[0].has(sw.players[1].color))
+	var n0 := 0
+	for i in 8:
+		if sw.mode.team[i] == 0:
+			n0 += 1
+	var uniq3 := {}
+	for p in sw.players:
+		uniq3[p.color] = true
+	check("teams: a swap keeps the teams the same size and the colours unique", n0 == 4 and uniq3.size() == 8)
+	check("teams: no swap on the same team, out of range or in free for all", not sw.swap_team(0, 3) and not sw.swap_team(0, 0) and not sw.swap_team(0, 9) and not mk([0, 1]).swap_team(0, 1))
+	# can_start
+	check("teams: a match needs the same number on both teams", not team_sim([0, 1, 2]).can_start() and team_sim([0, 1]).can_start() and not team_sim([0, 2]).can_start() and team_sim([0, 1, 2, 3]).can_start() and not team_sim([0, 1, 2]).start_match(10))
+	check("teams: free for all still needs two", mk([0, 1, 2]).can_start() and not mk([0]).can_start())
+	# snapshot round trip
+	s = team_sim([0, 1, 2, 3])
+	s.start_match(15)
+	s.swap_team(0, 1)
+	to_play(s)
+	kill_i(s, 2)
+	s.step(idle4())
+	var copy := Sim.new(s.cfg, 99)
+	copy.load_state(s.save_state())
+	check("teams: a snapshot restores the teams and the points", copy.mode is TeamStanding and copy.mode.team == s.mode.team and copy.mode.points == s.mode.points and copy.mode.target == 15)
+	copy.step(idle4())
+	s.step(idle4())
+	check("teams: a restored sim goes on identically", copy.save_state() == s.save_state())
+
+	# bots never aim at a teammate
+	s = team_sim([0, 1, 2])
+	place(s, 0, Vector2(5, 6.3)); place(s, 2, Vector2(7, 6.3)); place(s, 1, Vector2(20, 6.3))
+	var bot := Bot.new(0, s.cfg, 5)
+	check("teams: a bot picks the enemy, not the nearer teammate", bot._nearest_enemy(s, s.players[0]) == s.players[1] and bot._nearest_visible_enemy(s, s.players[0]) == s.players[1])
+	s.players[1].alive = false
+	check("teams: a bot with only teammates left has no target", bot._nearest_enemy(s, s.players[0]) == null and bot._nearest_visible_enemy(s, s.players[0]) == null)
+	var ff := team_sim([0, 1, 2, 3])
+	ff.start_match(20)
+	to_play(ff)
+	var bots: Array = []
+	for i in 4:
+		bots.append(Bot.new(i, ff.cfg, 60 + i))
+	var friendly := 0
+	var kills := 0
+	for _t in 3000:
+		var ins: Array = []
+		for i in 4:
+			ins.append(bots[i].think(ff, 1.0 / 60.0))
+		if ff.mode.phase == M.SHOP:
+			for i in 4:
+				ff.shop_done(i)
+		elif ff.mode.phase == M.MATCH_OVER:
+			break
+		ff.step(ins)
+		for e: Dictionary in ff.events:
+			if e["type"] == "kill" and e["killer"] >= 0:
+				kills += 1
+				if e["killer"] % 2 == e["victim"] % 2:
+					friendly += 1
+	check("teams: four bots play and nobody ever kills a teammate", friendly == 0 and kills > 0, "kills=%d friendly=%d" % [kills, friendly])
 
 func _coin_tests() -> void:
 	var E := Economy

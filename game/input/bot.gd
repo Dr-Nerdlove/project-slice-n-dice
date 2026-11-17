@@ -220,8 +220,8 @@ func _pad_bad(sim: Sim, me: SimPlayer, k: int, zone: Rect2) -> bool:
 	if zone != Rect2() and not zone.has_point(land):
 		return true
 	for o in sim.players:
-		if o == me or not (o.enabled and o.alive):
-			continue
+		if o == me or not (o.enabled and o.alive) or not sim.mode.harms(me.id, o.id):
+			continue   # a teammate is no enemy and no danger
 		for h in o.heads:
 			if h.lethal() and h.pos.distance_to(land) < Config.BOT_PAD_HEAD_DIST:
 				return true
@@ -276,8 +276,8 @@ func _nearest_enemy(sim: Sim, me: SimPlayer) -> SimPlayer:
 	var best: SimPlayer = null
 	var best_d := 1e9
 	for o in sim.players:
-		if o == me or not (o.enabled and o.alive):
-			continue
+		if o == me or not (o.enabled and o.alive) or not sim.mode.harms(me.id, o.id):
+			continue   # a teammate is no enemy and no danger
 		var d := o.pos.distance_to(me.pos)
 		if d < best_d:
 			best_d = d
@@ -291,8 +291,8 @@ func _nearest_visible_enemy(sim: Sim, me: SimPlayer) -> SimPlayer:
 	var best: SimPlayer = null
 	var best_d := 1e9
 	for o in sim.players:
-		if o == me or not (o.enabled and o.alive):
-			continue
+		if o == me or not (o.enabled and o.alive) or not sim.mode.harms(me.id, o.id):
+			continue   # a teammate is no enemy and no danger
 		var d := o.pos.distance_to(me.pos)
 		if d < best_d and grid.line_clear(me.pos, o.pos, THROW_CLEARANCE):
 			best_d = d

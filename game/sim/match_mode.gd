@@ -1,7 +1,7 @@
 class_name MatchMode
 extends RefCounted
 ## Round and match state shared by every game mode: the phase machine and the score. The rules of a mode live in
-## the three hooks below (`round_over`, `round_scorer`, `match_winner`), which a subclass overrides.
+## the hooks below (`round_over`, `round_scorer`, `match_winner`, `scores`, `harms`, ...), which a subclass overrides.
 ## `Sim` drives the phases; everything here is plain data, so a snapshot (StateIO) carries it.
 
 ## SHOP comes after RESULT (not after the deciding round); it is last so the numbers of the others stay.
@@ -28,10 +28,10 @@ var round := 0                     # 1-based while a match runs
 var target := DEFAULT_TARGET
 var points: Array = []             # int per slot
 var roster: Array = []             # bool per slot: who takes part, fixed at match start
-var last_scorer := -1              # who scored the last round (-1: nobody)
+var last_scorer := -1              # the scorer id of the last round (-1: nobody): a slot in free for all, a TEAM in Teams; ask `scored(i)`
 var zone_t := 0.0                  # seconds of PLAY in this round so far (kept through RESULT, reset by the next round)
 var zone_spot := 0                 # index into Config.ZONE_SPOTS: where the zone ends this round
-var winner := -1                   # the match winner once MATCH_OVER (-1: none)
+var winner := -1                   # the winner id once MATCH_OVER (-1: none): a slot in free for all, a TEAM in Teams; ask `won(i)`
 ## Coins (numbers in `Economy`), per slot. `coins` is what a player has (saved over rounds, zeroed at match start);
 ## `earned` what the last finished round gave; `round_kills` / `leader_kills` count this round's kills (with kill
 ## credit) and the kills of a leader among them; `underdog` / `leader` are fixed at round start from the points.
@@ -57,6 +57,15 @@ var shop_seq: Array = []
 ## comes once before any repeats; the list is reshuffled when used up (Sim does the drawing).
 var map_bag: Array = []
 var map_bag_i := 0
+
+
+## The rules object for a game mode (`Config.GameMode`). Client and server must build the same class: a snapshot
+## restore keeps the existing instance and only fills its variables. Hot Potato comes later and plays like Last
+## Standing until then.
+static func create(kind: int) -> MatchMode:
+	if kind == Config.GameMode.TEAMS:
+		return TeamStanding.new()
+	return LastStanding.new()
 
 
 func _init() -> void:
@@ -112,6 +121,60 @@ func sell_refund(i: int, id: String) -> int:
 	return int(owned[i].get(id, 0)) * Mods.price(id) / 2
 
 
+## Rule hook: can player `a` hurt player `v` with a yo-yo, a shard, a blast, a wire or a stomp? (Never asked for the
+## train, the zone, lava or an own blast.) Free for all: always.
+func harms(_a: int, _v: int) -> bool:
+	return true
+
+
+## Rule hook: does slot `i` score for the round whose scorer id is `scorer` (what `round_scorer` returned)? Free for
+## all: the scorer id is a slot.
+func scores(i: int, scorer: int) -> bool:
+	return scorer >= 0 and i == scorer
+
+
+## Rule hook: does the shrinking zone exist in this mode?
+func uses_zone() -> bool:
+	return true
+
+
+## Rule hook: extra per-tick rules of a mode, called every tick of phase PLAY before the round end check.
+func step(_sim: Sim, _dt: float) -> void:
+	pass
+
+
+## True for a mode with teams. `team_of(i)` is the team of slot `i` there, -1 without teams.
+func is_team_mode() -> bool:
+	return false
+
+
+func team_of(_i: int) -> int:
+	return -1
+
+
+## Colours slot `i` may take (indices into the player palette), in order of preference. Free for all: all of them.
+func allowed_colors(_i: int) -> Array:
+	var out: Array = []
+	for c in Config.COLOR_COUNT:
+		out.append(c)
+	return out
+
+
+## What the coin line calls the round bonus of the scoring side.
+func survivor_label() -> String:
+	return "survivor"
+
+
+## True when slot `i` shared in the last round's point (`last_scorer` holds the scorer id of the mode).
+func scored(i: int) -> bool:
+	return scores(i, last_scorer)
+
+
+## True when slot `i` is on the winning side of a finished match (`winner` holds the winner id of the mode).
+func won(i: int) -> bool:
+	return winner >= 0 and i == winner
+
+
 ## Rule hook: has the round ended?
 func round_over(_sim: Sim) -> bool:
 	return false
@@ -161,7 +224,7 @@ func coin_parts(i: int, scorer: int) -> Dictionary:
 	return {
 		"base": Economy.COINS_BASE,
 		"kills": Economy.COINS_KILL * int(round_kills[i]),
-		"survivor": Economy.COINS_SURVIVOR if i == scorer else 0,
+		"survivor": Economy.COINS_SURVIVOR if scores(i, scorer) else 0,
 		"underdog": Economy.COINS_UNDERDOG if underdog[i] else 0,
 		"leader": Economy.COINS_LEADER_KILL * int(leader_kills[i]),
 		"bonus": int(bonus[i]),

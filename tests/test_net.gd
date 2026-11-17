@@ -560,7 +560,7 @@ func test_color() -> void:
 	check("colour net: out-of-range choices on the client wrap into range", (func() -> bool:
 		a.set_color(Config.COLOR_COUNT * 4 + 2)
 		return a._wanted_color == 2).call())
-	check("map net: the protocol version is 15", NetProto.VERSION == 15)
+	check("map net: the protocol version is at least 15", NetProto.VERSION >= 15)
 
 
 func test_skin_delayed() -> void:
@@ -1661,6 +1661,98 @@ func hello_reason(rig: Dictionary, token: Variant = "0123456789abcdef0123456789a
 	return ""
 
 
+# ---------------------------------------------------------------- Teams over the net
+
+## A rig in Teams mode (`players` seats, the server's bots fill them when `with_bots`).
+func team_rig(n_clients: int, with_bots: bool, players := 4, mode := Config.GameMode.TEAMS) -> Dictionary:
+	var hub := LoopbackHub.new(5)
+	var cfg := Config.new()
+	cfg.train_speed = 0.0
+	cfg.game_mode = mode
+	cfg.player_count = players
+	var server := ServerCore.new(cfg, hub.server, 7, with_bots)
+	var clients: Array[ClientCore] = []
+	for i in n_clients:
+		var c := ClientCore.new(hub.connect_client())
+		c.token = "%016x%016x" % [i + 1, 77]
+		clients.append(c)
+	var rig := {"hub": hub, "server": server, "clients": clients}
+	warm_up(rig)
+	return rig
+
+
+func settle(rig: Dictionary, ticks := 12) -> void:
+	for _t in ticks:
+		step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
+
+
+func test_teams_net() -> void:
+	check("teams net: the protocol version is 16", NetProto.VERSION == 16)
+	var rig := team_rig(3, false)
+	var server: ServerCore = rig["server"]
+	var cl: Array = rig["clients"]
+	check("teams net: the welcome carries the game mode and the client builds the Teams rules", cl[0].cfg.game_mode == Config.GameMode.TEAMS and cl[0].sim.mode is TeamStanding and server.sim.mode is TeamStanding)
+	check("teams net: joiners land on the team with fewer humans (slots 0, 1, 2)", [cl[0].slot, cl[1].slot, cl[2].slot] == [0, 1, 2])
+	var ffa := team_rig(1, false, 4, Config.GameMode.FFA)
+	check("teams net: a free for all server gives a free for all client", not (ffa["clients"][0].sim.mode is TeamStanding) and not (ffa["server"].sim.mode is TeamStanding))
+	var dropped := server.dropped_packets
+	cl[0].send_team()
+	settle(rig)
+	check("teams net: a switch swaps with an empty seat of the other team", server.sim.mode.team[0] == 1 and server.sim.mode.team[3] == 0 and server.dropped_packets == dropped)
+	check("teams net: the clients see the new teams in the snapshots", cl[1].sim.mode.team[0] == 1 and cl[0].sim.mode.team[3] == 0)
+	check("teams net: a switch moves the colour into the new half", TeamStanding.COLOR_HALVES[1].has(server.sim.players[0].color))
+	# a fourth human fills the room: the other team has only humans, a switch is refused
+	var rig4 := team_rig(4, false)
+	var s4: ServerCore = rig4["server"]
+	var before: Array = s4.sim.mode.team.duplicate()
+	var d4 := s4.dropped_packets
+	rig4["clients"][0].send_team()
+	settle(rig4)
+	check("teams net: a switch is refused when every seat on the other team is a human", s4.sim.mode.team == before and s4.dropped_packets == d4 + 1)
+	# with bots: a switch swaps with a bot, the bot goes to the other team
+	var rb := team_rig(1, true)
+	var sb: ServerCore = rb["server"]
+	check("teams net: a human replaces a bot, the room stays full", rb["clients"][0].slot == 0 and sb.sim.players.filter(func(p: SimPlayer) -> bool: return p.enabled).size() == 4)
+	rb["clients"][0].send_team()
+	settle(rb)
+	check("teams net: a switch swaps with the first bot of the other team", sb.sim.mode.team[0] == 1 and sb.sim.mode.team[1] == 0 and sb.sim.can_start())
+	var rb2 := team_rig(2, true)
+	check("teams net: a second human joins the team with fewer humans", rb2["clients"][0].slot == 0 and rb2["clients"][1].slot == 1)
+	# a joiner goes to the team with fewer humans even when a lower slot is free on the other team
+	var rj := team_rig(0, true)
+	rj["server"].sim.swap_team(0, 1)   # slot 0 is now on team 1, slot 1 on team 0
+	var late := add_client(rj, "00000000000000aa00000000000000bb")
+	settle(rj)
+	check("teams net: the first human is placed on team 0 (slot 1), not on the lowest free slot", late.state == ClientCore.State.ONLINE and late.slot == 1)
+	# during a match no switch, after it yes; a late stranger is still refused, the returning token is not
+	sb.start_match(10)
+	settle(rb, 30)
+	var team_before: Array = sb.sim.mode.team.duplicate()
+	var d := sb.dropped_packets
+	rb["clients"][0].send_team()
+	settle(rb)
+	check("teams net: no switch while a match runs", sb.sim.mode.team == team_before and sb.dropped_packets == d + 1)
+	check("teams net: a stranger is still refused as started during a match", hello_reason(rb, "abcdef0123456789abcdef0123456789") == "started")
+	sb.sim.mode.phase = MatchMode.Phase.MATCH_OVER
+	rb["clients"][0].send_team()
+	settle(rb, 4)
+	check("teams net: a switch works again when the match is over", sb.sim.mode.team != team_before)
+	# free for all refuses it
+	ffa["clients"][0].send_team()
+	var df: int = ffa["server"].dropped_packets
+	settle(ffa)
+	check("teams net: a free for all server refuses a team switch", ffa["server"].dropped_packets == df + 1)
+	# malformed
+	var raw: LoopbackHub.LoopbackEndpoint = rig["clients"][1].net
+	var dm := server.dropped_packets
+	raw.send(1, NetProto.pack([NetProto.T_TEAM, 1]), true)
+	settle(rig, 4)
+	check("teams net: a switch message with extra data is dropped", server.dropped_packets == dm + 1)
+
+	# the beacon carries the mode
+	var pk := LanBeacon.build(NetProto.VERSION, 24565, 2, 4, Config.GameMode.TEAMS)
+	check("teams net: the beacon packet carries the game mode", LanBeacon.parse(pk).get("mode", -1) == Config.GameMode.TEAMS and LanBeacon.parse(LanBeacon.build(NetProto.VERSION, 24565, 2, 4)).get("mode", -1) == 0 and LanBeacon.parse(LanBeacon.build(NetProto.VERSION, 24565, 2, 4, 9)).is_empty())
+
 func test_maps() -> void:
 	var M := MatchMode.Phase
 	# rotation: the client and the server show the same map after every round change
@@ -2630,12 +2722,12 @@ func lan_wait(listener: LanBeacon, now: int, want: Callable, tries := 60) -> Arr
 func test_lan_beacon() -> void:
 	var pk := LanBeacon.build(NetProto.VERSION, 24565, 2, 4)
 	var g := LanBeacon.parse(pk)
-	check("beacon: build and parse round trip", pk.size() == LanBeacon.PACKET_SIZE and g == {"version": NetProto.VERSION, "port": 24565, "players": 2, "max": 4}, str(g))
+	check("beacon: build and parse round trip", pk.size() == LanBeacon.PACKET_SIZE and g == {"version": NetProto.VERSION, "port": 24565, "players": 2, "max": 4, "mode": 0}, str(g))
 	var wrong_magic := pk.duplicate()
 	wrong_magic[0] = 88
 	var pl_over := LanBeacon.build(NetProto.VERSION, 24565, 5, 4)
 	check("beacon: parse refuses a wrong magic, length, port 0 and more players than places",
-			LanBeacon.parse(wrong_magic).is_empty() and LanBeacon.parse(pk.slice(0, 9)).is_empty() and LanBeacon.parse(pk + PackedByteArray([0])).is_empty()
+			LanBeacon.parse(wrong_magic).is_empty() and LanBeacon.parse(pk.slice(0, 10)).is_empty() and LanBeacon.parse(pk + PackedByteArray([0])).is_empty()
 			and LanBeacon.parse(PackedByteArray()).is_empty() and LanBeacon.parse(LanBeacon.build(NetProto.VERSION, 0, 1, 4)).is_empty() and LanBeacon.parse(pl_over).is_empty())
 	check("beacon: garbage of any kind is refused without an engine error", LanBeacon.parse("hello world!".to_utf8_buffer()).is_empty() and LanBeacon.parse(var_to_bytes([1, 2])).is_empty())
 	var targets := LanBeacon.broadcast_targets([{"name": "wlan0", "addresses": ["192.168.1.7", "fe80::1"]}, {"name": "lo", "addresses": ["127.0.0.1"]},
@@ -2650,10 +2742,10 @@ func test_lan_beacon() -> void:
 	check("beacon: nothing heard at the start", listener.poll(0).is_empty())
 	var ann := LanBeacon.new()
 	ann.start_announcing(port, ["127.0.0.1"])
-	ann.announce(0, 2, 4)
+	ann.announce(0, 2, 4, NetProto.DEFAULT_PORT, Config.GameMode.TEAMS)
 	var games := lan_local_only(lan_wait(listener, 100, func(a: Array) -> bool: return not lan_local_only(a).is_empty()))
 	check("beacon: a real UDP round trip finds the game", games.size() == 1 and games[0]["ip"] == "127.0.0.1" and games[0]["port"] == NetProto.DEFAULT_PORT
-			and games[0]["players"] == 2 and games[0]["max"] == 4 and games[0]["code"] == LanCode.encode("127.0.0.1"), str(games))
+			and games[0]["players"] == 2 and games[0]["max"] == 4 and games[0]["mode"] == Config.GameMode.TEAMS and games[0]["code"] == LanCode.encode("127.0.0.1"), str(games))
 	check("beacon: an entry stays while it is heard recently and expires after EXPIRE_MS",
 			listener.poll(100 + LanBeacon.EXPIRE_MS - 100).size() >= 1 and listener.poll(100 + LanBeacon.EXPIRE_MS + 1).is_empty())
 	ann.close()
@@ -3853,7 +3945,7 @@ func _initialize() -> void:
 		test_lan_code, test_pick_address, test_lan_beacon, test_local_host, test_menu_local, test_main_local,
 		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_color, test_skin_delayed, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
-		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_maps, test_zone, test_shop, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
+		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_teams_net, test_maps, test_zone, test_shop, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
 		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_touch_menu, test_match_flow, test_score_panel_fit, test_main_rejoin, test_eight, test_main_eight, test_lobby_fits, test_screens_fit,
 	]
 	for g in groups:

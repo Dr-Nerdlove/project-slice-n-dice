@@ -169,7 +169,8 @@ func _make_play_cfg() -> Config:
 	c.character = train_cfg.character
 	c.player_color = train_cfg.player_color
 	c.target_score = train_cfg.target_score
-	c.player_count = train_cfg.player_count
+	c.game_mode = train_cfg.game_mode
+	c.player_count = TeamStanding.even_count(train_cfg.player_count) if c.game_mode == Config.GameMode.TEAMS else train_cfg.player_count   # Teams: even
 	c.map = Config.MAP_ROTATE   # Play rotates the maps; the map chosen in Training is never used here
 	c.bot_mode = Config.BotMode.ACTIVE
 	return c
@@ -210,9 +211,9 @@ func _update_blocked() -> void:
 
 
 ## Replaces the offline sim (and the bots) by a fresh one built from `c`, and points view and HUD at it.
-func _new_sim(c: Config) -> void:
+func _new_sim(c: Config, mode_kind := -1) -> void:
 	cfg = c
-	sim = Sim.new(cfg, SIM_SEED)
+	sim = Sim.new(cfg, SIM_SEED, mode_kind)
 	bots = _make_bots()
 	_applied_bot_mode = -1
 	_apply_bot_mode()
@@ -269,7 +270,7 @@ func start_training() -> void:
 		_leave_online("closed", false)
 	_forget_last_game()
 	training = true
-	_new_sim(train_cfg)
+	_new_sim(train_cfg, Config.GameMode.FFA)   # Training is always free for all, whatever game mode is saved
 	_set_screen(Screen.GAME)
 
 
@@ -312,15 +313,11 @@ func _can_rematch() -> bool:
 	return (not _online and not _reconnecting) or local_host != null
 
 
-## The start controls of the lobby (host: Start match, enabled with two players; joiner: waiting).
+## The start controls of the lobby (host: Start match, enabled when `Sim.can_start`; joiner: waiting).
 func _refresh_start() -> void:
 	var can := false
 	if local_host != null and _online:
-		var n := 0
-		for p in local_host.core.sim.players:
-			if p.enabled:
-				n += 1
-		can = n >= 2
+		can = local_host.core.sim.can_start()
 	lobby.set_start(local_host != null, _online, can)
 
 
