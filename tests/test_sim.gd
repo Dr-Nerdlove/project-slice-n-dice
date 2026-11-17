@@ -411,6 +411,37 @@ func _mod_tests() -> void:
 	check("figure: set_skin wraps too large", s.players[1].skin == 2 % Config.SKIN_COUNT)
 	s.set_skin(1, -1)
 	check("figure: set_skin wraps negative", s.players[1].skin == Config.SKIN_COUNT - 1)
+	# unique figures (like colours): a taken figure moves the asker on to the next free one
+	var ucfg := Config.new()
+	ucfg.player_count = 2
+	s = Sim.new(ucfg, 3)
+	s.set_skin(1, 0)   # player 0 shows 0
+	check("figure unique: a taken figure gives the next free one", s.players[1].skin == 1 and s.players[0].skin == 0)
+	s.set_skin(1, 2)
+	s.set_skin(0, 2)   # 2 is taken by player 1
+	check("figure unique: the asker moves on, the holder keeps it", s.players[0].skin == 3 and s.players[1].skin == 2)
+	s.set_skin(0, Config.SKIN_COUNT - 1)
+	s.set_skin(1, Config.SKIN_COUNT - 1)
+	check("figure unique: wraps past the last figure", s.players[1].skin == 0 and s.players[0].skin == Config.SKIN_COUNT - 1)
+	s.players[5].skin = 0   # slot 5 would show figure 0, which player 1 holds
+	s.set_player_enabled(5, true)
+	check("figure unique: enabling a player resolves a clash", s.players[5].skin == 1 and s.players[1].skin == 0)
+	var seen := {}
+	for q in s.players:
+		if q.enabled:
+			seen[q.skin] = true
+	check("figure unique: enabled players show different figures", seen.size() == s.players.filter(func(q: SimPlayer) -> bool: return q.enabled).size())
+	var tks := s.taken_skins(0)
+	check("figure unique: taken_skins lists the others' figures, not the own", not tks[s.players[0].skin] and tks[s.players[1].skin] and tks[s.players[5].skin] and tks.size() == Config.SKIN_COUNT)
+	s.set_player_enabled(5, false)
+	var held5: int = s.players[5].skin
+	check("figure unique: a disabled player holds nothing", not s.taken_skins(0)[held5])
+	s = Sim.new(Config.new(), 3)
+	s.assign_skins(6)
+	var all := {}
+	for q in s.players:
+		all[q.skin] = true
+	check("figure unique: assign_skins gives player 0 the choice and everybody a different one", s.players[0].skin == 6 and s.players[1].skin == 7 and s.players[2].skin == 0 and all.size() == Config.NUM_PLAYERS)
 	var sa := Sim.new(Config.new(), 7)
 	var sb := Sim.new(Config.new(), 7)
 	for k in Config.NUM_PLAYERS:

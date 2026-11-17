@@ -347,7 +347,7 @@ func _on_packet(peer: int, data: PackedByteArray) -> void:
 				dropped_packets += 1
 		NetProto.T_SKIN:
 			if msg.size() == 2 and msg[1] is int and msg[1] >= 0 and msg[1] < Config.SKIN_COUNT:
-				sim.set_skin(i, msg[1])
+				_take_skin(i, msg[1])
 			else:
 				dropped_packets += 1
 		NetProto.T_COLOR:
@@ -470,6 +470,18 @@ func _on_hello(peer: int, msg: Array) -> void:
 	sim.set_player_enabled(free, true)
 	net.send(peer, NetProto.pack([NetProto.T_WELCOME, NetProto.VERSION, free, cfg.to_dict()]), true)
 	_log("player %d joined (%d online)" % [free + 1, _peer_slot.size()])
+
+
+## A player asks for a figure. A free one is taken; one held by another human moves the asker to the next free one;
+## one held by a BOT is taken from the bot (it gets another free figure), so humans are never blocked by bots.
+func _take_skin(i: int, k: int) -> void:
+	for o in Config.NUM_PLAYERS:
+		var s: Slot = slots[o]
+		if o != i and sim.players[o].enabled and sim.players[o].skin == k and s.peer < 0 and not s.away:
+			sim.players[i].skin = k   # briefly shared; the bot then moves on
+			sim.set_skin(o, k)
+			return
+	sim.set_skin(i, k)
 
 
 ## Teams: the team with fewer human players (ties: team 0); -1 without teams.

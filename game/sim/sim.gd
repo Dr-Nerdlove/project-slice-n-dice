@@ -105,14 +105,45 @@ func set_player_enabled(i: int, on: bool) -> void:
 	p.enabled = on
 	if on:
 		_resolve_color(i)
+		_resolve_skin(i)
 	_reset_yoyo(p)
 	p.alive = false
 	p.respawn_t = 0.0
 
 
-## Sets which figure a player shows (presentation only; never read by the simulation).
+## Sets which figure a player shows (presentation only; never read by the simulation). k wraps into range; when
+## another ENABLED player has it, the next free figure is taken instead (k+1, k+2 ... wrapping), so enabled players
+## never share a figure (at most 8 players, 8 figures: one always fits).
 func set_skin(i: int, k: int) -> void:
 	players[i].skin = posmod(k, Config.SKIN_COUNT)
+	_resolve_skin(i)
+
+
+func _resolve_skin(i: int) -> void:
+	var p := players[i]
+	var taken := taken_skins(i)
+	for step in Config.SKIN_COUNT:
+		var k := (p.skin + step) % Config.SKIN_COUNT
+		if not taken[k]:
+			p.skin = k
+			return
+
+
+## Which figures ENABLED players other than `i` hold: an array of SKIN_COUNT bools (for the lobby's greyed buttons).
+func taken_skins(i: int) -> Array:
+	var taken := []
+	taken.resize(Config.SKIN_COUNT)
+	taken.fill(false)
+	for o in players:
+		if o != players[i] and o.enabled and o.skin >= 0 and o.skin < Config.SKIN_COUNT:
+			taken[o.skin] = true
+	return taken
+
+
+## Offline layout: player 0 shows figure k, every other slot the following ones (all unique, no clash to resolve).
+func assign_skins(k: int) -> void:
+	for i in players.size():
+		players[i].skin = posmod(k + i, Config.SKIN_COUNT)
 
 
 ## Sets a player's colour (presentation only). k wraps into range; when another ENABLED player has it, the next free

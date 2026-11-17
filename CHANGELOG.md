@@ -9,6 +9,7 @@ there is none. Write it for testers, in plain words.
 Draft, not released yet.
 
 - **Figure choice**: the first time the Play lobby showed the figure choice, all figures were drawn on top of each other while the game measured them. Only the shown figure is visible now.
+- **Every player has a different figure**: in a match no two players show the same figure. In the Play lobby, figures that another player of the game already has are greyed out and cannot be picked; if two players want the same figure, the second one gets the next free one. A human who picks a figure a bot has gets it, and the bot switches to another. Players on older versions can no longer join.
 
 ## 0.16.0
 

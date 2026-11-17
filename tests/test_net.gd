@@ -564,7 +564,7 @@ func test_color() -> void:
 
 
 func test_skin_delayed() -> void:
-	# with a slow link the own choice must show at once and survive snapshots that still carry the old one
+	# with a slow link the server's value wins: the client never keeps its own wish on top of snapshots
 	var rig := make_rig(200.0, 0.0, 1, 3)
 	var a: ClientCore = rig["clients"][0]
 	warm_up(rig)
@@ -572,14 +572,77 @@ func test_skin_delayed() -> void:
 		step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
 	var pick := (a.slot + 1) % Config.SKIN_COUNT
 	a.set_skin(pick)
-	step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
-	check("figure: the own choice shows on the predicted player at once", a.sim.players[a.slot].skin == pick)
-	var server: ServerCore = rig["server"]
-	var kept := true
-	for _t in 8:
+	for _t in 80:
 		step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
-		kept = kept and a.sim.players[a.slot].skin == pick
-	check("figure: old snapshots do not flip it back before the server knows", kept and server.sim.players[a.slot].skin != pick)
+	var server: ServerCore = rig["server"]
+	check("figure: the choice arrives over a slow link", server.sim.players[a.slot].skin == pick and a.sim.players[a.slot].skin == pick)
+
+
+func test_skin_unique() -> void:
+	var rig := make_rig(0.0, 0.0, 2, 3)
+	var a: ClientCore = rig["clients"][0]
+	var b: ClientCore = rig["clients"][1]
+	var server: ServerCore = rig["server"]
+	a.set_skin(5)
+	b.set_skin(5)
+	warm_up(rig)
+	for _t in 40:
+		step_rig(rig, func(_k: int) -> SimInput: return SimInput.new())
+	var fa: int = server.sim.players[a.slot].skin
+	var fb: int = server.sim.players[b.slot].skin
+	check("figure net: two clients that want the same figure get different ones (%d, %d)" % [fa, fb], fa != fb and (fa == 5 or fb == 5))
+	check("figure net: the clients show the server's figures, not their wish", a.sim.players[a.slot].skin == fa and b.sim.players[b.slot].skin == fb and a.sim.players[b.slot].skin == fb and a._wanted_skin == 5 and b._wanted_skin == 5)
+	var holder: ClientCore = a if fa == 5 else b
+	var other: ClientCore = b if fa == 5 else a
+	check("figure net: the client's sim lists the figure the other one holds as taken", other.sim.taken_skins(other.slot)[5] and not other.sim.taken_skins(other.slot)[other.sim.players[other.slot].skin] and holder.sim.taken_skins(holder.slot)[other.sim.players[other.slot].skin])
+	# a human beats a bot: asking for a bot's figure takes it, the bot moves on
+	var rig2 := make_rig(0.0, 0.0, 1, 3, true)
+	var c: ClientCore = rig2["clients"][0]
+	var srv2: ServerCore = rig2["server"]
+	warm_up(rig2)
+	var want := (c.slot + 1) % Config.SKIN_COUNT
+	var bot_slot := -1
+	for i in srv2.sim.players.size():
+		if i != c.slot and srv2.sim.players[i].enabled and srv2.sim.players[i].skin == want:
+			bot_slot = i
+	c.set_skin(want)
+	for _t in 30:
+		step_rig(rig2, func(_k: int) -> SimInput: return SimInput.new())
+	var uniq := {}
+	for p in srv2.sim.players:
+		if p.enabled:
+			uniq[p.skin] = true
+	check("figure net: a human asking for a bot's figure gets it, the bot moves on (bot slot %d)" % bot_slot, bot_slot >= 0 and srv2.sim.players[c.slot].skin == want and srv2.sim.players[bot_slot].skin != want)
+	check("figure net: with bots every enabled player still shows a different figure", uniq.size() == srv2.sim.players.filter(func(p: SimPlayer) -> bool: return p.enabled).size())
+
+
+func test_lobby_figures() -> void:   # async
+	var menu := PlayLobby.new()
+	root.add_child(menu)
+	menu.setup(Config.new())
+	await process_frame
+	menu.open()
+	var taken: Array = []
+	taken.resize(Config.SKIN_COUNT)
+	taken.fill(false)
+	taken[1] = true
+	taken[4] = true
+	menu.set_figures(taken, 2)
+	var greyed := menu.figure_buttons.filter(func(b: Button) -> bool: return b.disabled).size()
+	check("lobby figures: offline nothing is greyed and the saved figure shows", greyed == 0 and menu.shown_figure() == menu.cfg.character)
+	menu.set_session(false, true, "", 0)
+	check("lobby figures: connected, figures of other players are greyed", menu.figure_buttons[1].disabled and menu.figure_buttons[4].disabled and not menu.figure_buttons[0].disabled and not menu.figure_buttons[2].disabled)
+	check("lobby figures: connected, the figure the server gave is marked and shown", menu.shown_figure() == 2 and menu.figure_buttons[2].button_pressed and (menu.cfg.character == 2 or not menu.figure_buttons[menu.cfg.character].button_pressed))
+	var saved := menu.cfg.character
+	menu._choose_figure(1)
+	check("lobby figures: a taken figure cannot be chosen and the saved wish stays", menu.cfg.character == saved)
+	menu._choose_figure(3)
+	check("lobby figures: a free figure can be chosen (saved wish changes)", menu.cfg.character == 3)
+	menu.set_session(false, false, "", 0)
+	menu.set_figures([], -1)
+	var greyed2 := menu.figure_buttons.filter(func(b: Button) -> bool: return b.disabled).size()
+	check("lobby figures: leaving the game clears the greying", greyed2 == 0 and menu.shown_figure() == menu.cfg.character)
+	menu.queue_free()
 
 
 # ---------------------------------------------------------------- repeated one-shot inputs
@@ -4263,8 +4326,8 @@ func _initialize() -> void:
 	# TEST_STOP_ON_FAIL=1 (set by tests/sabotage.py): stop after the first test group that fails.
 	var stop_early := OS.get_environment("TEST_STOP_ON_FAIL") == "1"
 	var groups: Array[Callable] = [
-		test_lan_code, test_pick_address, test_lan_beacon, test_local_host, test_menu_local, test_main_local,
-		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_color, test_skin_delayed, test_interpolation, test_view_others,
+		test_lan_code, test_pick_address, test_lan_beacon, test_local_host, test_menu_local, test_lobby_figures, test_main_local,
+		test_snapshot, test_train, test_prediction, test_one_shot_inputs, test_skin, test_color, test_skin_delayed, test_skin_unique, test_interpolation, test_view_others,
 		test_other_display, test_victim_sees_arrival, test_predicted_heads, test_input_buffer, test_two_clients,
 		test_redundancy, test_jitter_buffer, test_robustness, test_join_rules, test_match_lock, test_teams_net, test_potato_net, test_maps, test_zone, test_shop, test_rejoin, test_idle_and_sticks, test_stick_range, test_client_rules, test_lag_tool,
 		test_address_parse, test_enet, test_menu_online, test_main_scene, test_client_mods, test_main_menu, test_touch_menu, test_match_flow, test_score_panel_fit, test_main_rejoin, test_eight, test_main_eight, test_main_modes, test_main_markers, test_mode_overlay, test_lobby_fits, test_screens_fit,
