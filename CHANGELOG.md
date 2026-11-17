@@ -6,13 +6,12 @@ there is none. Write it for testers, in plain words.
 
 ## 0.15.0
 
-Draft, not released yet.
+Draft, not released yet. Players on different versions can no longer play together.
 
-- **Teams mode (work in progress)**: the rules are in the game (two teams, no friendly fire, every member of the
-  winning team scores) and bots play it, but the lobby does not offer it yet. Players on different versions can no
-  longer play together.
-- **Hot Potato mode (work in progress)**: one player carries a bomb with a fuse and passes it on by hitting someone;
-  when the fuse runs out he is out. Bots play it, but the lobby does not offer it yet.
+- **Teams mode**: pick "Teams" in the Match screen (the Mode card), then 2v2, 3v3 or 4v4. Two teams, Red and Blue, fight; you cannot hurt your own team, and when a round ends every member of the winning team scores a point. The floor ring under every figure shows its team colour. Playing together, each player sees both teams in the lobby and can press "Switch team"; the host can start only when the teams are even. Solo puts you on Red and fills both teams with bots.
+- **Hot Potato mode**: pick "Hot Potato". One player carries a bomb with a fuse; hit someone to pass it on, and when the fuse runs out the carrier is out. The last one standing wins the round. The round result says who survived the bombs. The bomb carrier's markers (YOU tag, modifier icons) now sit above the bomb.
+- **Mode choice**: "Free-for-all", "Teams" and "Hot Potato" are buttons in the Mode card. The points to win (10, 15 or 20) work in every mode. Games found on the Wi-Fi show their mode, e.g. "Teams 3v3". While you host or have joined a game, the mode, players and points cannot be changed; a joiner sees the host's settings.
+- **Teams scoreboard**: between rounds the scoreboard has two columns, Red and Blue, with the team's points and its players.
 - **Bigger figures in the lobby**: the figure in the Play lobby is about twice as big and still shown completely.
 
 ## 0.14.0

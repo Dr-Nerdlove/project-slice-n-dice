@@ -1172,7 +1172,8 @@ func _lobby_tests() -> void:
 	lob.figure_chosen.connect(func(i: int) -> void: chosen.append(i))
 	lob.setup(saved)
 	lob.open()
-	check("lobby: shows the one mode card Last Standing, selected", lob.mode_card != null and lob.mode_card.find_children("*", "Label", true, false).any(func(l: Label) -> bool: return l.text == "Last Standing"))
+	check("lobby: the mode card has the buttons Free-for-all, Teams and Hot Potato, the first one pressed", lob.mode_card != null and lob.mode_buttons.size() == 3 and lob.mode_buttons.map(func(b: Button) -> String: return b.text) == ["Free-for-all", "Teams", "Hot Potato"] and lob.mode_buttons[0].button_pressed and not lob.mode_buttons[1].button_pressed)
+	_lobby_mode_tests(lob, saved)
 	check("lobby: the figure area has one button per figure named after it and a preview", lob.figure_buttons.size() == Config.SKIN_COUNT and lob.figure_buttons[Config.SKIN_COUNT - 1].text == ToyFigure.NAMES[Config.SKIN_COUNT - 1] and lob.figure_preview != null and lob.figure_buttons[0].button_pressed and not lob.figure_buttons[1].button_pressed)
 	check("lobby: the preview shows the saved figure at the start", lob.figure_preview.figure != null and lob.figure_preview.figure.kind == 0)
 	lob.figure_buttons[2].pressed.emit()
@@ -1194,6 +1195,82 @@ func _lobby_tests() -> void:
 	lob.back_btn.pressed.emit()
 	check("lobby: Back reports", backs.size() == 1)
 	lob.queue_free()
+
+
+## The mode buttons of the Play lobby: saved choice, the Players row in Teams, read-only while hosting / connected,
+## the team line and the Start button, the text of a found game.
+func _lobby_mode_tests(lob: PlayLobby, saved: Config) -> void:
+	var saves: Array = []
+	var modes: Array = []
+	var orig_save: Callable = lob.save_fn
+	lob.save_fn = func(c: Config) -> void: saves.append(int(c.game_mode))
+	lob.mode_chosen.connect(func(k: int) -> void: modes.append(k))
+	lob.mode_buttons[1].pressed.emit()
+	check("lobby mode: pressing Teams sets Config.game_mode, saves it and reports it", saved.game_mode == Config.GameMode.TEAMS and saves == [1] and modes == [1] and lob.mode_buttons[1].button_pressed and not lob.mode_buttons[0].button_pressed)
+	var shown := lob.player_buttons.filter(func(b: Button) -> bool: return b.visible)
+	check("lobby mode: in Teams the Players row offers 2v2, 3v3 and 4v4", shown.map(func(b: Button) -> String: return b.text) == ["2v2", "3v3", "4v4"])
+	saved.player_count = 4
+	lob.open()
+	check("lobby mode: ... the pressed one follows the player count (4 = 2v2)", shown[0].button_pressed and not shown[1].button_pressed)
+	saved.player_count = 5
+	lob.open()
+	check("lobby mode: ... an odd saved count snaps up (5 shows 3v3)", shown[1].button_pressed and not shown[0].button_pressed)
+	shown[2].pressed.emit()
+	check("lobby mode: ... 4v4 means eight players", saved.player_count == 8 and shown[2].button_pressed)
+	lob.mode_buttons[2].pressed.emit()
+	check("lobby mode: Hot Potato is saved and the Players row shows 2 to 8 again", saved.game_mode == Config.GameMode.POTATO and lob.player_buttons.all(func(b: Button) -> bool: return b.visible) and lob.player_buttons[0].text == "2" and lob.player_buttons[6].text == "8" and lob.player_buttons[6].button_pressed)
+	lob.mode_buttons[0].pressed.emit()
+	lob.open()
+	check("lobby mode: opening again shows the saved mode", lob.mode_buttons[0].button_pressed and saved.game_mode == Config.GameMode.FFA)
+	lob.mode_buttons[1].pressed.emit()
+	# Hosting: the three rows are read-only.
+	lob.set_session(true, true, "ABCDE", 1)
+	var all_off: bool = (lob.mode_buttons + lob.target_buttons + lob.player_buttons).all(func(b: Button) -> bool: return b.disabled)
+	var before: int = saved.game_mode
+	var tgt: int = saved.target_score
+	var cnt: int = saved.player_count
+	lob.mode_buttons[2].pressed.emit()
+	lob.target_buttons[2].pressed.emit()
+	lob.player_buttons[0].pressed.emit()
+	check("lobby mode: while hosting mode, players and target buttons are disabled and do nothing", all_off and saved.game_mode == before and saved.target_score == tgt and saved.player_count == cnt)
+	# Team line and Start button.
+	lob.set_teams(2, 1, 0, true)
+	check("lobby mode: in Teams while hosting the team line says both teams and the own", lob.team_label.text == "Red 2 · Blue 1 · You: Red" and lob.team_label.get_parent().visible and not lob.switch_btn.disabled)
+	lob.set_teams(1, 2, 1, false)
+	check("lobby mode: ... the switch button is off when the server would refuse", lob.team_label.text == "Red 1 · Blue 2 · You: Blue" and lob.switch_btn.disabled)
+	lob.set_teams(2, 1, 0, true)
+	var sw: Array = []
+	lob.switch_team_requested.connect(func() -> void: sw.append(true))
+	lob.switch_btn.pressed.emit()
+	check("lobby mode: Switch team reports", sw.size() == 1)
+	lob.set_start(true, true, false)
+	check("lobby mode: Start says 'Teams are uneven' when it refuses over uneven teams", lob.start_btn.disabled and lob.start_btn.text == "Teams are uneven")
+	lob.set_teams(2, 2, 0, true)
+	lob.set_start(true, true, true)
+	check("lobby mode: ... and 'Start match' when it can start", not lob.start_btn.disabled and lob.start_btn.text == "Start match")
+	lob.set_start(true, true, false)
+	check("lobby mode: ... a refusal with even teams keeps 'Start match'", lob.start_btn.disabled and lob.start_btn.text == "Start match")
+	# A joiner reads the host's values, read-only, and its own are untouched.
+	lob.set_session(false, true, "", 0)
+	var host_cfg := Config.new()
+	host_cfg.game_mode = Config.GameMode.TEAMS
+	host_cfg.player_count = 6
+	host_cfg.target_score = 15
+	saved.game_mode = Config.GameMode.FFA
+	saved.player_count = 4
+	saved.target_score = 10
+	lob.set_host_cfg(host_cfg)
+	var ts: Array = lob.target_buttons.filter(func(b: Button) -> bool: return b.button_pressed)
+	var ps: Array = lob.player_buttons.filter(func(b: Button) -> bool: return b.button_pressed)
+	check("lobby mode: a joiner sees the host's mode, players and target", lob.mode_buttons[1].button_pressed and not lob.mode_buttons[0].button_pressed and ps.size() == 1 and ps[0].text == "3v3" and ts.size() == 1 and ts[0].text == "15" and lob.mode_buttons[1].disabled)
+	check("lobby mode: ... and the own saved values stay", saved.game_mode == Config.GameMode.FFA and saved.player_count == 4 and saved.target_score == 10)
+	lob.set_session(false, false, "", 0)
+	lob.set_host_cfg(null)
+	check("lobby mode: leaving the session enables the buttons and shows the own values", not lob.mode_buttons[1].disabled and lob.mode_buttons[0].button_pressed and not lob.team_label.get_parent().visible)
+	# Found games.
+	var g := {"code": "ABCDE", "players": 3, "max": 6, "mode": 1}
+	check("lobby mode: a found game shows the mode", PlayLobby.found_text(g) == "Game %s – 3/6 players – Teams 3v3" % LanCode.grouped("ABCDE") and PlayLobby.found_text({"code": "ABCDE", "players": 1, "max": 4, "mode": 2}).ends_with("– Hot Potato") and PlayLobby.found_text({"code": "ABCDE", "players": 1, "max": 4, "mode": 0}) == "Game %s – 1/4 players" % LanCode.grouped("ABCDE"))
+	lob.save_fn = orig_save
 
 
 # ---------------------------------------------------------------- string = flight path

@@ -136,6 +136,7 @@ func _ready() -> void:
 	lobby.stop_requested.connect(func() -> void: _leave_online("closed"))
 	lobby.start_match_requested.connect(_start_hosted_match)
 	lobby.rejoin_requested.connect(_rejoin)
+	lobby.switch_team_requested.connect(_switch_team)
 
 	pause = PauseMenu.new()
 	add_child(pause)
@@ -319,6 +320,22 @@ func _refresh_start() -> void:
 	if local_host != null and _online:
 		can = local_host.core.sim.can_start()
 	lobby.set_start(local_host != null, _online, can)
+	# A joiner reads the host's game settings from the welcome; Teams: the team line and the switch button.
+	lobby.set_host_cfg(client.cfg if _online and local_host == null and client.state == ClientCore.State.ONLINE else null)
+	if _online and client.sim.mode.is_team_mode():
+		var tm := client.sim.mode
+		var counts := [0, 0]
+		for i in client.sim.players.size():
+			if client.sim.players[i].enabled:
+				counts[clampi(tm.team_of(i), 0, 1)] += 1
+		var ph := tm.phase
+		lobby.set_teams(counts[0], counts[1], tm.team_of(client.slot), ph == MatchMode.Phase.OFF or ph == MatchMode.Phase.MATCH_OVER)
+
+
+## "Switch team" in the lobby: asks the server to move the own player to the other team.
+func _switch_team() -> void:
+	if client != null and _online:
+		client.send_team()
 
 
 ## The pause button, Escape, and Resume. Training opens / closes the tuning menu, Play the pause panel.

@@ -15,8 +15,13 @@ signal stop_requested
 signal figure_chosen(index: int)
 signal color_chosen(index: int)
 signal target_chosen(points: int)
+signal mode_chosen(mode: int)
+signal switch_team_requested
 signal start_match_requested
 signal rejoin_requested
+
+## Button texts of the modes, indexed by `Config.GameMode`.
+const MODE_NAMES: Array[String] = ["Free-for-all", "Teams", "Hot Potato"]
 
 ## Games listed at most (the page has no room to scroll).
 const MAX_FOUND := 2
@@ -30,7 +35,10 @@ var mode_card: PanelContainer
 var figure_buttons: Array[Button] = []
 var color_buttons: Array[Button] = []    # the eight palette swatches
 var target_buttons: Array[Button] = []   # First to 10 / 15 / 20
-var player_buttons: Array[Button] = []   # 2 .. 8 players
+var player_buttons: Array[Button] = []   # 2 .. 8 players (in Teams only 4, 6, 8 show, as 2v2 / 3v3 / 4v4)
+var mode_buttons: Array[Button] = []     # Free-for-all / Teams / Hot Potato (index = Config.GameMode)
+var team_label: Label           # "Red 2 · Blue 1 · You: Red" while hosting or connected in Teams
+var switch_btn: Button          # moves the own player to the other team (the server decides)
 var start_btn: Button           # host only: begins the match for everybody in the lobby
 var wait_label: Label           # joiner only: waits for the host
 var cols: HBoxContainer         # the three columns of the page (a test measures them)
@@ -55,6 +63,8 @@ var _found_box: VBoxContainer
 var _empty_label: Label
 var _found_buttons := {}        # "ip:port" -> Button
 var _hosting := false
+var _host_cfg: Config           # a joiner reads the host's values (game mode, players, target) from here, read-only
+var _team_counts := [0, 0]
 var _connected := false
 var _shown := ""                # what the hosting box shows now (to touch the labels only on a change)
 ## Looking for games: the listener runs only while the lobby is open and the player is neither hosting nor connected.
@@ -120,8 +130,7 @@ func setup(c: Config) -> void:
 	second.add_child(_build_figures())
 	third.add_child(_build_together())
 	_mark_figure()
-	_mark_target()
-	_mark_players()
+	_refresh_card()
 
 
 func _build_mode_card() -> Control:
@@ -135,7 +144,17 @@ func _build_mode_card() -> Control:
 	box.add_theme_constant_override("separation", 6)
 	mode_card.add_child(box)
 	box.add_child(UiKit.eyebrow("Mode"))
-	box.add_child(UiKit.heading("Last Standing", 24))
+	var mrow := HBoxContainer.new()
+	mrow.add_theme_constant_override("separation", 4)
+	box.add_child(mrow)
+	for k in MODE_NAMES.size():
+		var b := UiKit.compact(UiKit.button(MODE_NAMES[k], "paper"), 36.0, 15)
+		b.toggle_mode = true
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.clip_text = false
+		b.pressed.connect(func() -> void: _choose_mode(k))
+		mrow.add_child(b)
+		mode_buttons.append(b)
 	box.add_child(UiKit.eyebrow("Points to win"))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
@@ -305,6 +324,16 @@ func _build_together() -> Control:
 	_status = UiKit.label("Not connected", 20, UiKit.INK, true)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(_status)
+	var trow := HBoxContainer.new()
+	trow.add_theme_constant_override("separation", 8)
+	trow.visible = false
+	col.add_child(trow)
+	team_label = UiKit.label("", 20, UiKit.INK, true)
+	team_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	trow.add_child(team_label)
+	switch_btn = UiKit.compact(UiKit.button("Switch team", "dark"), 44.0, 18)
+	switch_btn.pressed.connect(func() -> void: switch_team_requested.emit())
+	trow.add_child(switch_btn)
 	start_btn = UiKit.compact(UiKit.button("Start match", "main"), 48.0)
 	start_btn.visible = false
 	start_btn.pressed.connect(func() -> void: start_match_requested.emit())
@@ -332,7 +361,19 @@ func _choose_color(k: int) -> void:
 	color_chosen.emit(k)
 
 
+func _choose_mode(k: int) -> void:
+	if _hosting or _connected:
+		return
+	cfg.game_mode = clampi(k, Config.GameMode.FFA, Config.GameMode.POTATO) as Config.GameMode
+	_mark_mode()
+	_mark_players()
+	save_fn.call(cfg)
+	mode_chosen.emit(cfg.game_mode)
+
+
 func _choose_target(points: int) -> void:
+	if _hosting or _connected:
+		return
 	cfg.target_score = points
 	_mark_target()
 	save_fn.call(cfg)
@@ -341,19 +382,90 @@ func _choose_target(points: int) -> void:
 
 ## How many play in a Play match: you plus bots in Solo, the room size when hosting.
 func _choose_players(n: int) -> void:
+	if _hosting or _connected:
+		return
 	cfg.player_count = clampi(n, Config.MIN_PLAYERS, Config.NUM_PLAYERS)
 	_mark_players()
 	save_fn.call(cfg)
 
 
+## The values the mode card shows: the host's for a joiner (read-only), else the saved ones.
+func _shown_cfg() -> Config:
+	return _host_cfg if _connected and not _hosting and _host_cfg != null else cfg
+
+
+func _mark_mode() -> void:
+	var c := _shown_cfg()
+	for i in mode_buttons.size():
+		mode_buttons[i].set_pressed_no_signal(i == int(c.game_mode))
+
+
+## In Teams only the sizes 4, 6 and 8 are offered, written 2v2 / 3v3 / 4v4; otherwise 2 to 8.
 func _mark_players() -> void:
+	var c := _shown_cfg()
+	var teams := c.game_mode == Config.GameMode.TEAMS
+	var count := TeamStanding.even_count(c.player_count) if teams else c.player_count
 	for i in player_buttons.size():
-		player_buttons[i].set_pressed_no_signal(Config.MIN_PLAYERS + i == cfg.player_count)
+		var n := Config.MIN_PLAYERS + i
+		player_buttons[i].visible = not teams or n % 2 == 0 and n >= 4
+		player_buttons[i].text = "%dv%d" % [n / 2, n / 2] if teams else str(n)
+		player_buttons[i].set_pressed_no_signal(n == count)
 
 
 func _mark_target() -> void:
+	var c := _shown_cfg()
 	for i in target_buttons.size():
-		target_buttons[i].set_pressed_no_signal(MatchMode.TARGETS[i] == cfg.target_score)
+		target_buttons[i].set_pressed_no_signal(MatchMode.TARGETS[i] == c.target_score)
+
+
+## What the mode card shows and allows: while hosting or connected the three rows are read-only.
+func _refresh_card() -> void:
+	var locked := _hosting or _connected
+	for b in mode_buttons + target_buttons + player_buttons:
+		b.disabled = locked
+	_mark_mode()
+	_mark_target()
+	_mark_players()
+	_refresh_team_row()
+
+
+## A joiner shows the host's values (from the welcome message); null = none known. Called often; cheap.
+func set_host_cfg(c: Config) -> void:
+	if c == _host_cfg:
+		return
+	_host_cfg = c
+	_refresh_card()
+
+
+## The team line and the switch button: `red` / `blue` players per team, `mine` the own team (-1 = none yet),
+## `can_switch` whether the server takes a switch now (between matches). Hidden unless hosting or connected in Teams.
+func set_teams(red: int, blue: int, mine: int, can_switch: bool) -> void:
+	_team_counts = [red, blue]
+	_refresh_team_row()
+	switch_btn.disabled = not can_switch
+	team_label.text = "Red %d · Blue %d" % [red, blue] + (" · You: %s" % TeamStanding.NAMES[mine] if mine >= 0 and mine < TeamStanding.TEAM_COUNT else "")
+	_refresh_start_text()
+
+
+func _refresh_team_row() -> void:
+	team_label.get_parent().visible = (_hosting or _connected) and _shown_cfg().game_mode == Config.GameMode.TEAMS
+
+
+## Host only: the Start button names why it refuses in Teams.
+func _refresh_start_text() -> void:
+	var uneven: bool = _shown_cfg().game_mode == Config.GameMode.TEAMS and _team_counts[0] != _team_counts[1]
+	start_btn.text = "Teams are uneven" if start_btn.disabled and uneven else "Start match"
+
+
+## The text of a found game: its code, the players and, unless free for all, the mode ("Teams 3v3", "Hot Potato").
+static func found_text(g: Dictionary) -> String:
+	var text := "Game %s – %d/%d players" % [LanCode.grouped(g["code"]), g["players"], g["max"]]
+	match int(g.get("mode", 0)):
+		Config.GameMode.TEAMS:
+			text += " – Teams %dv%d" % [int(g["max"]) / 2, int(g["max"]) / 2]
+		Config.GameMode.POTATO:
+			text += " – Hot Potato"
+	return text
 
 
 func _mark_figure() -> void:
@@ -369,8 +481,7 @@ func _mark_figure() -> void:
 ## Shows the lobby (the figure shown follows the saved choice) / hides it.
 func open() -> void:
 	_mark_figure()
-	_mark_target()
-	_mark_players()
+	_refresh_card()
 	visible = true
 
 
@@ -389,11 +500,15 @@ func set_status(text: String) -> void:
 ## What the lobby shows about the running session: hosting (with the code, "" = no usable address) and/or connected
 ## (connecting counts). Called often; it touches the widgets only when something changed.
 func set_session(hosting: bool, connected: bool, code: String, players: int) -> void:
+	var was_hosting := _hosting
+	var was_connected := _connected
 	_hosting = hosting
 	_connected = connected
 	_host_btn.disabled = hosting or connected
 	_join_btn.disabled = hosting or connected
 	_stop_btn.disabled = not (hosting or connected)
+	if hosting != was_hosting or connected != was_connected:
+		_refresh_card()
 	_refresh_rejoin()
 	_hosting_box.visible = hosting
 	_join_box.visible = not (hosting or connected)
@@ -427,6 +542,7 @@ func _refresh_rejoin() -> void:
 func set_start(hosting: bool, connected: bool, can_start: bool) -> void:
 	start_btn.visible = hosting and connected
 	start_btn.disabled = not can_start
+	_refresh_start_text()
 	wait_label.visible = connected and not hosting
 
 
@@ -463,7 +579,7 @@ func _show_found(games: Array) -> void:
 	for g: Dictionary in games.slice(0, MAX_FOUND):   # more would not fit the page (no scrolling)
 		var key := "%s:%d" % [g["ip"], g["port"]]
 		seen[key] = true
-		var text := "Game %s – %d/%d players" % [LanCode.grouped(g["code"]), g["players"], g["max"]]
+		var text := found_text(g)
 		var b: Button = _found_buttons.get(key)
 		if b == null:
 			b = UiKit.compact(UiKit.button(text, "dark"), 44.0)

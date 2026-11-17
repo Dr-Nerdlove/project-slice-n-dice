@@ -165,7 +165,11 @@ func update(sim: Sim, own: int, show_it: bool, can_rematch: bool, bots_offline: 
 			_pop_round = -1
 		return
 	var over := m.phase == MatchMode.Phase.MATCH_OVER
-	var key := "%d|%d|%d|%s|%s|%s" % [m.phase, m.round, m.winner, str(m.points), str(m.roster) + str(m.coins), "%d%d" % [int(can_rematch), int(bots_offline)]]
+	var teams_key := ""
+	if m.is_team_mode():
+		for i in m.roster.size():
+			teams_key += str(m.team_of(i))
+	var key := "%d|%d|%d|%d|%s|%s|%s|%s" % [m.phase, m.round, m.winner, m.last_scorer, str(m.points), str(m.roster) + str(m.coins), "%d%d" % [int(can_rematch), int(bots_offline)], teams_key]
 	if key != _shown_key:
 		_shown_key = key
 		_fill(sim, own, over, bots_offline)
@@ -177,12 +181,11 @@ func update(sim: Sim, own: int, show_it: bool, can_rematch: bool, bots_offline: 
 func _fill(sim: Sim, own: int, over: bool, bots_offline: bool) -> void:
 	var m := sim.mode
 	if over:
-		var w := _side_name(sim, m.winner, own, bots_offline) if m.winner >= 0 else ""
-		heading_label.text = "You win the match!" if m.won(own) else "%s wins the match!" % w
+		heading_label.text = match_over_text(sim, own, bots_offline)
 		scorer_label.text = ""
 	else:
 		heading_label.text = "Round %d" % m.round
-		scorer_label.text = "Nobody scores" if m.last_scorer < 0 else ("You score!" if m.scored(own) else "%s scores!" % _side_name(sim, m.last_scorer, own, bots_offline))
+		scorer_label.text = round_text(sim, own, bots_offline)
 	for c in rows_box.get_children():
 		rows_box.remove_child(c)
 		c.queue_free()
@@ -190,6 +193,14 @@ func _fill(sim: Sim, own: int, over: bool, bots_offline: bool) -> void:
 	for i in m.roster.size():
 		if m.roster[i]:
 			slots.append(i)
+	if m.is_team_mode():
+		var pop_team := not over and m.round != _pop_round
+		if not over:
+			_pop_round = m.round
+		rows_box.add_child(_team_board(sim, own, slots, bots_offline, pop_team and not over))
+		coins_label.text = coin_text(m, own)
+		target_label.text = ("First to %d" % m.target).to_upper()
+		return
 	slots.sort_custom(func(a: int, b: int) -> bool: return m.points[a] > m.points[b] or (m.points[a] == m.points[b] and a < b))
 	var pop_now := not over and m.round != _pop_round
 	if not over:
@@ -199,6 +210,66 @@ func _fill(sim: Sim, own: int, over: bool, bots_offline: bool) -> void:
 				m.points[i], m.target, i == own, pop_now and not over and m.scored(i), m.coins[i], m.earned[i]))
 	coins_label.text = coin_text(m, own)
 	target_label.text = ("First to %d" % m.target).to_upper()
+
+
+## "Round N" line under the heading: who scored (a team in Teams), or who survived the bombs in Hot Potato.
+static func round_text(sim: Sim, own: int, bots_offline: bool) -> String:
+	var m := sim.mode
+	if m.last_scorer < 0:
+		return "Nobody scores"
+	if m.is_team_mode():
+		return "Your team scores!" if m.scored(own) else "%s team scores!" % _side_name(sim, m.last_scorer, own, bots_offline)
+	if m is HotPotato:
+		return "You survived the bombs!" if m.scored(own) else "%s survived the bombs!" % player_name(sim, m.last_scorer, own, bots_offline)
+	return "You score!" if m.scored(own) else "%s scores!" % _side_name(sim, m.last_scorer, own, bots_offline)
+
+
+## The heading of the match-over panel.
+static func match_over_text(sim: Sim, own: int, bots_offline: bool) -> String:
+	var m := sim.mode
+	var w := _side_name(sim, m.winner, own, bots_offline) if m.winner >= 0 else ""
+	if m.is_team_mode():
+		return "Your team wins the match!" if m.won(own) else "%s team wins the match!" % w
+	return "You win the match!" if m.won(own) else "%s wins the match!" % w
+
+
+## The Teams scoreboard: two columns (Red | Blue), each with the team's name in its colour, its points as pips and
+## up to four member rows (swatch, name, coin tag).
+func _team_board(sim: Sim, own: int, slots: Array, bots_offline: bool, pop: bool) -> Control:
+	var m := sim.mode
+	var cols := HBoxContainer.new()
+	cols.name = "TeamBoard"
+	cols.add_theme_constant_override("separation", 28)
+	cols.alignment = BoxContainer.ALIGNMENT_CENTER
+	for t in TeamStanding.TEAM_COUNT:
+		var col := VBoxContainer.new()
+		col.name = TeamStanding.NAMES[t]
+		col.add_theme_constant_override("separation", 3)
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cols.add_child(col)
+		var accent: Color = ArenaView.TEAM_COLORS[t]
+		var head := UiKit.label(TeamStanding.NAMES[t], 26, accent, true)
+		head.name = "Header"
+		col.add_child(head)
+		var pips := ScorePips.new()
+		pips.name = "Pips"
+		pips.setup(m.target, m.team_points(t), accent)
+		col.add_child(pips)
+		if pop and m.last_scorer == t:
+			pips.tree_entered.connect(pips.start_pop, CONNECT_ONE_SHOT)
+		for i: int in slots:
+			if m.team_of(i) == t:
+				col.add_child(make_member_row(player_name(sim, i, own, bots_offline), ArenaView.color_of(sim.players[i]), i == own, m.coins[i], m.earned[i]))
+	return cols
+
+
+## One member row of the Teams scoreboard: colour dot, name, coin tag.
+func make_member_row(pname: String, accent: Color, is_own: bool, total: int, gained: int) -> HBoxContainer:
+	var row := make_row(pname, accent, 0, 0, is_own, false, total, gained)
+	var pips := row.get_node("Pips")
+	row.remove_child(pips)
+	pips.free()
+	return row
 
 
 ## One scoreboard row: colour dot, name, the score pips (the newest one pulses when `pop`) and the coin tag.
