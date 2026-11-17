@@ -1267,6 +1267,12 @@ func _lobby_mode_tests(lob: PlayLobby, saved: Config) -> void:
 	lob.set_session(false, false, "", 0)
 	lob.set_host_cfg(null)
 	check("lobby mode: leaving the session enables the buttons and shows the own values", not lob.mode_buttons[1].disabled and lob.mode_buttons[0].button_pressed and not lob.team_label.get_parent().visible)
+	lob.set_session(true, true, "ABCDE", 1)
+	saved.game_mode = Config.GameMode.POTATO
+	lob.set_teams(1, 1, 0, true)
+	check("lobby mode: no team line outside Teams, even while hosting", not lob.team_label.get_parent().visible)
+	lob.set_session(false, false, "", 0)
+	saved.game_mode = Config.GameMode.FFA
 	# Found games.
 	var g := {"code": "ABCDE", "players": 3, "max": 6, "mode": 1}
 	check("lobby mode: a found game shows the mode", PlayLobby.found_text(g) == "Game %s – 3/6 players – Teams 3v3" % LanCode.grouped("ABCDE") and PlayLobby.found_text({"code": "ABCDE", "players": 1, "max": 4, "mode": 2}).ends_with("– Hot Potato") and PlayLobby.found_text({"code": "ABCDE", "players": 1, "max": 4, "mode": 0}) == "Game %s – 1/4 players" % LanCode.grouped("ABCDE"))

@@ -1536,6 +1536,10 @@ func test_team_ring() -> void:
 	s.swap_team(0, 1)
 	view.render(1.0, 1.0 / 60.0)
 	check("team ring: a switch rebuilds the figure with the new team's ring", near.call(ring_of.call(view, 0), blue) and near.call(ring_of.call(view, 1), red) and view._figures[0] != fig0)
+	var fig2: ToyFigure = view._figures[2]
+	s.mode.team[2] = 1   # only the team changes (the colour stays): the ring still follows
+	view.render(1.0, 1.0 / 60.0)
+	check("team ring: a team change without a colour change rebuilds the figure too", near.call(ring_of.call(view, 2), blue) and view._figures[2] != fig2)
 	view.queue_free()
 	await process_frame
 	for kind in [Config.GameMode.FFA, Config.GameMode.POTATO]:
