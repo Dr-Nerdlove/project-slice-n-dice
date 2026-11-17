@@ -817,6 +817,21 @@ SB=[
  ("5 map piggy: the ring leaves a gap at a corner, so a throw gets in beside an entrance","sim/map_def.gd","Rect2(11.0, 3.0, 1.0, 3.0), Rect2(12.0, 3.0","Rect2(11.0, 3.0, 1.0, 1.0), Rect2(12.0, 3.0"),
  ("5 map piggy: two starts in one aisle see each other","sim/map_def.gd","Vector2(3.0, 9.4)","Vector2(3.0, 5.0)"),
  ("5 bot: throws at the pig through a shelf","input/bot.gd","return d <= 2.2 or NavGrid.for_sim(sim).line_clear(me.pos, stop, THROW_CLEARANCE)","return true"),
+ ("0 overhead: icons also in free play","view/overhead_view.gd","if icon_alpha(sim) <= 0.0 or i < 0","if i < 0"),
+ ("0 overhead: icons never fade in PLAY","view/overhead_view.gd","return clampf(1.0 - m.phase_t / ICONS_SHOW_PLAY, 0.0, 1.0)","return 1.0"),
+ ("0 overhead: icons not in the countdown","view/overhead_view.gd","	if m.phase == MatchMode.Phase.COUNTDOWN:\n		return 1.0\n	if m.phase == MatchMode.Phase.PLAY:\n		return clampf(1.0 - m","	if m.phase == MatchMode.Phase.PLAY:\n		return clampf(1.0 - m"),
+ ("0 overhead: icons in the wrong order","view/overhead_view.gd","out.append([id, lv.get(id, 1)])","out.push_front([id, lv.get(id, 1)])"),
+ ("0 overhead: YOU for every player","view/overhead_view.gd","if i != local_slot or i < 0","if i < 0"),
+ ("0 overhead: YOU never fades","view/overhead_view.gd","return clampf((YOU_SHOW_PLAY - m.phase_t) / YOU_FADE, 0.0, 1.0)","return 1.0"),
+ ("0 overhead: zone number is the time used, not the time left","view/overhead_view.gd","ceili(MatchMode.ZONE_DEATH_TIME - p.zone_t)","ceili(p.zone_t)"),
+ ("0 overhead: zone number rounds down","view/overhead_view.gd","ceili(MatchMode.ZONE_DEATH_TIME - p.zone_t)","floori(MatchMode.ZONE_DEATH_TIME - p.zone_t)"),
+ ("0 overhead: zone number also for a dead player","view/overhead_view.gd","or not p.alive or p.zone_t <= 0.0","or p.zone_t <= 0.0"),
+ ("0 overhead: zone number without a timer running","view/overhead_view.gd","or not p.alive or p.zone_t <= 0.0","or not p.alive"),
+ ("0 overhead: no pulse","view/overhead_view.gd","return clampf(1.0 - (ceilf(r) - r) / 0.25, 0.0, 1.0)","return 0.0"),
+ ("0 overhead: the view does not show the zone number","view/overhead_view.gd","	zl.visible = zn > 0\n","	zl.visible = false\n"),
+ ("0 overhead: the view does not show YOU","view/overhead_view.gd","	_you[i].visible = ya > 0.0\n","	_you[i].visible = false\n"),
+ ("0 overhead: the view does not show icons","view/overhead_view.gd","icon.visible = k < shown","icon.visible = false"),
+ ("0 overhead: the old zone ring is back","view/zone_view.gd","func show_zone(sim: Sim) -> void:","func show_ring() -> void:\n	pass\n\n\nfunc show_zone(sim: Sim) -> void:"),
 ]
 
 def suites_for(name, full):

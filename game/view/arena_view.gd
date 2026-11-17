@@ -15,6 +15,7 @@ static func color_of(p: SimPlayer) -> Color:
 ## Which toy each player slot gets (for now fixed): pink bunny, cyan robot, lime dino, orange duck.
 const FIGURE_KINDS: Array[int] = [ToyPose.Kind.BUNNY, ToyPose.Kind.ROBOT, ToyPose.Kind.DINO, ToyPose.Kind.DUCK]
 const HEAD_Y := 0.35
+const HEAD_RADII_Y := OverheadView.HEAD_RADII   # height of the marker anchor in player radii
 const HAND_Y := 0.5               # the yo-yo in the hand hangs in front of the belly
 const STRING_WIDTH := 0.05
 const STRING_Y := 0.6
@@ -51,6 +52,7 @@ var _bodies: Array[Node3D] = []   # the figures (ToyFigure), one per player
 var _figures: Array[ToyFigure] = []
 var playroom: Playroom
 var _zone: ZoneView
+var _overhead: OverheadView
 var _heads: Array = []     # per player: Array[Node3D]
 var _grow: Array = []      # per player: Array[float], 0 = drawn as held (normal size), 1 = thrown (real size)
 var _string_segs: Array[MeshInstance3D] = []   # pool: one box per string segment, reused every frame
@@ -168,6 +170,10 @@ func _build_arena() -> void:
 	_zone.name = "Zone"
 	add_child(_zone)
 	_zone.build(sim.players.size())
+	_overhead = OverheadView.new()
+	_overhead.name = "Overhead"
+	add_child(_overhead)
+	_overhead.build(sim.players.size())
 
 
 ## The room for the map of the sim that is drawn now, in place of the old one.
@@ -614,8 +620,9 @@ func render(alpha: float, delta: float) -> void:
 		if vis and p.air_t > 0.0:
 			lift = MapDef.air_height(p.air_t + (1.0 - a) / Config.TICK_RATE)
 			fig.position.y = lift
-		# The ring of a player outside the zone, from the same source as the figure (a predicted own player's own timer).
-		_zone.show_ring(i, pos, p.zone_t, pr, vis and src.zone_active())
+		# Markers above the head (modifiers, YOU, zone countdown); the zone timer comes from the figure's source.
+		var top := Vector3(pos.x, HEAD_RADII_Y * pr + lift, pos.y)
+		_overhead.show_player(i, camera, top, src, sim, _local_slot, color_of(p))
 		_aim_marks[i].visible = false
 		_lethal_discs[i].visible = false
 		var heads: Array = _heads[i]
