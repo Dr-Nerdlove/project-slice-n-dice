@@ -4,6 +4,12 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.16.0
+
+Draft, not released yet.
+
+- **Round-start markers**: the YOU tag above your figure and the modifier icons above every figure now show only during the round-start countdown and vanish a moment after "GO!". Before, they stayed on screen for the whole round.
+
 ## 0.15.0
 
 Draft, not released yet. Players on different versions can no longer play together.

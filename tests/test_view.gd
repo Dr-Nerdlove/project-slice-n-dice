@@ -1295,17 +1295,19 @@ func test_overhead() -> void:
 	check("overhead: YOU only for the local slot", OverheadView.you_alpha(sim, 0, 0) == 1.0
 			and OverheadView.you_alpha(sim, 1, 0) == 0.0 and OverheadView.you_alpha(sim, 1, 1) == 1.0)
 	sim.mode.phase = MatchMode.Phase.PLAY
-	sim.mode.phase_t = 0.5
-	check("overhead: early in PLAY icons and YOU are still there",
+	sim.mode.phase_t = 0.0
+	check("overhead: at the very start of PLAY icons and YOU are still there",
 			not OverheadView.icons_for(sim, 0).is_empty() and OverheadView.you_alpha(sim, 0, 0) == 1.0)
-	sim.mode.phase_t = 1.0
+	sim.mode.phase_t = 0.15
 	var mid := OverheadView.icon_alpha(sim)
 	check("overhead: icons fade during PLAY (%.2f)" % mid, mid > 0.0 and mid < 1.0)
-	sim.mode.phase_t = 1.8
+	sim.mode.phase_t = 0.2
 	var ya := OverheadView.you_alpha(sim, 0, 0)
-	check("overhead: icons gone and YOU fading at 1.8 s (%.2f)" % ya, OverheadView.icons_for(sim, 0).is_empty() and ya > 0.0 and ya < 1.0)
-	sim.mode.phase_t = 2.5
-	check("overhead: YOU gone after 2 s of PLAY", OverheadView.you_alpha(sim, 0, 0) == 0.0)
+	check("overhead: icons and YOU still fading at 0.2 s (%.2f)" % ya, not OverheadView.icons_for(sim, 0).is_empty() and ya > 0.0 and ya < 1.0)
+	sim.mode.phase_t = 0.35
+	check("overhead: icons gone after 0.3 s of PLAY", OverheadView.icons_for(sim, 0).is_empty())
+	sim.mode.phase_t = 0.5
+	check("overhead: YOU gone after half a second of PLAY", OverheadView.you_alpha(sim, 0, 0) == 0.0)
 	sim.mode.phase = MatchMode.Phase.RESULT
 	check("overhead: nothing in the result phase", OverheadView.you_alpha(sim, 0, 0) == 0.0 and OverheadView.icons_for(sim, 0).is_empty())
 	# Zone countdown.
