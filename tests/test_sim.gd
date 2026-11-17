@@ -3032,7 +3032,7 @@ func _shop_tests() -> void:
 	s.mode.owned[0][id] = 6
 	check("shop: a modifier at level 3 is not offered or bought", not s.mode.can_take(0, id))
 	s.shop_reroll(0, s.mode.shop_seq[0])
-	check("shop: ... not offered after a reroll", not s.mode.offers[0].has(id))
+	check("shop: ... but it can still be offered (even odds) and not bought", not s.mode.can_take(0, id))
 	# slots
 	var five := {}
 	for k in Economy.SLOTS:
@@ -3040,10 +3040,22 @@ func _shop_tests() -> void:
 	s.mode.owned[1] = five
 	s.mode.coins[1] = 50
 	s.shop_reroll(1, s.mode.shop_seq[1])
-	var only_owned := true
-	for x: String in s.mode.offers[1]:
-		only_owned = only_owned and five.has(x)
-	check("shop: with all slots full only owned modifiers are offered", only_owned and not s.mode.can_take(1, Mods.ORDER[Economy.SLOTS]) and s.mode.can_take(1, Mods.ORDER[0]))
+	var seen := {}
+	var rolls := 600
+	for r in rolls:
+		s.shop_reroll(1, s.mode.shop_seq[1])
+		s.mode.coins[1] = 50
+		for x: String in s.mode.offers[1]:
+			seen[x] = int(seen.get(x, 0)) + 1
+	var lo := rolls
+	var hi := 0
+	for x: String in Mods.ORDER:
+		lo = mini(lo, int(seen.get(x, 0)))
+		hi = maxi(hi, int(seen.get(x, 0)))
+	check("shop: with all slots full every modifier is still offered, with even odds", seen.size() == Mods.ORDER.size() and not s.mode.can_take(1, Mods.ORDER[Economy.SLOTS]) and s.mode.can_take(1, Mods.ORDER[0]) and lo > 0.6 * hi, str(seen))
+	var fid: String = Mods.ORDER[Economy.SLOTS]
+	s.mode.offers[1] = [fid, "", ""]
+	check("shop: an offer for a full build that is not owned cannot be bought", not s.shop_buy(1, 0, s.mode.shop_seq[1]))
 	# done and the end of the shop
 	check("shop: done blocks buying", s.shop_done(0) and s.mode.shop_ready[0] and not s.shop_buy(0, 1, s.mode.shop_seq[0]) and not s.shop_done(0))
 	s.step(idle4())
@@ -3162,14 +3174,14 @@ func _shop_rework_tests() -> void:
 	check("lock: a bought (empty) offer cannot be locked", not s.shop_lock(0, 2, m.shop_seq[0]) and not m.is_locked(0, 2))
 	s.shop_reroll(0, m.shop_seq[0])
 	check("lock: after the buy the slot is redrawn", m.offers[0][2] != "")
-	# a locked offer that cannot be taken any more is redrawn
+	# a locked offer that cannot be bought any more stays
 	s = shop_sim([0, 1], 30)
 	m = s.mode
 	var lid: String = m.offers[0][0]
 	s.shop_lock(0, 0, m.shop_seq[0])
 	m.owned[0][lid] = 6
 	s.shop_reroll(0, m.shop_seq[0])
-	check("lock: a locked offer that can no longer be taken is dropped", m.offers[0][0] != lid and not m.is_locked(0, 0))
+	check("lock: a locked offer stays even when it cannot be bought any more", m.offers[0][0] == lid and m.is_locked(0, 0))
 	# the lock is in the snapshot, a new match clears it
 	s = shop_sim([0, 1], 30)
 	s.shop_lock(0, 1, s.mode.shop_seq[0])

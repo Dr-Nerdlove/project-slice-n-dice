@@ -4,6 +4,12 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.16.0
+
+Draft, not released yet.
+
+- Shop: every modifier is offered with the same chance, whatever you own. An offer you cannot buy (build full, max level) is greyed out and says why.
+
 ## 0.15.0
 
 Draft, not released yet. Players on different versions can no longer play together.
