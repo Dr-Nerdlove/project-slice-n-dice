@@ -51,6 +51,7 @@ func _initialize() -> void:
 	test_winding()
 	await test_figures()
 	await test_figure_details()
+	await test_held_yoyo()
 	await test_dino_die_figures()
 	test_arena_geometry()
 	await test_view_sources()
@@ -1173,3 +1174,97 @@ func test_wall_rows() -> void:
 					built = built and pn != null and pn.position.is_equal_approx(Vector3(pieces[k].get_center().x, 0, pieces[k].get_center().y))
 	check("wall rows: the playroom of every map draws each obstacle as its block or row of blocks in the right place", built, binfo)
 	view.queue_free()
+
+
+## The yo-yo in the hand: drawn at normal size while held, real size when thrown (eased); with two yo-yos one in each
+## hand of every figure, both visible from above.
+func test_held_yoyo() -> void:
+	var base := 0.35
+	var big := base * 2.8
+	check("yoyo: a held head is drawn at normal size even with Big Chunk", is_equal_approx(ArenaView.drawn_head_r(base, big, 0.0), base * ArenaView.HELD_SCALE))
+	check("yoyo: a thrown head is drawn at its real size", is_equal_approx(ArenaView.drawn_head_r(base, big, 1.0), big))
+	var mid := ArenaView.drawn_head_r(base, big, 0.5)
+	check("yoyo: in between it eases", mid > base * ArenaView.HELD_SCALE + 0.05 and mid < big - 0.05)
+	var g := 0.0
+	for _k in 6:
+		g = ArenaView.grow_step(g, true, 1.0 / 60.0)
+	check("yoyo: it is not full size after 0.1 s out", g > 0.3 and g < 1.0, str(g))
+	for _k in 10:
+		g = ArenaView.grow_step(g, true, 1.0 / 60.0)
+	check("yoyo: it is full size after 0.17 s out", is_equal_approx(g, 1.0), str(g))
+	for _k in 12:
+		g = ArenaView.grow_step(g, false, 1.0 / 60.0)
+	check("yoyo: caught again it shrinks back to the held size", is_equal_approx(g, 0.0), str(g))
+	check("yoyo: one yo-yo stays in the right hand, twin: right and left", ToyFigure.hand_side(0, 1) == 1 and ToyFigure.hand_side(0, 2) == 1 and ToyFigure.hand_side(1, 2) == -1)
+
+	# In the real view: a held big head is small, a thrown one is big.
+	var cfg := Config.new()
+	var sm := Sim.new(cfg, 1)
+	for k in Config.NUM_PLAYERS:
+		sm.set_player_enabled(k, k < 1)
+	var pl := sm.players[0]
+	pl.alive = true
+	pl.prev_pos = pl.pos
+	pl.mods = {"bighead": 3, "twin": 3}
+	var idle: Array = []
+	for _k in Config.NUM_PLAYERS:
+		idle.append(SimInput.new())
+	sm.step(idle)
+	sm.step(idle)
+	var view := ArenaView.new()
+	root.add_child(view)
+	await process_frame
+	view.setup(sm)
+	view.use_sim(sm, 0)
+	for _k in 30:
+		view.render(1.0, 1.0 / 60.0)
+	var hr := sm.head_r(pl)
+	var head0: Node3D = view._heads[0][0]
+	check("yoyo: Big Chunk is really big in the sim", hr > cfg.head_radius * 2.0 and pl.heads.size() >= 2, str(hr))
+	check("yoyo: view: a held big head is drawn at normal size", head0.visible and is_equal_approx(head0.scale.x, cfg.head_radius * ArenaView.HELD_SCALE), str(head0.scale))
+	pl.heads[0].state = SimHead.S.FLIGHT
+	for _k in 30:
+		view.render(1.0, 1.0 / 60.0)
+	check("yoyo: view: a thrown big head is drawn at its real size", is_equal_approx(head0.scale.x, hr), str(head0.scale))
+	pl.heads[0].state = SimHead.S.HAND
+	view.render(1.0, 1.0 / 60.0)
+	check("yoyo: view: a caught head is not at once small (eased)", head0.scale.x > cfg.head_radius * 1.5, str(head0.scale))
+	for _k in 30:
+		view.render(1.0, 1.0 / 60.0)
+	check("yoyo: view: ... but small a moment later", is_equal_approx(head0.scale.x, cfg.head_radius * ArenaView.HELD_SCALE), str(head0.scale))
+	var h1: Node3D = view._heads[0][1]
+	var d := Vector2(head0.position.x - h1.position.x, head0.position.z - h1.position.z).length()
+	check("yoyo: view: twin yo-yos are apart", d > cfg.head_radius * 1.4, str(d))
+	view.queue_free()
+
+	# Every figure: two distinct hands, left and right of the body, outside the body from above.
+	var holder := Node3D.new()
+	root.add_child(holder)
+	await process_frame
+	var bad := []
+	for kind in range(ToyFigure.NAMES.size()):
+		var fig := ToyFigure.new(kind, Color("2ec4ff"))
+		holder.add_child(fig)
+		var s := one_player()
+		var p := s.players[0]
+		fig.left_hold = true
+		for _k in 60:
+			fig.sync(p, s, p.pos, 1.0 / 60.0)
+		var pos: Vector2 = p.pos
+		var face := Vector2.RIGHT
+		var side := Vector2(face.y, -face.x)
+		var l := world_xz(fig.hand_point(pos, face, base, 0.5, -1)) - pos
+		var r := world_xz(fig.hand_point(pos, face, base, 0.5, 1)) - pos
+		var pr := s.cfg.player_radius
+		var yoyo_r := base * ArenaView.HELD_SCALE
+		var sep := absf((l - r).dot(side))
+		var opposite := l.dot(side) * r.dot(side) < 0.0
+		# Outside the body shell seen from above: the yo-yo (radius yoyo_r) must not lie inside the body's footprint circle.
+		var foot := fig.body_footprint() * pr
+		var outside := minf(l.length(), r.length()) + yoyo_r > foot * 0.9
+		if sep < 2.0 * yoyo_r or not opposite or not outside:
+			bad.append([ToyFigure.NAMES[kind], snappedf(sep, 0.01), opposite, snappedf(l.length(), 0.01), snappedf(r.length(), 0.01), snappedf(foot, 0.01)])
+		fig.queue_free()
+		await process_frame
+	check("yoyo: every figure has a left and a right hand, apart and outside the body seen from above", bad.is_empty(), str(bad))
+	holder.queue_free()

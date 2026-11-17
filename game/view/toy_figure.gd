@@ -65,6 +65,9 @@ var _wheels: Array[Node3D] = []     # pull-along duck: the four wheels
 var _base: Node3D                   # spinning top: the base (cone and skirt) that turns at its own speed
 var _coils: Array[Node3D] = []      # imp: the rings of its spring
 var _paw: Node3D                    # the end of the yo-yo arm: where the yo-yo and its string are held
+var _paw_l: Node3D                  # the end of the left arm: holds the second yo-yo (Twin)
+## Set by the view before `sync`: a yo-yo sits in the LEFT hand, so the left arm is held out like the right one.
+var left_hold := false
 var _eyes: Array[Node3D] = []
 var _blink := 2.0
 ## World direction from the player to where its string leads (the first bounce point or the yo-yo); ZERO while
@@ -175,6 +178,10 @@ func _set_paw(length: float) -> void:
 	_paw.name = "Paw"
 	_paw.position = Vector3(0, -length, 0.05)
 	_arm_r.add_child(_paw)
+	_paw_l = Node3D.new()
+	_paw_l.name = "PawL"
+	_paw_l.position = Vector3(0, -length, 0.05)
+	_arm_l.add_child(_paw_l)
 
 
 ## A floating glove as a hand (figures without arms).
@@ -243,7 +250,7 @@ func _build_dino() -> void:
 		_p(_jaw, cone, tooth, Vector3(sx * 0.36, 0.04, 0.7), Vector3(0.11, 0.18, 0.11), Vector3(PI, 0, 0))   # upper teeth
 	# Tiny T-Rex arms (the right one holds the yo-yo), each with two white claws.
 	for sx in [-1.0, 1.0]:
-		var arm := _piece("ArmL" if sx < 0.0 else "ArmR", Vector3(sx * 0.55, 1.05, 0.3), true)
+		var arm := _piece("ArmL" if sx < 0.0 else "ArmR", Vector3(sx * 0.72, 1.05, 0.3), true)
 		if sx < 0.0:
 			_arm_l = arm
 		else:
@@ -729,6 +736,10 @@ func _apply_pose() -> void:
 	elif motion.act == ToyPose.Act.CHARGE:
 		other = 0.6 * f.charge      # the free arm points at the target
 	_arm_l.rotation = Vector3(other, twist, 0.15)
+	if left_hold and _paw != null:
+		# A yo-yo in the left hand: that arm mirrors the right one (Twin).
+		var m := Basis.FLIP_X
+		_arm_l.basis = m * _arm_r.basis * m
 	_feet(s, f)
 	if _jaw != null:
 		_jaw.rotation.x = -s[ToyPose.JAW] * 0.75     # opens upward, towards the camera
@@ -942,11 +953,21 @@ func flash(on: bool) -> void:
 	body_mat.albedo_color = Color(1, 1, 1) if on else color
 
 
+## Which hand holds the head with index `head_index` while `head_count` heads exist: +1 right, -1 left. One yo-yo
+## stays in the right hand; with two (Twin) head 0 is in the right and head 1 in the left hand, for every figure
+## (every kind has two arms).
+static func hand_side(head_index: int, head_count: int) -> int:
+	if head_count < 2:
+		return 1
+	return 1 if head_index % 2 == 0 else -1
+
+
 ## Where the yo-yo held in the hand is drawn (world position): in front of the belly at rest (the same spot
 ## ClientCore assumes for the other players), behind and above the shoulder when wound up for a throw.
-func hand_point(pos: Vector2, face: Vector2, hr: float, rest_y: float) -> Vector3:
+## `hand_side` is +1 for the right hand (the yo-yo arm, today's hand) and -1 for the left one.
+func hand_point(pos: Vector2, face: Vector2, hr: float, rest_y: float, hand_side := 1) -> Vector3:
 	if _paw != null and is_inside_tree() and visible:
-		return _paw.global_position + Vector3(0, hr * 0.3, 0)
+		return (_paw if hand_side >= 0 else _paw_l).global_position + Vector3(0, hr * 0.3, 0)
 	var back := motion.wind_up()
 	var side := Vector2(face.y, -face.x)
 	var fwd := (_pr + hr * 0.4) * (1.0 - back) - (_pr * 1.1 + hr) * back
@@ -955,6 +976,8 @@ func hand_point(pos: Vector2, face: Vector2, hr: float, rest_y: float) -> Vector
 	var tr := motion.shown[ToyPose.TREMBLE] * _pr
 	var t := motion.facts.time
 	hp += Vector2(sin(t * 83.0), cos(t * 71.0)) * tr
+	if hand_side < 0:
+		hp -= side * _pr * 1.2        # the left hand: the other side of the body
 	var y := lerpf(rest_y, _pr * 2.9, back) + maxf(motion.shown[ToyPose.LIFT], 0.0) * _pr
 	return Vector3(hp.x, y, hp.y)
 
