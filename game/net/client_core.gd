@@ -126,7 +126,8 @@ func send_team() -> void:
 	net.send(1, NetProto.pack([NetProto.T_TEAM]), true)
 
 
-## The figure the local player wants; sent to the server when it changes.
+## The figure the local player wants; sent to the server when it changes. The server may give another one (taken),
+## so the client never keeps its own wish on top of snapshots.
 func set_skin(k: int) -> void:
 	var clean := posmod(k, Config.SKIN_COUNT)
 	if clean != _wanted_skin:
@@ -255,8 +256,6 @@ func _on_snapshot(snap: Dictionary) -> void:
 		pending.pop_front()
 	if sim.mode.phase == MatchMode.Phase.OFF:
 		sim.apply_mods(slot, _wanted_mods)   # in a match the modifiers come from the shop (server state)
-	if _wanted_skin >= 0:
-		sim.set_skin(slot, _wanted_skin)
 	for p: Dictionary in pending:
 		sim.step(_inputs_with(p["input"]))
 	snapshots_applied += 1
@@ -564,7 +563,6 @@ func tick(local: SimInput) -> void:
 	if _skin_dirty:
 		_skin_dirty = false
 		net.send(1, NetProto.pack([NetProto.T_SKIN, _wanted_skin]), true)
-		sim.set_skin(slot, _wanted_skin)
 	if _color_dirty:
 		_color_dirty = false
 		net.send(1, NetProto.pack([NetProto.T_COLOR, _wanted_color]), true)

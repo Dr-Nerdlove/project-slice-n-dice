@@ -63,6 +63,8 @@ var _found_box: VBoxContainer
 var _empty_label: Label
 var _found_buttons := {}        # "ip:port" -> Button
 var _hosting := false
+var _taken_figures: Array = []   # online: figure index -> held by another player
+var _given_figure := -1          # online: the figure the server gave the own player
 var _host_cfg: Config           # a joiner reads the host's values (game mode, players, target) from here, read-only
 var _team_counts := [0, 0]
 var _connected := false
@@ -348,6 +350,9 @@ func _build_together() -> Control:
 # ---------------------------------------------------------------- figure
 
 func _choose_figure(i: int) -> void:
+	if _figure_blocked(i):
+		_mark_figure()
+		return
 	cfg.character = i
 	_mark_figure()
 	save_fn.call(cfg)
@@ -468,14 +473,39 @@ static func found_text(g: Dictionary) -> String:
 	return text
 
 
+## Hosting or connected: the figures other players of the game hold (greyed out) and the figure the server gave the
+## own player (shown instead of the saved wish). Called every frame by `main`; `taken` empty / `mine` -1 = none known.
+func set_figures(taken: Array, mine: int) -> void:
+	if taken == _taken_figures and mine == _given_figure:
+		return
+	_taken_figures = taken
+	_given_figure = mine
+	_mark_figure()
+
+
+func _online_figures() -> bool:
+	return _hosting or _connected
+
+
+func _figure_blocked(i: int) -> bool:
+	return _online_figures() and i < _taken_figures.size() and _taken_figures[i]
+
+
+## The figure shown and marked: the one the server gave while online, else the saved choice.
+func shown_figure() -> int:
+	return _given_figure if _online_figures() and _given_figure >= 0 else cfg.character
+
+
 func _mark_figure() -> void:
+	var shown := shown_figure()
 	for i in figure_buttons.size():
-		figure_buttons[i].set_pressed_no_signal(i == cfg.character)
+		figure_buttons[i].set_pressed_no_signal(i == shown)
+		figure_buttons[i].disabled = _figure_blocked(i)
 	for k in color_buttons.size():
 		color_buttons[k].set_pressed_no_signal(k == cfg.player_color)
 	var col: Color = ArenaView.PLAYER_COLORS[cfg.player_color]
-	if figure_preview.figure == null or figure_preview.figure.kind != cfg.character or figure_preview.figure.player_color != col:
-		figure_preview.show_figure(cfg.character, col, _preview_cfg)
+	if figure_preview.figure == null or figure_preview.figure.kind != shown or figure_preview.figure.player_color != col:
+		figure_preview.show_figure(shown, col, _preview_cfg)
 
 
 ## Shows the lobby (the figure shown follows the saved choice) / hides it.
@@ -510,6 +540,7 @@ func set_session(hosting: bool, connected: bool, code: String, players: int) -> 
 	_stop_btn.disabled = not (hosting or connected)
 	if hosting != was_hosting or connected != was_connected:
 		_refresh_card()
+		_mark_figure()
 	_refresh_rejoin()
 	_hosting_box.visible = hosting
 	_join_box.visible = not (hosting or connected)

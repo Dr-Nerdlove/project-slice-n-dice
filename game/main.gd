@@ -322,6 +322,10 @@ func _refresh_start() -> void:
 	lobby.set_start(local_host != null, _online, can)
 	# A joiner reads the host's game settings from the welcome; Teams: the team line and the switch button.
 	lobby.set_host_cfg(client.cfg if _online and local_host == null and client.state == ClientCore.State.ONLINE else null)
+	if _online and client.state == ClientCore.State.ONLINE:
+		lobby.set_figures(client.sim.taken_skins(client.slot), client.sim.players[client.slot].skin)
+	else:
+		lobby.set_figures([], -1)
 	if _online and client.sim.mode.is_team_mode():
 		var tm := client.sim.mode
 		var counts := [0, 0]
@@ -385,11 +389,10 @@ func _sync_mods() -> void:
 	var free := sim.mode.phase == MatchMode.Phase.OFF   # in a match the modifiers come from the shop
 	if free:
 		sim.apply_mods(0, cfg.mods_you)
-	sim.set_skin(0, cfg.character)
+	sim.assign_skins(cfg.character)
 	for i in range(1, Config.NUM_PLAYERS):
 		if free:
 			sim.apply_mods(i, cfg.mods_bots)
-		sim.set_skin(i, cfg.character + i)
 	sim.assign_colors(cfg.player_color)
 
 

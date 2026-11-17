@@ -4,6 +4,12 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.16.1
+
+Draft, not released yet.
+
+- **Every player has a different figure**: in a match no two players show the same figure. In the Play lobby, figures that another player of the game already has are greyed out and cannot be picked; if two players want the same figure, the second one gets the next free one. A human who picks a figure a bot has gets it, and the bot switches to another. Players on older versions can no longer join.
+
 ## 0.16.0
 
 Smaller fixes and a harder throw. Players on different versions can no longer play together.
