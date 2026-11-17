@@ -60,6 +60,7 @@ func _initialize() -> void:
 	await test_map_views()
 	await test_wall_rows()
 	await test_overhead()
+	await test_bomb_view()
 	await test_preview_framing()
 	await test_main_scene()
 	quit(fails)
@@ -1390,3 +1391,98 @@ func test_preview_framing() -> void:   # async
 			check("preview framing: %s: all 8 corners of the bounds are in the picture" % nm, pv.fits())
 			check("preview framing: %s: the figure stays inside its bounds while it walks" % nm, inside and preview_inside(pv))
 	pv.queue_free()
+
+# ---------------------------------------------------------------- Hot Potato bomb
+
+func potato_view_sim(kind := Config.GameMode.POTATO) -> Sim:
+	var cfg := Config.new()
+	cfg.game_mode = kind
+	cfg.train_speed = 0.0
+	var s := Sim.new(cfg, 5)
+	for k in Config.NUM_PLAYERS:
+		s.set_player_enabled(k, k < 4)
+		s.players[k].alive = k < 4
+		s.players[k].prev_pos = s.players[k].pos
+	s.start_match(10)
+	for _t in 200:
+		s.step([SimInput.new(), SimInput.new(), SimInput.new(), SimInput.new(), SimInput.new(), SimInput.new(), SimInput.new(), SimInput.new()])
+	return s
+
+func blink_edges(from_t: float, to_t: float) -> int:
+	var edges := 0
+	var last: bool = BombView.blink_red(from_t)
+	var t := from_t
+	while t > to_t:
+		t -= 0.001
+		var now: bool = BombView.blink_red(t)
+		if now and not last:
+			edges += 1
+		last = now
+	return edges
+
+func test_bomb_view() -> void:
+	var s := potato_view_sim()
+	var m: HotPotato = s.mode
+	check("bomb view: the sim is in a Hot Potato round with a bomb", m.phase == MatchMode.Phase.PLAY and m.bomb_holder >= 0)
+	m.bomb_holder = 1
+	m.bomb_fuse = 16.0
+	m.bomb_t = 16.0
+	check("bomb view: the holder is the carrier, a full fuse is 1", BombView.holder(s) == 1 and is_equal_approx(BombView.fuse_fraction(s), 1.0))
+	m.bomb_t = 4.0
+	check("bomb view: the fuse fraction follows bomb_t", is_equal_approx(BombView.fuse_fraction(s), 0.25))
+	check("bomb view: a shorter fuse draws a shorter stick", BombView.fuse_length(1.0) > BombView.fuse_length(0.5) and BombView.fuse_length(0.5) > BombView.fuse_length(0.1) and BombView.fuse_length(0.0) > 0.0)
+	check("bomb view: no blinking above 3 s, blinking below", not BombView.blink_red(16.0) and not BombView.blink_red(3.01) and BombView.blink_red(2.99) and not BombView.blink_red(-1.0))
+	var early := blink_edges(3.0, 2.0)
+	var late := blink_edges(1.0, 0.0)
+	check("bomb view: the blinking gets faster towards the end", early >= 1 and late > early + 1, "%d vs %d" % [early, late])
+	m.bomb_holder = -1
+	check("bomb view: nobody carries it when there is no bomb", BombView.holder(s) == -1)
+	m.bomb_holder = 2
+	s.players[2].alive = false
+	check("bomb view: a dead player shows no bomb", BombView.holder(s) == -1)
+	s.players[2].alive = true
+	m.phase = MatchMode.Phase.RESULT
+	check("bomb view: no bomb outside a round", BombView.holder(s) == -1)
+	m.phase = MatchMode.Phase.PLAY
+	check("bomb view: no bomb in free for all", BombView.holder(potato_view_sim(Config.GameMode.FFA)) == -1 and BombView.fuse_fraction(potato_view_sim(Config.GameMode.FFA)) == 0.0)
+
+	# on the real arena view
+	var view := ArenaView.new()
+	root.add_child(view)
+	await process_frame
+	view.setup(s)
+	view.use_sim(s, 0)
+	m.bomb_holder = 1
+	m.bomb_fuse = 16.0
+	m.bomb_t = 16.0
+	view.render(1.0, 1.0 / 60.0)
+	var bombs: BombView = view.find_child("Bombs", true, false)
+	var shown: Array = []
+	for i in Config.NUM_PLAYERS:
+		if bombs._nodes[i].visible:
+			shown.append(i)
+	var node: Node3D = bombs._nodes[1]
+	var fig_pos: Vector2 = s.players[1].pos
+	check("bomb view: the bomb shows over the carrier only", shown == [1], str(shown))
+	check("bomb view: ... above his head", is_equal_approx(node.position.x, fig_pos.x) and is_equal_approx(node.position.z, fig_pos.y) and node.position.y > 3.0 * s.cfg.player_radius)
+	var full_len: float = bombs._fuses[1].scale.y
+	m.bomb_t = 4.0
+	view.render(1.0, 1.0 / 60.0)
+	check("bomb view: the fuse stick is shorter after the fuse has burnt down", bombs._fuses[1].scale.y < full_len * 0.6 and bombs._fuses[1].scale.y > 0.0, "%f %f" % [full_len, bombs._fuses[1].scale.y])
+	var calm: Material = bombs._bodies[1].material_override
+	m.bomb_t = 2.99
+	view.render(1.0, 1.0 / 60.0)
+	var red: Material = bombs._bodies[1].material_override
+	check("bomb view: the body turns red when it blinks", red != calm and (red as StandardMaterial3D).albedo_color == BombView.RED and (calm as StandardMaterial3D).albedo_color == BombView.BODY_COLOR)
+	m.bomb_holder = 3
+	view.render(1.0, 1.0 / 60.0)
+	check("bomb view: a pass moves the bomb to the new carrier", bombs._nodes[3].visible and not bombs._nodes[1].visible)
+	# the other players come from the display sim: the bomb follows THAT sim's carrier
+	var other := potato_view_sim()
+	other.mode.bomb_holder = 2
+	other.mode.bomb_fuse = 16.0
+	other.mode.bomb_t = 10.0
+	view.set_others(other, 1.0)
+	view.render(1.0, 1.0 / 60.0)
+	check("bomb view: a figure drawn from the display sim shows that sim's bomb", bombs._nodes[2].visible and not bombs._nodes[3].visible)
+	view.queue_free()
