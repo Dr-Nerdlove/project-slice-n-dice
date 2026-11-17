@@ -42,7 +42,8 @@ const DIE_SIDE := ToyMotion.DIE_SIDE
 
 var kind := 0
 var color := Color.WHITE          # the body colour (BODY_COLORS)
-var player_color := Color.WHITE   # the player colour: floor ring, ghosts, confetti
+var player_color := Color.WHITE   # the player colour: ghosts, confetti (and the floor ring unless a team colour is given)
+var ring_color := Color.WHITE     # the colour of the floor ring: the player colour, or the team colour in Teams
 var _ring: MeshInstance3D
 var motion: ToyMotion
 var body_mat: StandardMaterial3D
@@ -85,8 +86,10 @@ var _rng := RandomNumberGenerator.new()
 var _pr := 0.5
 
 
-func _init(figure_kind: int, colour_of_player: Color) -> void:
+## `ring_colour` (alpha 0 = none) is the colour of the floor ring when it differs from the player colour (Teams).
+func _init(figure_kind: int, colour_of_player: Color, ring_colour := Color(0, 0, 0, 0)) -> void:
 	kind = figure_kind
+	ring_color = ring_colour if ring_colour.a > 0.0 else colour_of_player
 	color = BODY_COLORS[posmod(figure_kind, BODY_COLORS.size())]
 	player_color = colour_of_player
 	name = "Toy%d" % figure_kind
@@ -602,7 +605,7 @@ func _build_ring() -> void:
 	_ring = MeshInstance3D.new()
 	_ring.name = "ColorRing"
 	_ring.mesh = ToyKit.torus()
-	_ring.material_override = ToyKit.overlay(Color(player_color.r, player_color.g, player_color.b, 0.9))
+	_ring.material_override = ToyKit.overlay(Color(ring_color.r, ring_color.g, ring_color.b, 0.9))
 	_ring.scale = Vector3(RING_RADIUS * 2.0, 0.5, RING_RADIUS * 2.0)
 	_ring.position.y = 0.05
 	_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

@@ -16,6 +16,8 @@ const BODY_R := 0.55            # bomb ball radius
 const CENTRE_Y := 3.35          # height of its centre above the floor
 const FUSE_MAX := 0.9           # fuse stick length at a full fuse
 const FUSE_MIN := 0.04          # what is left when the fuse is nearly out
+## Top of the bomb (cap, full fuse and spark) above the floor, in player radii: the overhead markers stack above it.
+const TOP_RADII := CENTRE_Y + BODY_R * 0.95 + 0.08 + FUSE_MAX + 0.15
 const BLINK_START_HZ := 2.0
 const BLINK_END_HZ := 10.0
 

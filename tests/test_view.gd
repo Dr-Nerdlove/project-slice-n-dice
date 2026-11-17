@@ -61,6 +61,7 @@ func _initialize() -> void:
 	await test_wall_rows()
 	await test_overhead()
 	await test_bomb_view()
+	await test_team_ring()
 	await test_preview_framing()
 	await test_main_scene()
 	quit(fails)
@@ -1485,4 +1486,74 @@ func test_bomb_view() -> void:
 	view.set_others(other, 1.0)
 	view.render(1.0, 1.0 / 60.0)
 	check("bomb view: a figure drawn from the display sim shows that sim's bomb", bombs._nodes[2].visible and not bombs._nodes[3].visible)
+	# the overhead markers (here: YOU) stand above the bomb when their player carries it
+	view.set_others(null, 1.0)
+	m.phase_t = 0.1
+	var pr: float = s.cfg.player_radius
+	m.bomb_holder = 0
+	m.bomb_t = m.bomb_fuse
+	view.render(1.0, 1.0 / 60.0)
+	var spark_top: float = bombs._nodes[0].position.y + (bombs._sparks[0].position.y + 0.1) * pr   # the highest point drawn of the bomb
+	check("bomb view: the marker anchor is above the highest point of the bomb (%.2f above %.2f)" % [OverheadView.anchor_radii(s, 0) * pr, spark_top], OverheadView.anchor_radii(s, 0) * pr > spark_top)
+	var ovh: OverheadView = view._overhead
+	var p0 := s.players[0].pos
+	var bomb_top_y := view.camera.unproject_position(Vector3(p0.x, BombView.TOP_RADII * pr, p0.y)).y
+	check("bomb view: the YOU marker of the carrier is shown", ovh._boxes[0].visible and ovh._you[0].visible)
+	check("bomb view: ... and stands above the bomb (marker anchor y %.0f above bomb top y %.0f)" % [ovh._boxes[0].position.y, bomb_top_y], ovh._boxes[0].position.y < bomb_top_y)
+	m.bomb_holder = 1
+	view.render(1.0, 1.0 / 60.0)
+	var head_y := view.camera.unproject_position(Vector3(p0.x, OverheadView.HEAD_RADII * pr, p0.y)).y
+	check("bomb view: ... but only the carrier's: without the bomb the anchor is the head again", absf(ovh._boxes[0].position.y - head_y) < 0.5, "%f %f" % [ovh._boxes[0].position.y, head_y])
+	check("bomb view: the anchor is higher than the old one by the bomb", OverheadView.anchor_radii(s, 1) > BombView.TOP_RADII and OverheadView.anchor_radii(s, 0) == OverheadView.HEAD_RADII)
 	view.queue_free()
+
+
+## The floor ring under a figure is the team colour in Teams (Red or Blue), the personal colour otherwise; the figure
+## is rebuilt when its team changes; yo-yo and the rest keep the personal colour.
+func test_team_ring() -> void:
+	var ring_of := func(view: ArenaView, i: int) -> Color:
+		var fig: ToyFigure = view._figures[i]
+		return ((fig.find_child("ColorRing", true, false) as MeshInstance3D).material_override as StandardMaterial3D).albedo_color
+	var cfg := Config.new()
+	cfg.game_mode = Config.GameMode.TEAMS
+	cfg.train_speed = 0.0
+	var s := Sim.new(cfg, 5)
+	for k in Config.NUM_PLAYERS:
+		s.set_player_enabled(k, k < 4)
+	var view := ArenaView.new()
+	root.add_child(view)
+	await process_frame
+	view.setup(s)
+	view.use_sim(s, 0)
+	view.render(1.0, 1.0 / 60.0)
+	var red: Color = ArenaView.TEAM_COLORS[0]
+	var blue: Color = ArenaView.TEAM_COLORS[1]
+	var near := func(a: Color, b: Color) -> bool: return absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b) < 0.02
+	check("team ring: the teams have two clearly different colours", ArenaView.TEAM_COLORS.size() == 2 and not near.call(red, blue))
+	check("team ring: in Teams the rings are the team colours (slots 0 and 2 Red, 1 and 3 Blue)", near.call(ring_of.call(view, 0), red) and near.call(ring_of.call(view, 2), red) and near.call(ring_of.call(view, 1), blue) and near.call(ring_of.call(view, 3), blue))
+	var fig0: ToyFigure = view._figures[0]
+	check("team ring: ... while the figure keeps its personal colour for ghosts and the rest", near.call(fig0.player_color, ArenaView.color_of(s.players[0])) and not near.call(fig0.player_color, red))
+	s.swap_team(0, 1)
+	view.render(1.0, 1.0 / 60.0)
+	check("team ring: a switch rebuilds the figure with the new team's ring", near.call(ring_of.call(view, 0), blue) and near.call(ring_of.call(view, 1), red) and view._figures[0] != fig0)
+	view.queue_free()
+	await process_frame
+	for kind in [Config.GameMode.FFA, Config.GameMode.POTATO]:
+		var c2 := Config.new()
+		c2.game_mode = kind
+		c2.train_speed = 0.0
+		var s2 := Sim.new(c2, 5)
+		for k in Config.NUM_PLAYERS:
+			s2.set_player_enabled(k, k < 4)
+		var v2 := ArenaView.new()
+		root.add_child(v2)
+		await process_frame
+		v2.setup(s2)
+		v2.use_sim(s2, 0)
+		v2.render(1.0, 1.0 / 60.0)
+		var ok := true
+		for i in 4:
+			ok = ok and near.call(ring_of.call(v2, i), ArenaView.color_of(s2.players[i]))
+		check("team ring: mode %d keeps the personal colour ring" % kind, ok)
+		v2.queue_free()
+		await process_frame
