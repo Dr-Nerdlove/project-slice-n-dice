@@ -4,15 +4,21 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.14.0
+
+Easier to read in a match, and two fixes for how yo-yos and figures are drawn.
+
+- **Yo-yo in the hand**: a yo-yo you hold is always drawn at normal size, so Big Chunk no longer hides your figure; it grows to its real size when thrown and shrinks back when caught. With Twin, one yo-yo is held in each hand, for every figure (the Snapping Dino's arms moved a little apart for this).
+- **Markers above the figures**: at the start of a round everybody sees the modifiers the others bought (small icons over their heads), and your own figure gets a "YOU" tag with an arrow. A player outside the shrinking zone now gets a big red countdown number (3, 2, 1) above the head instead of the ring on the floor.
+- **Play lobby**: the figure picture now shows every figure completely (the top of some was cut off); the camera
+  is framed from the figure's real size and the shape of the picture.
+
 ## 0.13.0
 
 Four more maps have a new floor plan, the same way Train Set and Assembly Line got one earlier. Every plan is
 symmetrical, so no start is better than another, and nobody starts in sight of another player. Players on
 different versions can no longer play together.
 
-- **Yo-yo in the hand**: a yo-yo you hold is always drawn at normal size, so Big Chunk no longer hides your figure; it grows to its real size when thrown and shrinks back when caught. With Twin, one yo-yo is held in each hand, for every figure (the Snapping Dino's arms moved a little apart for this).
-
-- **Markers above the figures**: at the start of a round everybody sees the modifiers the others bought (small icons over their heads), and your own figure gets a "YOU" tag with an arrow. A player outside the shrinking zone now gets a big red countdown number (3, 2, 1) above the head instead of the ring on the floor.
 - **Piggy Bank**: the pig stands in an open square in the middle, inside a ring of shelves with an entrance in the
   middle of each side. From outside, the pig can only be hit through an entrance, so taking the coins means
   showing yourself. Two long walls make the ends of the room into aisles, and a short wall in each aisle splits

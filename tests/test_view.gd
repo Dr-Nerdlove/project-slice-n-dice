@@ -60,6 +60,7 @@ func _initialize() -> void:
 	await test_map_views()
 	await test_wall_rows()
 	await test_overhead()
+	await test_preview_framing()
 	await test_main_scene()
 	quit(fails)
 
@@ -1353,3 +1354,39 @@ func test_overhead() -> void:
 	check("overhead view: the red ring of the zone is gone", not view._zone.has_method("show_ring"))
 	view.queue_free()
 	await process_frame
+## True when every visible mesh of the preview's figure lies inside the preview's bounds.
+func preview_inside(pv: FigurePreview) -> bool:
+	var box := pv.bounds
+	for m in pv.figure.find_children("*", "MeshInstance3D", true, false):
+		var mi := m as MeshInstance3D
+		if not mi.is_visible_in_tree() or mi == pv.figure._shadow:
+			continue
+		var t := pv.figure.global_transform.affine_inverse() * mi.global_transform
+		for i in 8:
+			var q := t * mi.get_aabb().get_endpoint(i)
+			if Vector2(q.x, q.z).length() > box.size.x * 0.5 + 0.001 or q.y < box.position.y - 0.001 or q.y > box.end.y + 0.001:
+				return false
+	return true
+
+
+## The lobby's figure picture frames every figure completely, whatever the shape of the picture (the camera is
+## placed from the figure's real bounds, measured over its whole walk-and-stand cycle).
+func test_preview_framing() -> void:   # async
+	var cfg := Config.new()
+	var pv := FigurePreview.new()
+	root.add_child(pv)
+	for shape in [Vector2(300, 120), Vector2(140, 120), Vector2(120, 400), Vector2(600, 90)]:
+		pv.size = shape
+		for kind in Config.SKIN_COUNT:
+			pv.show_figure(kind, Color.RED, cfg)
+			var long: bool = shape == Vector2(300, 120)
+			var inside := true
+			for _i in (330 if long else 2):   # (5.5 s: past a whole walk-and-stand cycle)
+				await process_frame
+				if long and _i % 10 == 0 and not preview_inside(pv):
+					inside = false
+			var nm: String = "%s at %s" % [ToyFigure.NAMES[kind], str(shape)]
+			check("preview framing: %s: bounds are a real box" % nm, pv.bounds.size.y > 0.5 and pv.bounds.size.x > 0.5)
+			check("preview framing: %s: all 8 corners of the bounds are in the picture" % nm, pv.fits())
+			check("preview framing: %s: the figure stays inside its bounds while it walks" % nm, inside and preview_inside(pv))
+	pv.queue_free()
