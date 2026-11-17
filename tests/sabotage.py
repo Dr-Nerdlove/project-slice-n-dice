@@ -837,7 +837,7 @@ SB=[
  ("0 preview: the camera ignores the figure's points","view/figure_preview.gd","	return Transform3D(basis, -f * d + basis.x * ox + basis.y * oy)","	return Transform3D(basis, -f * 8.0)"),
  ("8 preview: the figures are framed small again","view/figure_preview.gd","const FILL := 0.97","const FILL := 0.5"),
  ("8 preview: the picture does not take the free height","ui/play_lobby.gd","	figure_preview.size_flags_vertical = Control.SIZE_EXPAND_FILL","	figure_preview.size_flags_vertical = Control.SIZE_FILL"),
- ("0 preview: the bounds ignore the poses of the walk","view/figure_preview.gd","			pts.append(fig.transform * v)","			pass"),
+ ("0 preview: the bounds ignore the poses of the walk","view/figure_preview.gd","					pts.append(w)","					pass"),
  ("0 preview: the camera ignores the figure's bounds","view/figure_preview.gd","	return Transform3D(basis, c - f * d)","	return Transform3D(basis, c - f * 8.0)"),
  ("0 preview: the bounds ignore the poses of the walk","view/figure_preview.gd","		pts.append_array(figure_points(fig))\n","		pass\n"),
  ('4 teams: _hit ignores the mode','sim/sim.gd','\tif mode.harms(attacker.id, victim.id):\n\t\t_kill(victim, attacker)','\tif true:\n\t\t_kill(victim, attacker)'),
@@ -943,6 +943,11 @@ SB=[
  ("0 mode: the carrier's anchor is the head",'view/overhead_view.gd','maxf(HEAD_RADII, BombView.TOP_RADII + 0.2) if BombView.holder(src) == i else HEAD_RADII','HEAD_RADII'),
  ("0 arrow: the arrow does not move out with the charge", "view/arena_view.gd", "lerpf(ARROW_NEAR, ARROW_FAR, t)", "lerpf(ARROW_NEAR, ARROW_FAR, 0.0)"),
  ('0 mode: the anchor sits inside the bomb','view/bomb_view.gd','const TOP_RADII := CENTRE_Y + BODY_R * 0.95 + 0.08 + FUSE_MAX + 0.15','const TOP_RADII := CENTRE_Y'),
+ ('0 switching: a colour change rebuilds the figure','view/figure_preview.gd','if figure != null and figure.kind == kind and _sim != null','if false and figure != null and figure.kind == kind and _sim != null'),
+ ('0 switching: a colour change leaves the ring colour','view/toy_figure.gd','	_ring.material_override = ToyKit.overlay(Color(ring_color.r, ring_color.g, ring_color.b, 0.9))\n	_ghost_mat','	_ghost_mat'),
+ ('0 switching: the measuring is not kept','view/figure_preview.gd','	if not _measured.has(k):\n		if _job.is_empty()','	if true:\n		if _job.is_empty()'),
+ ('0 switching: warming up measures nothing','view/figure_preview.gd','		if not is_measured(k, cfg):\n			_warm.append(k)','		if not is_measured(k, cfg):\n			pass'),
+ ('0 switching: warming up does all in one frame','view/figure_preview.gd','const WARM_BUDGET := 4000','const WARM_BUDGET := 100000000'),
 ]
 
 def suites_for(name, full):

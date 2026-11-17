@@ -64,6 +64,7 @@ func _initialize() -> void:
 	await test_team_ring()
 	test_aim_arrow()
 	await test_preview_framing()
+	await test_preview_switching()
 	await test_main_scene()
 	quit(fails)
 
@@ -1417,6 +1418,47 @@ func test_preview_framing() -> void:   # async
 			check("preview framing: %s: bounds are a real box" % nm, pv.bounds.size.y > 0.5 and pv.bounds.size.x > 0.5)
 			check("preview framing: %s: all 8 corners of the bounds are in the picture" % nm, pv.fits())
 			check("preview framing: %s: the figure stays inside its bounds while it walks" % nm, inside and preview_inside(pv))
+	pv.queue_free()
+
+## Choosing another colour or figure in the lobby must not hitch: a colour change keeps the same figure (recoloured in
+## place), the expensive measuring of a figure is done once per kind and is done in idle frames after warm_up.
+func test_preview_switching() -> void:   # async
+	var cfg := Config.new()
+	var pv := FigurePreview.new()
+	root.add_child(pv)
+	pv.size = Vector2(300, 300)
+	FigurePreview._measured.clear()
+	var t_full := Time.get_ticks_usec()
+	pv.show_figure(0, Color.RED, cfg)   # (measuring one figure all at once: the yardstick, as machines differ in speed)
+	t_full = (Time.get_ticks_usec() - t_full) / 1000.0
+	FigurePreview._measured.clear()
+	pv.warm_up(cfg)
+	var frames := 0
+	var slowest := 0.0
+	while frames < 4000 and not FigurePreview.is_measured(Config.SKIN_COUNT - 1, cfg):
+		var t := Time.get_ticks_usec()
+		await process_frame
+		slowest = maxf(slowest, (Time.get_ticks_usec() - t) / 1000.0)
+		frames += 1
+	check("preview switching: warming up works in small pieces (slowest frame %.0f ms, one figure at once %.0f ms)" % [slowest, t_full], slowest < t_full * 0.5 and frames > 8)
+	var all := true
+	for k in Config.SKIN_COUNT:
+		all = all and FigurePreview.is_measured(k, cfg)
+	check("preview switching: warming up measures every figure in idle frames", all, "frames %d" % frames)
+	var t0 := Time.get_ticks_usec()
+	pv.show_figure(2, Color.RED, cfg)
+	var ms := (Time.get_ticks_usec() - t0) / 1000.0
+	check("preview switching: a measured figure shows quickly (%.1f ms, unmeasured %.0f ms)" % [ms, t_full], ms < t_full * 0.3 and pv.figure.kind == 2 and pv.fits())
+	var fig := pv.figure
+	var blue: Color = ArenaView.PLAYER_COLORS[1]
+	var count := fig.get_parent().get_child_count()
+	pv.show_figure(2, blue, cfg)
+	var ring := fig.get_node("ColorRing") as MeshInstance3D
+	var ring_col := (ring.material_override as StandardMaterial3D).albedo_color
+	check("preview switching: a colour change keeps the same figure node", pv.figure == fig and fig.get_parent().get_child_count() == count and not fig.is_queued_for_deletion())
+	check("preview switching: ... with the new colour on figure and floor ring", fig.player_color == blue and fig.ring_color == blue and is_equal_approx(ring_col.r, blue.r) and is_equal_approx(ring_col.b, blue.b) and pv.fits())
+	pv.show_figure(3, blue, cfg)
+	check("preview switching: another figure shows the right kind and colour", pv.figure != fig and pv.figure.kind == 3 and pv.figure.player_color == blue and pv.fits())
 	pv.queue_free()
 
 # ---------------------------------------------------------------- Hot Potato bomb
