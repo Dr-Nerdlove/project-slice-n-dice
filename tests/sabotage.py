@@ -832,9 +832,11 @@ SB=[
  ("0 overhead: the view does not show YOU","view/overhead_view.gd","	_you[i].visible = ya > 0.0\n","	_you[i].visible = false\n"),
  ("0 overhead: the view does not show icons","view/overhead_view.gd","icon.visible = k < shown","icon.visible = false"),
  ("0 overhead: the old zone ring is back","view/zone_view.gd","func show_zone(sim: Sim) -> void:","func show_ring() -> void:\n	pass\n\n\nfunc show_zone(sim: Sim) -> void:"),
- ("0 preview: the camera ignores the width of the picture","view/figure_preview.gd","var tx := ty * aspect\n","var tx := ty * 1.0\n"),
- ("0 preview: the camera ignores the figure's bounds","view/figure_preview.gd","	return Transform3D(basis, c - f * d)","	return Transform3D(basis, c - f * 8.0)"),
- ("0 preview: the bounds ignore the poses of the walk","view/figure_preview.gd","		pts.append_array(figure_points(fig))\n","		pass\n"),
+ ("0 preview: the camera ignores the width of the picture","view/figure_preview.gd","	var tx := ty * aspect\n","	var tx := ty * 1.0\n"),
+ ("0 preview: the camera ignores the figure's points","view/figure_preview.gd","	return Transform3D(basis, -f * d + basis.x * ox + basis.y * oy)","	return Transform3D(basis, -f * 8.0)"),
+ ("8 preview: the figures are framed small again","view/figure_preview.gd","const FILL := 0.97","const FILL := 0.5"),
+ ("8 preview: the picture does not take the free height","ui/play_lobby.gd","	figure_preview.size_flags_vertical = Control.SIZE_EXPAND_FILL","	figure_preview.size_flags_vertical = Control.SIZE_FILL"),
+ ("0 preview: the bounds ignore the poses of the walk","view/figure_preview.gd","			pts.append(fig.transform * v)","			pass"),
 ]
 
 def suites_for(name, full):

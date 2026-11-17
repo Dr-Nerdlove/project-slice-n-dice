@@ -4,6 +4,10 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.15.0
+
+The figure in the Play lobby is about twice as big and still shown completely.
+
 ## 0.14.0
 
 Easier to read in a match, and two fixes for how yo-yos and figures are drawn.
