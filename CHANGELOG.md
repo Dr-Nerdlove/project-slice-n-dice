@@ -4,6 +4,12 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.16.0
+
+Draft, not released yet.
+
+- **Smoother figure choice in the lobby**: picking another figure or colour under "Your figure" no longer makes the picture freeze for a moment. A colour change now only recolours the figure, and the figures are prepared in the background while the lobby is open.
+
 ## 0.15.0
 
 Draft, not released yet. Players on different versions can no longer play together.

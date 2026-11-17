@@ -601,6 +601,15 @@ func _build_top() -> void:
 
 
 ## The player colour as a flat ring on the floor around the feet (shared material, part of the figure).
+## Changes the player colour in place (no rebuild): the floor ring (a shared material per colour), the ghosts and
+## what is drawn later (confetti). `ring_colour` as in `_init`.
+func recolor(colour_of_player: Color, ring_colour := Color(0, 0, 0, 0)) -> void:
+	player_color = colour_of_player
+	ring_color = ring_colour if ring_colour.a > 0.0 else colour_of_player
+	_ring.material_override = ToyKit.overlay(Color(ring_color.r, ring_color.g, ring_color.b, 0.9))
+	_ghost_mat.albedo_color = Color(player_color.r, player_color.g, player_color.b, 0.35)
+
+
 func _build_ring() -> void:
 	_ring = MeshInstance3D.new()
 	_ring.name = "ColorRing"

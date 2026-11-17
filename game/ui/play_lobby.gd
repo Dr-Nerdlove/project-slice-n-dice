@@ -481,6 +481,7 @@ func _mark_figure() -> void:
 ## Shows the lobby (the figure shown follows the saved choice) / hides it.
 func open() -> void:
 	_mark_figure()
+	figure_preview.warm_up(_preview_cfg)   # the other figures are measured in idle frames, not on a click
 	_refresh_card()
 	visible = true
 
