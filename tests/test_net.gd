@@ -3876,8 +3876,12 @@ func test_main_modes() -> void:   # async
 	var core: ServerCore = main.local_host.core
 	check("modes main: Start follows can_start (even teams: enabled, 'Start match')", lob.start_btn.visible and not lob.start_btn.disabled and lob.start_btn.text == "Start match" and core.sim.can_start())
 	core.sim.set_player_enabled(3, false)
-	await process_frame
-	await process_frame
+	# The button reads the client's sim too: wait for a snapshot with the change (slow CI machines need more frames).
+	for _i in 120:
+		await process_frame
+		OS.delay_msec(5)
+		if lob.start_btn.text == "Teams are uneven":
+			break
 	check("modes main: ... uneven teams: disabled and 'Teams are uneven'", lob.start_btn.disabled and lob.start_btn.text == "Teams are uneven" and not core.sim.can_start(), lob.start_btn.text)
 	core.sim.set_player_enabled(3, true)
 	lob.switch_btn.pressed.emit()
