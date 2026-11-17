@@ -165,21 +165,23 @@ func _build_mode_card() -> Control:
 func _build_figures() -> Control:
 	var panel := UiKit.tighten(UiKit.panel("paper"))
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 8)
+	box.add_theme_constant_override("separation", 5)
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	panel.add_child(box)
 	box.add_child(UiKit.eyebrow("Your figure"))
 	figure_preview = FigurePreview.new()
-	figure_preview.custom_minimum_size = Vector2(0, 120)
+	figure_preview.custom_minimum_size = Vector2(0, 100)
+	figure_preview.size_flags_vertical = Control.SIZE_EXPAND_FILL   # takes all the height the column has left
 	figure_preview.mouse_filter = Control.MOUSE_FILTER_PASS
 	box.add_child(figure_preview)
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 6)
+	grid.add_theme_constant_override("v_separation", 4)
 	box.add_child(grid)
 	for i in Config.SKIN_COUNT:
-		var b := UiKit.compact(UiKit.button(ToyFigure.NAMES[i], "paper"), 40.0)
+		var b := UiKit.compact(UiKit.button(ToyFigure.NAMES[i], "paper"), 32.0, 18)
 		b.toggle_mode = true
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.pressed.connect(func() -> void: _choose_figure(i))
@@ -204,11 +206,11 @@ func _swatch(col: Color) -> Button:
 	var b := Button.new()
 	b.toggle_mode = true
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(30, 30)
+	b.custom_minimum_size = Vector2(26, 26)
 	for state in ["normal", "hover", "pressed", "hover_pressed", "focus", "disabled"]:
 		var sb := StyleBoxFlat.new()
 		sb.bg_color = col
-		sb.set_corner_radius_all(15)
+		sb.set_corner_radius_all(13)
 		var on: bool = state.contains("pressed")
 		sb.set_border_width_all(5 if on else 1)
 		sb.border_color = UiKit.INK if on else UiKit.INK.lerp(col, 0.4)

@@ -3812,6 +3812,10 @@ func test_lobby_fits() -> void:   # async
 				await process_frame
 			var pv: FigurePreview = lobby.figure_preview
 			check("lobby fits: %dx%d: the preview shows figure %d (%s) completely" % [w.x, w.y, kind, ToyFigure.NAMES[kind]], pv.figure.kind == kind and pv.fits(), "preview size %s" % str(pv.size))
+			if w == Vector2(1280, 576):
+				# Big enough to see (0.14.0: 120 px tall, figures 0.62 to 0.79 of it = 74 to 95 px; now 1.4 to 2.1x that).
+				check("lobby fits: 1280x576: the preview is tall (%d px)" % int(pv.size.y), pv.size.y >= 200.0)
+				check("lobby fits: 1280x576: figure %d (%s) fills at least 50%% of the preview height" % [kind, ToyFigure.NAMES[kind]], pv.height_fraction() >= 0.5, "fraction %.3f" % pv.height_fraction())
 		check("lobby fits: %dx%d: no scroll container anywhere" % [w.x, w.y], lobby.find_children("*", "ScrollContainer", true, false).is_empty())
 		sv.queue_free()
 		await process_frame

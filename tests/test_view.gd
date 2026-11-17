@@ -1357,15 +1357,15 @@ func test_overhead() -> void:
 	await process_frame
 ## True when every visible mesh of the preview's figure lies inside the preview's bounds.
 func preview_inside(pv: FigurePreview) -> bool:
-	var box := pv.bounds
+	var box := pv.bounds   # (in the picture's world: the figure stands at the middle, turned as it is drawn)
 	for m in pv.figure.find_children("*", "MeshInstance3D", true, false):
 		var mi := m as MeshInstance3D
-		if not mi.is_visible_in_tree() or mi == pv.figure._shadow:
+		if not mi.is_visible_in_tree() or mi == pv.figure._shadow or mi.name == &"ColorRing":
 			continue
-		var t := pv.figure.global_transform.affine_inverse() * mi.global_transform
+		var t: Transform3D = mi.global_transform   # (the viewport is the world: the figure stands at its origin)
 		for i in 8:
-			var q := t * mi.get_aabb().get_endpoint(i)
-			if Vector2(q.x, q.z).length() > box.size.x * 0.5 + 0.001 or q.y < box.position.y - 0.001 or q.y > box.end.y + 0.001:
+			var q: Vector3 = t * mi.get_aabb().get_endpoint(i)
+			if absf(q.x) > box.size.x * 0.5 + 0.001 or absf(q.z) > box.size.z * 0.5 + 0.001 or q.y < box.position.y - 0.001 or q.y > box.end.y + 0.001:
 				return false
 	return true
 
