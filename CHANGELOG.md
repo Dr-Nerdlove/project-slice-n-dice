@@ -10,6 +10,7 @@ Four more maps have a new floor plan, the same way Train Set and Assembly Line g
 symmetrical, so no start is better than another, and nobody starts in sight of another player. Players on
 different versions can no longer play together.
 
+- **Yo-yo in the hand**: a yo-yo you hold is always drawn at normal size, so Big Chunk no longer hides your figure; it grows to its real size when thrown and shrinks back when caught. With Twin, one yo-yo is held in each hand, for every figure (the Snapping Dino's arms moved a little apart for this).
 - **Piggy Bank**: the pig stands in an open square in the middle, inside a ring of shelves with an entrance in the
   middle of each side. From outside, the pig can only be hit through an entrance, so taking the coins means
   showing yourself. Two long walls make the ends of the room into aisles, and a short wall in each aisle splits

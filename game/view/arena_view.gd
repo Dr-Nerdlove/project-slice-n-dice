@@ -29,7 +29,8 @@ const WIRE_BLINK_TIME := 0.8
 const SHARD_COLOR := Color(1.0, 0.95, 0.5)
 const EXPLOSION_COLOR := Color(1.0, 0.55, 0.15)
 const FLASH_PERIOD := 0.08
-const HAND_SPREAD := 0.6          # sideways spacing of several yo-yos in the hand (in head radii)
+const GROW_TIME := 0.15           # a thrown yo-yo grows to its real size over this time, a caught one shrinks back
+const HELD_SCALE := 0.7           # a yo-yo in the hand is drawn at this fraction of the NORMAL head radius
 const MARK_BOUNCE := Color(1, 1, 1)
 const MARK_PIERCE := Color(0.5, 0.95, 1.0)
 const MARK_PIERCE_L3 := Color(1.0, 0.85, 0.2)
@@ -51,6 +52,7 @@ var _figures: Array[ToyFigure] = []
 var playroom: Playroom
 var _zone: ZoneView
 var _heads: Array = []     # per player: Array[Node3D]
+var _grow: Array = []      # per player: Array[float], 0 = drawn as held (normal size), 1 = thrown (real size)
 var _string_segs: Array[MeshInstance3D] = []   # pool: one box per string segment, reused every frame
 var _aim_segs: Array[MeshInstance3D] = []      # pool: segments of the aim lines
 var _seg_cursor := 0
@@ -207,6 +209,10 @@ func _build_players() -> void:
 			add_child(head)
 			heads.append(head)
 		_heads.append(heads)
+		var gr: Array[float] = []
+		gr.resize(heads.size())
+		gr.fill(0.0)
+		_grow.append(gr)
 
 		var mark := MeshInstance3D.new()
 		var mc := CylinderMesh.new()
@@ -530,6 +536,18 @@ func _swap_figure(i: int, skin: int) -> ToyFigure:
 	return fig
 
 
+## Radius a yo-yo head is drawn with. `base_r` is the normal head radius (`Config.head_radius`), `full_r` its real
+## one (with Big Chunk). A held head (`grow` 0) is drawn at normal size so a big one does not hide the figure; a
+## thrown one (`grow` 1) at its real size; in between it eases.
+static func drawn_head_r(base_r: float, full_r: float, grow: float) -> float:
+	return lerpf(base_r * HELD_SCALE, full_r, clampf(grow, 0.0, 1.0))
+
+
+## One step of the grow factor: up while the head is out, down while it is in the hand.
+static func grow_step(grow: float, out: bool, dt: float) -> float:
+	return clampf(grow + (dt if out else -dt) / GROW_TIME, 0.0, 1.0)
+
+
 ## Height of a yo-yo that is out: it leaves the hand in a flat arc, lies low while it is out and climbs back
 ## to the hand on its way home. Presentation only (hits are decided on the ground plane).
 func _head_height(h: SimHead, dist: float, hand_y: float) -> float:
@@ -575,6 +593,12 @@ func render(alpha: float, delta: float) -> void:
 			fig = _swap_figure(i, p.skin)
 		elif fig.kind != posmod(p.skin, ToyFigure.NAMES.size()):
 			fig = _swap_figure(i, p.skin)
+		var base_r: float = src.cfg.head_radius
+		# A yo-yo in the left hand (Twin): the left arm is held out like the right one.
+		fig.left_hold = false
+		for k in p.heads.size():
+			if not p.heads[k].lethal() and ToyFigure.hand_side(k, p.heads.size()) < 0:
+				fig.left_hold = true
 		# The yo-yo arm points along the string while a yo-yo is out.
 		fig.string_dir = Vector2.ZERO
 		for h in p.heads:
@@ -612,26 +636,24 @@ func render(alpha: float, delta: float) -> void:
 			ld.scale = Vector3(br + Mods.BODY_LETHAL_MARGIN, 1.0, br + Mods.BODY_LETHAL_MARGIN)
 
 		var elastic := src.lv(p, "elastic") > 0
-		var hand_n := p.count_state(SimHead.S.HAND)
-		var hand_k := 0
-		var hand3 := fig.hand_point(pos, face, hr, HAND_Y)
+		var hand3 := fig.hand_point(pos, face, base_r, HAND_Y)
+		var grows: Array = _grow[i]
 		for k in p.heads.size():
 			var h := p.heads[k]
 			var node := heads[k] as Node3D
 			node.visible = true
 			_set_head_marks(src, node, p)
 			var out_like := h.lethal()
+			grows[k] = grow_step(grows[k], out_like, delta)
 			var hp := h.prev_pos.lerp(h.pos, a)
 			var hy := HEAD_Y
-			var hs := hr
+			var hs := drawn_head_r(base_r, hr, grows[k])
 			if not out_like:
-				# In the hand: in front of the belly, or behind the shoulder while winding up (ToyFigure.hand_point).
-				var side := Vector2(face.y, -face.x)
-				var h3 := hand3
-				hp = Vector2(h3.x, h3.z) + side * (hand_k - (hand_n - 1) * 0.5) * hr * HAND_SPREAD * 2.0
-				hand_k += 1
+				# In the hand: in front of the belly, or behind the shoulder while winding up (ToyFigure.hand_point);
+				# with two yo-yos one in each hand.
+				var h3 := fig.hand_point(pos, face, base_r, HAND_Y, ToyFigure.hand_side(k, p.heads.size()))
+				hp = Vector2(h3.x, h3.z)
 				hy = h3.y + lift
-				hs = hr * 0.7
 			else:
 				hy = _head_height(h, hp.distance_to(pos), hand3.y)
 			node.position = Vector3(hp.x, hy, hp.y)
