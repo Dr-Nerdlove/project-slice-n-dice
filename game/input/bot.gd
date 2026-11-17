@@ -458,7 +458,7 @@ func _wander(sim: Sim, me: SimPlayer, dt: float) -> Vector2:
 
 ## The shop for bot slot `i` (called once the shop has been open Economy.BOT_SHOP_DELAY seconds; it only uses the
 ## sim's shop commands, so the server stays the judge). Buys what it can afford, a copy of an owned modifier first,
-## then the dearer one; rerolls up to Economy.BOT_REROLLS times while nothing on offer is affordable and a reroll
+## then the dearer one (offers it cannot take, slots full or max level, are skipped); rerolls up to Economy.BOT_REROLLS times while nothing on offer is affordable and a reroll
 ## still leaves enough for the cheapest modifier; then it is done.
 static func shop(sim: Sim, i: int) -> void:
 	var m := sim.mode

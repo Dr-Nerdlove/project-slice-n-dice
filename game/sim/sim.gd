@@ -346,8 +346,9 @@ func _all_shopped() -> bool:
 	return true
 
 
-## Draws up to Economy.OFFERS different modifiers slot `i` can take, from the sim's rng (deterministic). Locked offers
-## that can still be taken stay where they are; the rest is redrawn without repeating a kept one.
+## Draws Economy.OFFERS different modifiers from ALL of Mods.ORDER with the same chance each (the sim's rng,
+## deterministic), whatever slot `i` owns: an offer may be one that cannot be bought (slots full, max level); buying
+## is guarded by can_take. Locked offers stay where they are; the rest is redrawn without repeating a kept one.
 func _roll_offers(i: int) -> void:
 	var m := mode
 	var out: Array = []
@@ -357,14 +358,14 @@ func _roll_offers(i: int) -> void:
 		var id := ""
 		if m.is_locked(i, k) and k < m.offers[i].size():
 			id = m.offers[i][k]
-		var keep: bool = id != "" and m.can_take(i, id)
+		var keep: bool = id != ""
 		out.append(id if keep else null)
 		lock.append(keep)
 		if keep:
 			used.append(id)
 	var pool: Array[String] = []
 	for id in Mods.ORDER:
-		if m.can_take(i, id) and not used.has(id):
+		if not used.has(id):
 			pool.append(id)
 	for k in out.size():
 		if out[k] == null:

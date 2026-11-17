@@ -308,7 +308,11 @@ func refresh(sim: Sim, own: int) -> void:
 		(c["price"].get_node("Text") as Label).text = "%d ¢" % Mods.price(id)
 		(c["price"] as Control).visible = true
 		buy.visible = true
-		buy.text = "Buy" if not (copies == 0 and full) else "No free slot"
+		buy.text = "Buy"
+		if copies >= Mods.COPIES_FOR_LEVEL[Mods.MAX_LEVEL - 1]:
+			buy.text = "Max level"
+		elif copies == 0 and full:
+			buy.text = "Slots full – sell one"
 		buy.disabled = done or not can
 		lock.visible = not done
 		lock.set_pressed_no_signal(locked)
