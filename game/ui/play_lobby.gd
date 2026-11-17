@@ -1,6 +1,6 @@
 class_name PlayLobby
 extends CanvasLayer
-## "Match": set up a real game. The mode card (Last Standing for now), the figure choice with a live 3D picture,
+## "Match": set up a real game. The mode card (three modes), the figure choice with a live 3D picture,
 ## and two ways to play: Solo against bots, or Together on the same Wi-Fi / hotspot (host a game or join one by
 ## the list of found games or by code). The real game always uses the fixed default values; nothing here reads
 ## the Training tuning. The only thing the lobby edits is the chosen figure of the SAVED config (`cfg.character`).

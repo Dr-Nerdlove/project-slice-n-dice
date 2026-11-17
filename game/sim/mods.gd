@@ -39,11 +39,11 @@ const ORDER: Array[String] = [
 ## "n" holds one array of 3 values (level 1..3) per key. In descriptions {key} is replaced by that value.
 const TABLE := {
 	"tripwire": {
-		"name": "Tripwire", "short": ["Your string leaves a trip wire", "Longer wires, up to 2 at once", "Wires now KILL, up to 3"], "tier": Tier.CHEAP,
+		"name": "Tripwire", "short": ["Your string leaves a trip wire", "Longer wires, up to 2 at once", "Wires now knock out, up to 3"], "tier": Tier.CHEAP,
 		"desc": [
 			"When you retract, the string stays on the ground as a wire for {wire_time} s. Anyone who runs over it stumbles for {stun_time} s (max. {max_wires} wire).",
 			"Wires last {wire_time} s, up to {max_wires} at once, stumble {stun_time} s.",
-			"The wires are DEADLY! They last {wire_time} s, up to {max_wires} at once.",
+			"The wires now KNOCK OUT! They last {wire_time} s, up to {max_wires} at once.",
 		],
 		"n": {
 			"wire_time": [2.5, 5.0, 6.0], "stun_time": [0.6, 1.0, 0.0],
@@ -60,11 +60,11 @@ const TABLE := {
 		"n": {"radius_mult": [1.5, 2.0, 2.8]},
 	},
 	"elastic": {
-		"name": "Rubber Band", "short": ["Zip to your yo-yo faster and fly past it", "Zip faster, your body kills on the way", "Even faster, bigger deadly body"], "tier": Tier.MEDIUM,
+		"name": "Rubber Band", "short": ["Zip to your yo-yo faster and fly past it", "Zip faster, your body knocks out on the way", "Even faster, bigger knockout body"], "tier": Tier.MEDIUM,
 		"desc": [
 			"You pull yourself to the yo-yo {pull_mult}x faster and get flung {fling_dist} m onward.",
-			"Pull {pull_mult}x faster, fling {fling_dist} m. Your body is deadly while pulling and flung.",
-			"Pull {pull_mult}x faster, fling {fling_dist} m, deadly body {body_mult}x as big.",
+			"Pull {pull_mult}x faster, fling {fling_dist} m. Your body knocks out while pulling and flung.",
+			"Pull {pull_mult}x faster, fling {fling_dist} m, knockout body {body_mult}x as big.",
 		],
 		"n": {
 			"pull_mult": [1.4, 1.7, 2.2], "fling_dist": [2.5, 4.5, 6.0],
@@ -99,7 +99,7 @@ const TABLE := {
 		"desc": [
 			"Pull the aim stick during the flight to steer the yo-yo that way.",
 			"Steers harder, range +{range_pct} %.",
-			"Telekinesis: hold and drag the aim stick to move the lying or flying yo-yo freely (deadly). Holding without dragging pulls you to it, tapping retracts it.",
+			"Telekinesis: hold and drag the aim stick to move the lying or flying yo-yo freely (it knocks out). Holding without dragging pulls you to it, tapping retracts it.",
 		],
 		"n": {
 			"turn_rate": [360.0, 600.0, 3600.0],   # degrees per second the flight direction turns towards the stick
@@ -120,9 +120,9 @@ const TABLE := {
 		},
 	},
 	"shards": {
-		"name": "Shards", "short": ["Retracting fires 3 deadly shards", "6 shards, further", "10 shards that bounce off walls"], "tier": Tier.MEDIUM,
+		"name": "Shards", "short": ["Retracting fires 3 knockout shards", "6 shards, further", "10 shards that bounce off walls"], "tier": Tier.MEDIUM,
 		"desc": [
-			"When you retract, {count} deadly shards fly away from the yo-yo ({range} m).",
+			"When you retract, {count} knockout shards fly away from the yo-yo ({range} m).",
 			"{count} shards, {range} m far.",
 			"{count} shards, {range} m far, each bounces off a wall once.",
 		],
@@ -141,10 +141,10 @@ const TABLE := {
 		"n": {"radius": [1.6, 2.4, 3.4], "retract_blast": [0, 1, 1]},
 	},
 	"twin": {
-		"name": "Twin", "short": ["Throw two yo-yos at once", "Both cross on return, deadly", "Faster return, zip to a lying yo-yo"], "tier": Tier.EXPENSIVE,
+		"name": "Twin", "short": ["Throw two yo-yos at once", "Both cross on return, knock out", "Faster return, zip to a lying yo-yo"], "tier": Tier.EXPENSIVE,
 		"desc": [
 			"You have {heads} yo-yos. A short tap retracts both, holding pulls you to the yo-yo in your running direction.",
-			"Crossfire: on retract both yo-yos meet in the middle (deadly!) and then come back together.",
+			"Crossfire: on retract both yo-yos meet in the middle (knock out!) and then come back together.",
 			"Crossfire, return {retract_mult}x as fast. Even with a yo-yo in hand: holding without the stick pulls you to the lying yo-yo.",
 		],
 		"n": {

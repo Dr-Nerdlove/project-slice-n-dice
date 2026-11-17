@@ -104,7 +104,7 @@ static func countdown_text(phase_t: float) -> String:
 
 
 ## Name of a slot for the scoreboard: "You" for the own slot, else the figure name (offline bots get " (bot)").
-## The own coin line under the scoreboard, e.g. "+6 coins: round 3, kills 1, survivor 2". Empty outside the roster.
+## The own coin line under the scoreboard, e.g. "+6 coins: round 3, KOs 1, survivor 2". Empty outside the roster.
 static func coin_text(m: MatchMode, slot: int) -> String:
 	if slot < 0 or slot >= m.roster.size() or not m.roster[slot]:
 		return ""
@@ -112,7 +112,7 @@ static func coin_text(m: MatchMode, slot: int) -> String:
 	var bits: Array[String] = []
 	for k: String in ["base", "kills", "survivor", "underdog", "leader", "bonus"]:
 		if parts[k] > 0:
-			bits.append("%s %d" % [{"base": "round", "kills": "kills", "survivor": m.survivor_label(), "underdog": "underdog", "leader": "leader kill", "bonus": "piggy bank"}[k], parts[k]])
+			bits.append("%s %d" % [{"base": "round", "kills": "KOs", "survivor": m.survivor_label(), "underdog": "underdog", "leader": "leader KO", "bonus": "piggy bank"}[k], parts[k]])
 	return "+%d coins: %s" % [m.earned[slot], ", ".join(bits)]
 
 

@@ -96,7 +96,7 @@ func _build_main(page: Control) -> void:
 	right.add_theme_constant_override("separation", 16)
 	right.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(right)
-	play_btn = UiKit.button("Play", "main", "Last Standing")
+	play_btn = UiKit.button("Play", "main")
 	play_btn.custom_minimum_size.y = 76.0
 	play_btn.pressed.connect(func() -> void: play_pressed.emit())
 	right.add_child(play_btn)
