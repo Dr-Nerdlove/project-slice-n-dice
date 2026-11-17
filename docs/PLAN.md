@@ -21,7 +21,7 @@ This document is the binding basis for implementation. It collects all decisions
 - **Match:** In the first mode ("Last Standing") only the last survivor of a round scores a point (section 5). The shop opens between rounds. The first to reach the target score wins. Target match length 8-12 minutes.
 - **Player count:** 2-8.
 - **Modes:** Free-for-all up to 8 players, and teams (2v2, 3v3, 4v4). Arena size scales with the player count.
-- **Controls** (decided by the owner on 2026-11-13): Two virtual sticks (left moves, right aims and throws) plus controller support. Holding the right stick charges the throw: the longer the hold, the further the throw, and a visible aim line shows direction and landing distance. Releasing throws. While the yo-yo is out, a short tap on the right stick retracts it, and holding the right stick pulls the character to the yo-yo.
+- **Controls** (decided by the owner on 2026-11-13): Two virtual sticks (left moves, right aims and throws) plus controller support. Holding the right stick charges the throw: the longer the hold, the further the throw, and a small arrow on the floor next to the figure shows the direction and moves slightly outwards with the charge (since 0.16.0; it does not show the landing point). Releasing throws. While the yo-yo is out, a short tap on the right stick retracts it, and holding the right stick pulls the character to the yo-yo.
 - **Theme:** The name is decided (see section 1). **Look direction** (decided by the owners on 2026-11-13): toys from around the year 2000 come alive. Glossy moulded plastic and loud colours are the base, hits get comic effects, menus follow the "UI style" in section 6 (decided 2026-11-15; it replaces the earlier idea of a hologram shine). The figures are invented, generic toy types (no brand, no known character); the first arena is a children's playroom. See "Look" in section 6.
 
 ### The toy train
@@ -42,7 +42,7 @@ The prototype arena is a playroom (32 x 14.4 m). A toy train runs a closed loop 
 | State | Behaviour |
 |---|---|
 | Ready | Yo-yo in hand, throw possible. |
-| Charging | Right stick held. The aim line shows direction and landing distance; the longer the hold, the further the throw. |
+| Charging | Right stick held. A small arrow shows the direction (no landing mark); the longer the hold, the further the throw. |
 | Flight | After release, flies in the aimed direction to the charged distance. Lethal. A yo-yo that hits a wall simply stops and lies there. |
 | Out | Stays where it landed and keeps spinning. Lethal, blocks space. No new throw is possible while it is out. Walking over your own lying yo-yo (within the catch distance, same as the end of a pull) puts it back in the hand without a retract: no shards, wire or blast. Stunned players do not pick up, and neither do other players. A head that lands at once within the catch distance (a short bounce back to the feet) is picked up at once. |
 | Retract | A short tap on the right stick pulls it back. Lethal on the way back, interacts with the environment (dragging objects along, triggering switches, hitting destructibles). Walls and obstacles stop it: the head then lies there again (Out) and can be tapped or pulled to again. |

@@ -753,7 +753,7 @@ SB=[
  ('0 colour: the body is tinted with the player colour','view/toy_figure.gd','color = BODY_COLORS[posmod(figure_kind, BODY_COLORS.size())]','color = colour_of_player'),
  ('0 colour: the ring is white','view/toy_figure.gd','Color(player_color.r, player_color.g, player_color.b, 0.9)','Color(1, 1, 1, 0.9)'),
  ('0 colour: a colour change does not rebuild the figure','view/arena_view.gd','if ci != _shown_color[i]:','if false:'),
- ('0 colour: the aim mark keeps the old colour','view/arena_view.gd','\t_aim_marks[i].material_override = _mat(col.lightened(0.4), true, 0.6)\n',''),
+ ('0 colour: the throw arrow keeps the old colour','view/arena_view.gd','\t_aim_arrows[i].material_override = _arrow_mat(col)\n',''),
  ('0 colour: the yo-yos keep the old colour','view/arena_view.gd','\t\tvar fresh := _make_head(col)','\t\tvar fresh := _make_head(Color.WHITE)'),
  ('2 map belts: do not carry players','sim/sim.gd','p.pos = _push_statics(p.pos + v * dt, r, wall_count) if _phasing(p) else _collide_player(p.pos + v * dt, r)','pass'),
  ('2 map belts: the chest stays put','sim/sim.gd','crate_pos = _resolve_crate(crate_pos + cv * dt)','pass'),
@@ -940,6 +940,7 @@ SB=[
  ('0 mode: a swapped figure loses its team ring','view/arena_view.gd','PLAYER_COLORS[_shown_color[i]], _shown_ring[i])','PLAYER_COLORS[_shown_color[i]])'),
  ('0 mode: the markers ignore the bomb','view/arena_view.gd','OverheadView.anchor_radii(src, i) * pr','OverheadView.HEAD_RADII * pr'),
  ("0 mode: the carrier's anchor is the head",'view/overhead_view.gd','maxf(HEAD_RADII, BombView.TOP_RADII + 0.2) if BombView.holder(src) == i else HEAD_RADII','HEAD_RADII'),
+ ("0 arrow: the arrow does not move out with the charge", "view/arena_view.gd", "lerpf(ARROW_NEAR, ARROW_FAR, t)", "lerpf(ARROW_NEAR, ARROW_FAR, 0.0)"),
  ('0 mode: the anchor sits inside the bomb','view/bomb_view.gd','const TOP_RADII := CENTRE_Y + BODY_R * 0.95 + 0.08 + FUSE_MAX + 0.15','const TOP_RADII := CENTRE_Y'),
 ]
 

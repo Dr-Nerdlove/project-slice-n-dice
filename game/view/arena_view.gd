@@ -4,7 +4,7 @@ extends Node3D
 ## Sim (x, y) maps to 3D (x, 0, y).
 
 ## The eight player colours to choose from (pink, cyan, lime, orange, purple, yellow, red, blue). A player's colour is
-## `PLAYER_COLORS[SimPlayer.color]`; it marks yo-yo, string, aim line, bursts, scoreboard and the ring at the figure.
+## `PLAYER_COLORS[SimPlayer.color]`; it marks yo-yo, string, throw arrow, bursts, scoreboard and the ring at the figure.
 const PLAYER_COLORS: Array[Color] = [Color("ff2e88"), Color("00c2ff"), Color("7ddc1f"), Color("ff8a00"),
 	Color("a45cff"), Color("ffd400"), Color("e53935"), Color("2f4bd9")]
 
@@ -26,6 +26,9 @@ static func color_of(p: SimPlayer) -> Color:
 ## Which toy each player slot gets (for now fixed): pink bunny, cyan robot, lime dino, orange duck.
 const FIGURE_KINDS: Array[int] = [ToyPose.Kind.BUNNY, ToyPose.Kind.ROBOT, ToyPose.Kind.DINO, ToyPose.Kind.DUCK]
 const HEAD_Y := 0.35
+const ARROW_NEAR := 1.9   # throw arrow: centre distance in player radii at no charge (the floor ring is 1.3)
+const ARROW_FAR := 2.6    # ... and at full charge
+const ARROW_SIZE := 0.6   # its length in player radii
 const HEAD_RADII_Y := OverheadView.HEAD_RADII   # height of the marker anchor in player radii
 const HAND_Y := 0.5               # the yo-yo in the hand hangs in front of the belly
 const STRING_WIDTH := 0.05
@@ -70,14 +73,13 @@ var _bombs: BombView
 var _heads: Array = []     # per player: Array[Node3D]
 var _grow: Array = []      # per player: Array[float], 0 = drawn as held (normal size), 1 = thrown (real size)
 var _string_segs: Array[MeshInstance3D] = []   # pool: one box per string segment, reused every frame
-var _aim_segs: Array[MeshInstance3D] = []      # pool: segments of the aim lines
 var _seg_cursor := 0
-var _aim_cursor := 0
 var _lethal_discs: Array[MeshInstance3D] = []
 var _wire_core: Array[MeshInstance3D] = []
 var _wire_glow: Array[MeshInstance3D] = []
 var _shard_nodes: Array[MeshInstance3D] = []
-var _aim_marks: Array[MeshInstance3D] = []
+var _aim_arrows: Array[MeshInstance3D] = []   # per player: the small throw arrow on the floor
+var _arrow_mesh: ArrayMesh
 var _ring: MeshInstance3D
 var _shown_ring: Array[Color] = []   # per player: the colour of the floor ring its figure was built with
 var _shown_color: Array[int] = []   # per player: the palette index its figure, yo-yos and aim mark are built with
@@ -240,15 +242,12 @@ func _build_players() -> void:
 		gr.fill(0.0)
 		_grow.append(gr)
 
-		var mark := MeshInstance3D.new()
-		var mc := CylinderMesh.new()
-		mc.top_radius = 1.0
-		mc.bottom_radius = 1.0
-		mc.height = 0.04
-		mark.mesh = mc
-		mark.material_override = _mat(col.lightened(0.4), true, 0.6)
-		add_child(mark)
-		_aim_marks.append(mark)
+		var arrow := MeshInstance3D.new()
+		arrow.mesh = _get_arrow_mesh()
+		arrow.material_override = _arrow_mat(col)
+		arrow.visible = false
+		add_child(arrow)
+		_aim_arrows.append(arrow)
 
 	# Ring under the local player (index 0 until use_sim moves it).
 	var ring := MeshInstance3D.new()
@@ -519,11 +518,41 @@ func _string_segment(a: Vector3, b: Vector3, width: float, col: Color) -> void:
 	_place_line(mi, a, b, width)
 
 
-func _aim_segment(a: Vector3, b: Vector3, width: float, col: Color) -> void:
-	var mi := _pool_node(_aim_segs, _aim_cursor, _make_line_node)
-	_aim_cursor += 1
-	(mi.material_override as StandardMaterial3D).albedo_color = col
-	_place_line(mi, a, b, width)
+## Where the throw arrow of a charging player standing at `pos` lies: [position on the floor (x, z of the sim), angle in the sim's plane],
+## or [] when the player does not charge. It points along `aim_dir` and drifts from ARROW_NEAR to ARROW_FAR player
+## radii out with the charge, a small hint of the power that does not reveal the real range.
+static func aim_arrow(p: SimPlayer, c: Config, pos: Vector2) -> Array:
+	if not p.charging:
+		return []
+	var t := clampf(p.charge_t / c.charge_time, 0.0, 1.0)
+	var d := lerpf(ARROW_NEAR, ARROW_FAR, t) * c.player_radius
+	var dir := p.aim_dir.normalized()
+	return [pos + dir * d, dir.angle()]
+
+
+func _get_arrow_mesh() -> ArrayMesh:
+	if _arrow_mesh == null:
+		# A flat triangle pointing along +x, seen from above (clockwise = front face).
+		var pts := PackedVector3Array([Vector3(0.5, 0, 0), Vector3(-0.5, 0, 0.4), Vector3(-0.5, 0, -0.4)])
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = pts
+		arrays[Mesh.ARRAY_NORMAL] = PackedVector3Array([Vector3.UP, Vector3.UP, Vector3.UP])
+		_arrow_mesh = ArrayMesh.new()
+		_arrow_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return _arrow_mesh
+
+
+func _arrow_mat_colour(col: Color) -> Color:
+	var c := col.lightened(0.4)
+	c.a = 0.85
+	return c
+
+
+func _arrow_mat(col: Color) -> StandardMaterial3D:
+	var m := _mat(_arrow_mat_colour(col), true, 0.85)
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return m
 
 
 func _make_shard_node() -> MeshInstance3D:
@@ -551,7 +580,7 @@ func _recolor_extras(i: int) -> void:
 		old.queue_free()
 		add_child(fresh)
 		heads[k] = fresh
-	_aim_marks[i].material_override = _mat(col.lightened(0.4), true, 0.6)
+	_aim_arrows[i].material_override = _arrow_mat(col)
 
 
 ## Replaces the figure of player `i` by another kind (the player chose a different one).
@@ -607,7 +636,6 @@ func render(alpha: float, delta: float) -> void:
 	_time += delta
 	var pr := cfg.player_radius
 	_seg_cursor = 0
-	_aim_cursor = 0
 	for i in sim.players.size():
 		# The own player is drawn from the predicted sim, the others from the interpolated one (when given).
 		var src: Sim = sim
@@ -653,7 +681,7 @@ func render(alpha: float, delta: float) -> void:
 		var top := Vector3(pos.x, OverheadView.anchor_radii(src, i) * pr + lift, pos.y)
 		_overhead.show_player(i, camera, top, src, sim, _local_slot, color_of(p))
 		_bombs.show_player(i, src, pos, lift, pr, _time)   # Hot Potato: from the same sim as the figure
-		_aim_marks[i].visible = false
+		_aim_arrows[i].visible = false
 		_lethal_discs[i].visible = false
 		var heads: Array = _heads[i]
 		for k in heads.size():
@@ -709,22 +737,17 @@ func render(alpha: float, delta: float) -> void:
 					_string_segment(prev3, pin3, width, scol)
 					prev3 = pin3
 				_string_segment(prev3, Vector3(hp.x, hy + 0.05, hp.y), width, scol)
-		if p.charging:
-			var path := src.aim_path(p)
-			var acol := color_of(p).lightened(0.4)
-			acol.a = 0.8
-			for k in range(1, path.size()):
-				_aim_segment(Vector3(path[k - 1].x, 0.05, path[k - 1].y), Vector3(path[k].x, 0.05, path[k].y), Config.AIM_LINE_WIDTH, acol)
-			var end := path[path.size() - 1]
-			var mark := _aim_marks[i]
-			mark.visible = true
-			mark.position = Vector3(end.x, 0.05, end.y)
-			mark.scale = Vector3(hr * 1.1, 1.0, hr * 1.1)
+		var ar := aim_arrow(p, cfg, pos)
+		if not ar.is_empty():
+			var node := _aim_arrows[i]
+			var at: Vector2 = ar[0]
+			node.visible = true
+			node.position = Vector3(at.x, 0.05 + lift, at.y)
+			node.rotation.y = -float(ar[1])
+			node.scale = Vector3.ONE * (pr * ARROW_SIZE)
 
 	for k in range(_seg_cursor, _string_segs.size()):
 		_string_segs[k].visible = false
-	for k in range(_aim_cursor, _aim_segs.size()):
-		_aim_segs[k].visible = false
 	_render_wires()
 	_render_shards(alpha)
 	_zone.show_zone(sim)

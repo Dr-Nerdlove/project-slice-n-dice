@@ -4,6 +4,12 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.16.0
+
+Draft, not released yet.
+
+- **Throw arrow instead of the aim line**: while you charge a throw, the exact flight path and landing mark are gone. A small arrow in your colour lies on the floor just outside the ring around your figure and points the way you will throw; the longer you charge, the slightly further out it sits. It does not tell you how far the yo-yo will fly.
+
 ## 0.15.0
 
 Draft, not released yet. Players on different versions can no longer play together.

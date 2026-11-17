@@ -104,7 +104,6 @@ const CAMERA_PITCH_DEG := 65.0
 const CAMERA_FOV := 55.0
 const CAMERA_MARGIN := 1.2
 const HEAD_SPIN_SPEED := 18.0
-const AIM_LINE_WIDTH := 0.14
 
 # --- Touch UI (fixed, in base-resolution pixels) ---
 const STICK_RADIUS := 90.0
