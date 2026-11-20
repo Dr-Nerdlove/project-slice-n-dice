@@ -394,21 +394,26 @@ repository belongs to someone else, these points still apply unless "Project kno
   `LoopbackEndpoint`. (6) Client and server clocks are not synchronised: a client that ticks slower or faster than
   60 Hz makes the server's input buffer run dry or drop inputs (corrections, never a crash). (7) An APK only installs over an
   earlier one when both are signed with the same key; otherwise the old app must be uninstalled first, which deletes
-  the tuned values on the phone. CI signs with the fixed test key from the repository secrets `TEST_KEYSTORE_B64`
-  and `TEST_KEYSTORE_PASSWORD` (alias `slicendice-test`; created by the owner with `tools/setup-test-keystore.sh`,
-  the key itself stays outside the repository on the owner's machine). Without the secrets CI falls back to a
-  throwaway key and prints a warning. `v0.1.0` and `v0.2.0` were signed with other keys.
+  the tuned values on the phone. The release workflow signs with the fixed test key from the repository secrets
+  `TEST_KEYSTORE_B64` and `TEST_KEYSTORE_PASSWORD` (alias `slicendice-test`; created with
+  `tools/setup-test-keystore.sh` on the collaborator's machine, the key itself stays outside the repository; the owner
+  keeps a copy in a password manager) and fails without them. `v0.1.0` and `v0.2.0` were signed with other keys; from
+  v0.3.0 to v0.16.1 the certificate SHA-256 printed in the release logs is the same (checked 2026-11-20), so testers
+  on 0.2.1 or newer never have to reinstall. A local debug export without these settings is signed with Godot's
+  own debug key and cannot be installed over a release.
 - **Repository:** Public since 2026-11-18 (private before), owned by Dr-Nerdlove. History check before/after going
   public (2026-11-20, all commits of `main`, all pull request heads and tags; gitleaks 8.30.1 plus a search for
   local paths, home-network addresses, e-mail addresses and image metadata): no secrets; findings were a compiled
   Python file `tests/__pycache__/sabotage.cpython-314.pyc` (added in 554d221) that contains a local path with a user
   name, and a personal e-mail address in the author line of some commits; history left unchanged
   (owner's decision pending). The IP addresses in `tests/test_net.gd` are made-up test values. Licence: GNU AGPL v3 (`LICENSE`). Default branch `main`. CI:
-  `.github/workflows/ci.yml` runs on every push and pull request: job `test` runs `tests/run.sh`; job `secrets` scans the full git history with a pinned,
-  checksum-verified gitleaks binary (`--redact`, no config file; a finding fails the run); job `apk`
-  (after `test`) exports the debug APK and uploads it as an artifact (14 days). Godot and the Android export
-  templates are downloaded from the official release and cached; the APK is signed with the fixed test key (trap
-  7), the Java/SDK/keystore paths are written to Godot's editor settings (no env vars exist for them). No branch protection yet: while the repository was private it was not available on the owner's free plan; now that
+  `.github/workflows/ci.yml` (job `test`, runs `tests/run.sh`) runs on pull requests and on pushes to `main`, and
+  skips changes that only touch `docs/**`, `*.md` files (README, AGENTS.md, CLAUDE.md, CHANGELOG.md) or `.claude/**`;
+  `.github/workflows/secrets.yml` scans the full git history of every push and pull request (documentation included)
+  with a pinned, checksum-verified gitleaks binary (`--redact`, no config file; a finding fails the run). CI builds
+  no APK and uploads no artifacts (decided 2026-11-20: the APK artifacts of every CI run, about 29 MB each for 14
+  days, filled the owner's 0.5 GB Actions storage); APKs are built only by the release workflow (see "Release").
+  Godot is downloaded from the official release and cached. No branch protection yet: while the repository was private it was not available on the owner's free plan; now that
   it is public, protecting `main` is recommended (see "Protecting `main`"), the owner decides. GitHub security settings (set by the owner, Nov 2026): Dependabot alerts on (with the dependency graph); secret scanning was not available while the repository was private (free plan; for a public repository GitHub
   offers it, not checked whether it is on); automatic dependency submission and AI scan off (Actions minutes and AI credits for little gain). A Dependabot alert is checked in a session before anything is changed.
 - **Limits of the environment:** Cloud sessions (Claude Code on the web) cannot open the repository settings
