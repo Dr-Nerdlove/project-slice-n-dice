@@ -4,9 +4,9 @@ extends RefCounted
 ## "latest release" API. No nodes, no network; main.gd does the request. Never trusts the answer:
 ## garbage, oversized data or a download link outside the releases repository means "no update".
 
-const API_URL := "https://api.github.com/repos/Joni9993/slice-n-dice-releases/releases/latest"
-## A download link is accepted only below this address (the public releases repository).
-const DOWNLOAD_PREFIX := "https://github.com/Joni9993/slice-n-dice-releases/releases/download/"
+const API_URL := "https://api.github.com/repos/Dr-Nerdlove/project-slice-n-dice/releases/latest"
+## A download link is accepted only below this address (the releases of this repository).
+const DOWNLOAD_PREFIX := "https://github.com/Dr-Nerdlove/project-slice-n-dice/releases/download/"
 const MAX_BODY_BYTES := 262144
 const MAX_URL_LENGTH := 512
 

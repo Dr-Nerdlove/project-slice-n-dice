@@ -3576,7 +3576,7 @@ func test_main_menu() -> void:   # async
 	main._notification(Node.NOTIFICATION_WM_GO_BACK_REQUEST)
 	check("back: Android back in Settings goes back to the main page (it does not quit)", quits.size() == 1 and main.screen == main.Screen.MENU and not main.main_menu.settings_page.visible and main.main_menu._main_page.visible)
 	# the update notice is a main menu thing
-	main.offer_update({"version": "9.9.9", "url": "https://github.com/Joni9993/slice-n-dice-releases/releases/download/v9.9.9/x.apk"})
+	main.offer_update({"version": "9.9.9", "url": "https://github.com/Dr-Nerdlove/project-slice-n-dice/releases/download/v9.9.9/x.apk"})
 	check("update: the banner shows in the main menu", main.main_menu.update_banner.visible and main.main_menu.settings_update_btn.visible)
 	main.start_solo()
 	check("update: not during a game", not main.main_menu.visible and main.screen == main.Screen.GAME)
