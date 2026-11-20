@@ -1,50 +1,80 @@
 name: Release
 
-# Pushing a tag vMAJOR.MINOR.PATCH builds the APK and publishes it to the PUBLIC repository
-# Joni9993/slice-n-dice-releases (this repository is private; the app looks there for updates).
-# "Run workflow" with a tag name retries a release (an existing release gets its APK replaced).
+# Started by hand: Actions > Release > Run workflow > enter the version (e.g. 0.17.0). A cloud session cannot
+# push tags, and a tag created by a workflow does not start other workflows, so this one run does everything:
+# it checks the version, runs the tests, builds and signs the APK, and only at the very end creates the tag and
+# the GitHub Release in THIS repository with the APK attached. Nothing is created when a step fails before that,
+# so a failed release is simply started again. A version whose tag exists already stops at the start.
+#
+# "also_old_repo" (transition only): also publishes the same APK to Joni9993/slice-n-dice-releases, the place
+# where app versions up to 0.16.1 look for updates. Installed from there, the new APK looks here for updates.
 on:
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Tag to release, e.g. v0.3.0 (must exist in this repository)"
+      version:
+        description: "Version to release, e.g. 0.17.0 (needs a section '## 0.17.0' in CHANGELOG.md)"
         required: true
+        type: string
+      also_old_repo:
+        description: "Also publish to Joni9993/slice-n-dice-releases (only for the transition release)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
-  contents: read
+  contents: write
 
+# One release at a time; a second run waits instead of breaking off a release halfway.
 concurrency:
-  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  group: release
   cancel-in-progress: false
 
 env:
   GODOT_VERSION: 4.7.2
   GODOT_RELEASE: https://github.com/godotengine/godot/releases/download/4.7.2-stable
-  RELEASES_REPO: Joni9993/slice-n-dice-releases
-  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  OLD_RELEASES_REPO: Joni9993/slice-n-dice-releases
 
-# Same setup as the jobs "test" and "apk" in ci.yml, repeated here on purpose (a shared workflow would change
-# the CI that already works). Differences: the version comes from the tag, the fixed key is required, and the
-# result is published instead of uploaded as an artifact.
+# Same setup as the job "test" in ci.yml, repeated here on purpose. Differences: the version comes from the
+# input, the fixed key is required, and the APK is attached to a release (never kept as an artifact).
 jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Check the tag
+      - name: Check the version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -eu
-          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Tag '$TAG' is not vMAJOR.MINOR.PATCH" >&2
+          version=$(printf '%s' "$INPUT_VERSION" | tr -d '[:space:]')
+          version=${version#v}
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$INPUT_VERSION' is not a version like 0.17.0" >&2
             exit 1
           fi
+          echo "TAG=v$version" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Stop if the version exists already
+        run: |
+          set -eu
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "::error::$TAG exists already. Choose a new version (and add its section to CHANGELOG.md)." >&2
+            exit 1
+          fi
+          echo "$TAG is new; building from $(git rev-parse --short HEAD) on $GITHUB_REF_NAME."
+
+      - name: Check the token for the old releases repository
+        if: inputs.also_old_repo
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          set -eu
+          if [ -z "$RELEASES_TOKEN" ]; then
+            echo "::error::also_old_repo needs the secret RELEASES_TOKEN (write access to $OLD_RELEASES_REPO)" >&2
+            exit 1
+          fi
 
       - name: Release notes from CHANGELOG.md
         run: |
@@ -68,7 +98,7 @@ jobs:
 
           1. Download the `.apk` file below on an Android phone.
           2. Open it and allow installing from this source when Android asks. Android may warn about an unknown developer; this is a test build.
-          3. Already installed? The app shows "Neue Version ... verfügbar" when a newer version exists. Installing over the old version keeps your settings. Versions before 0.2.1 have to be uninstalled once.
+          3. Already installed? The app shows "New version ... available" when a newer version exists. Installing over the old version keeps your settings. Versions before 0.2.1 have to be uninstalled once.
           NOTES
           } > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
@@ -171,23 +201,39 @@ jobs:
             exit 1
           fi
 
-      - name: Publish to the releases repository
+      # Before the release here: if this fails, nothing is created here and the run can simply be started again
+      # (an existing release there gets its APK replaced).
+      - name: Publish to the old releases repository (transition)
+        if: inputs.also_old_repo
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           set -eu
-          if [ -z "$GH_TOKEN" ]; then
-            echo "The secret RELEASES_TOKEN is not set" >&2
-            exit 1
-          fi
           apk="build/slice-n-dice-$TAG.apk"
-          if gh release view "$TAG" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
-            echo "Release $TAG exists: replacing its APK and notes"
-            gh release upload "$TAG" "$apk" --repo "$RELEASES_REPO" --clobber
-            gh release edit "$TAG" --repo "$RELEASES_REPO" --notes-file "$RUNNER_TEMP/notes.md" --prerelease=false --latest
+          {
+            cat "$RUNNER_TEMP/notes.md"
+            echo
+            echo "**New place for releases:** from this version on, releases are published at https://github.com/$GITHUB_REPOSITORY/releases. Install this one as usual; the app then finds later versions there by itself."
+          } > "$RUNNER_TEMP/notes-old.md"
+          if gh release view "$TAG" --repo "$OLD_RELEASES_REPO" >/dev/null 2>&1; then
+            echo "Release $TAG exists there: replacing its APK and notes"
+            gh release upload "$TAG" "$apk" --repo "$OLD_RELEASES_REPO" --clobber
+            gh release edit "$TAG" --repo "$OLD_RELEASES_REPO" --notes-file "$RUNNER_TEMP/notes-old.md" --prerelease=false --latest
           else
-            gh release create "$TAG" "$apk" --repo "$RELEASES_REPO" \
-              --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --latest
+            gh release create "$TAG" "$apk" --repo "$OLD_RELEASES_REPO" \
+              --title "$TAG" --notes-file "$RUNNER_TEMP/notes-old.md" --latest
           fi
-          gh release view "$TAG" --repo "$RELEASES_REPO" --json tagName,isPrerelease,assets \
+          gh release view "$TAG" --repo "$OLD_RELEASES_REPO" --json tagName,isPrerelease,assets \
             --jq '"published " + .tagName + ", prerelease=" + (.isPrerelease|tostring) + ", assets=" + ([.assets[].name]|join(","))'
+
+      # Last step: creates the tag (on the commit that was built) and the release with the APK.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          apk="build/slice-n-dice-$TAG.apk"
+          gh release create "$TAG" "$apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --latest
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isPrerelease,url,assets \
+            --jq '"published " + .tagName + ", prerelease=" + (.isPrerelease|tostring) + ", assets=" + ([.assets[].name]|join(",")) + ", " + .url'

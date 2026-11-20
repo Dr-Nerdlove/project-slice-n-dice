@@ -4,6 +4,10 @@ One section per release, newest first. The heading is `## MAJOR.MINOR.PATCH` (no
 (`.github/workflows/release.yml`) publishes the section of the tagged version as the release notes and fails if
 there is none. Write it for testers, in plain words.
 
+## 0.16.2
+
+- **Releases have moved**: new versions are published at https://github.com/Dr-Nerdlove/project-slice-n-dice/releases, and the app now looks there for updates. This version is also published at the old place, so the app on your phone finds it as usual; once it is installed, nothing else changes for you.
+
 ## 0.16.1
 
 Two fixes for the figure choice. Players on different versions can no longer play together.

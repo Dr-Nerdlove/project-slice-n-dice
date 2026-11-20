@@ -297,6 +297,7 @@ SB=[
  ("9 url prefix not checked","update/update_check.gd","if url.length() > MAX_URL_LENGTH or not url.begins_with(DOWNLOAD_PREFIX):","if url.length() > MAX_URL_LENGTH:"),
  ("9 url dot-dot allowed","update/update_check.gd",'rest.contains("..") or ',''),
  ("9 url http allowed","update/update_check.gd",'const DOWNLOAD_PREFIX := "https://github.com/','const DOWNLOAD_PREFIX := "http://github.com/'),
+ ("9 url old repo allowed","update/update_check.gd",'const DOWNLOAD_PREFIX := "https://github.com/Dr-Nerdlove/project-slice-n-dice/','const DOWNLOAD_PREFIX := "https://github.com/Joni9993/slice-n-dice-releases/'),
  ("9 size cap off","update/update_check.gd","body.is_empty() or body.size() > MAX_BODY_BYTES","body.is_empty()"),
  ("9 non-apk asset taken",'update/update_check.gd','.to_lower().ends_with(".apk") and','.to_lower().ends_with("") and'),
  ("9 prerelease offered","update/update_check.gd",'or rel.get("prerelease", false) == true','or false'),

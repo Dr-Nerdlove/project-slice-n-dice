@@ -13,7 +13,7 @@ func check(name: String, ok: bool, info := "") -> void:
 		fails += 1
 
 
-const GOOD_URL := "https://github.com/Joni9993/slice-n-dice-releases/releases/download/v0.3.1/slice-n-dice-v0.3.1.apk"
+const GOOD_URL := "https://github.com/Dr-Nerdlove/project-slice-n-dice/releases/download/v0.3.1/slice-n-dice-v0.3.1.apk"
 
 
 func release(tag: String, assets: Array, extra := {}) -> PackedByteArray:
@@ -59,15 +59,16 @@ func _logic_tests() -> void:
 	check("update: a release without an apk gives nothing", UpdateCheck.parse_release(release("v0.3.1", [{"name": "notes.txt", "browser_download_url": GOOD_URL}]), "0.3.0").is_empty())
 	check("update: draft and pre-release are ignored", UpdateCheck.parse_release(release("v0.3.1", [apk()], {"draft": true}), "0.3.0").is_empty() and UpdateCheck.parse_release(release("v0.3.1", [apk()], {"prerelease": true}), "0.3.0").is_empty())
 	var evil := [
-		"http://github.com/Joni9993/slice-n-dice-releases/releases/download/v0.3.1/a.apk",
-		"https://evil.example/Joni9993/slice-n-dice-releases/releases/download/v0.3.1/a.apk",
-		"https://github.com.evil.example/Joni9993/slice-n-dice-releases/releases/download/v0.3.1/a.apk",
-		"https://github.com/Joni9993/other-repo/releases/download/v0.3.1/a.apk",
-		"https://github.com/Joni9993/slice-n-dice-releases/releases/download/../../../../evil/a.apk",
-		"https://github.com/Joni9993/slice-n-dice-releases/releases/download/v1/a.apk x",
-		"https://github.com/Joni9993/slice-n-dice-releases/releases/download/@evil.example/a.apk",
-		"https://github.com/Joni9993/slice-n-dice-releases/releases/download/",
-		"https://github.com/Joni9993/slice-n-dice-releases/releases/download/" + "a".repeat(600),
+		"http://github.com/Dr-Nerdlove/project-slice-n-dice/releases/download/v0.3.1/a.apk",
+		"https://evil.example/Dr-Nerdlove/project-slice-n-dice/releases/download/v0.3.1/a.apk",
+		"https://github.com.evil.example/Dr-Nerdlove/project-slice-n-dice/releases/download/v0.3.1/a.apk",
+		"https://github.com/Dr-Nerdlove/other-repo/releases/download/v0.3.1/a.apk",
+		"https://github.com/Dr-Nerdlove/project-slice-n-dice/releases/download/../../../../evil/a.apk",
+		"https://github.com/Dr-Nerdlove/project-slice-n-dice/releases/download/v1/a.apk x",
+		"https://github.com/Dr-Nerdlove/project-slice-n-dice/releases/download/@evil.example/a.apk",
+		"https://github.com/Dr-Nerdlove/project-slice-n-dice/releases/download/",
+		"https://github.com/Dr-Nerdlove/project-slice-n-dice/releases/download/" + "a".repeat(600),
+		"https://github.com/Joni9993/slice-n-dice-releases/releases/download/v0.3.1/a.apk",  # the former releases repository
 		"file:///sdcard/a.apk", "javascript:alert(1)", "",
 	]
 	var all_refused := true
