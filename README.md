@@ -14,12 +14,14 @@ Early prototype, milestone 1 (game feel offline). See [docs/PLAN.md](docs/PLAN.m
 
 ## Install and update (testers)
 
-Test versions are published in the public repository
-[Joni9993/slice-n-dice-releases](https://github.com/Joni9993/slice-n-dice-releases/releases). On an Android phone:
+Test versions are published in
+[the releases of this repository](https://github.com/Dr-Nerdlove/project-slice-n-dice/releases). On an Android phone:
 download the `.apk` of the newest release, open it and allow installing from this source. From version 0.3.0 on
 the app tells you by itself ("New version ... available" in the main menu, with a download button; also in Settings) when a
 newer version exists; installing it over the old one keeps your settings. The check sends nothing about you.
 Versions before 0.2.1 have to be uninstalled once.
+Versions up to 0.16.1 looked for updates in the former releases repository Joni9993/slice-n-dice-releases; the
+first release after the move is published there as well, so they find it by themselves.
 
 ## Working on it
 

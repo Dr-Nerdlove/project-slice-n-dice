@@ -363,26 +363,40 @@ repository belongs to someone else, these points still apply unless "Project kno
 - **Shop (M3 step 6, version 0.7.0, protocol version 7):** phase `MatchMode.Phase.SHOP` (after RESULT, not after the deciding round; `MatchMode.running()` = countdown, play, result, shop is what locks joining and allows reconnecting). Numbers in `Economy` (`SHOP_TIME`, `OFFERS`, `REROLL_PRICE`, `SLOTS`, bot timing); prices `Mods.PRICES`. State per slot in `MatchMode` (`owned`, `offers`, `locked`, `shop_ready`, `shop_seq`); commands `Sim.shop_buy/shop_reroll/shop_sell/shop_lock/shop_done` with the `shop_seq` counter against repeats; `ServerCore.apply_shop` for `NetProto.T_SHOP`; `ClientCore.send_shop`; `main._shop` routes the `ShopPanel` buttons (Solo into the sim, online to the server). **Rework 2026-11-16:** the build slots are the keys of `owned` in insertion order; selling removes a modifier with all copies for `floor(copies * price / 2)` (`MatchMode.sell_refund`; wire: `SHOP_SELL` with the index in `Mods.ORDER`); a per-offer lock (`locked`, toggled by `shop_lock`, wire `SHOP_LOCK`) keeps an offer through rerolls and into the next shop (`Sim._roll_offers`), buying or `start_match` clears it. Cards use `Mods.short(id)` (short texts; the long ones are for Training), `ModIcon` draws the icons, `ShopPanel` has no scrolling and a test checks its minimum size. **Rule: in a match (`phase != OFF`) the modifiers come only from `owned`:** `main._sync_mods`, `ClientCore` (on snapshots and on a change) and the server's `T_MODS` all skip `apply_mods` then; `start_match` clears the build. **Even odds (protocol version 18):** `Sim._roll_offers` draws every offer uniformly from ALL of `Mods.ORDER` (not only what `can_take`), so full slots or max-level mods still show up; the card says "Slots full – sell one" / "Max level" with Buy disabled, `shop_buy` and bots still check `can_take`, locked offers stay even when unbuyable. Tests that need the next round go through the shop: `next_round()` in `tests/test_sim.gd` marks everybody done.
 - **Touch settings (M3 step 7, version 0.7.0):** `game/input/touch_settings.gd` (`TouchSettings`, pure data and geometry) is saved per device in `user://touch.json` (`TouchSettings.path` is overridable for tests; missing or damaged file = defaults, numbers clamped, parsed with `JSON.new().parse` so garbage prints no engine error). It is not part of `Config` and the tuning Reset does not touch it; Play and Training use it alike. `main.gd` loads one instance (`touch_settings`) and hands it to `InputRouter.touch` and `MainMenu.setup`, so a change in Settings acts at once. Fields: stick mode (Floating default / Fixed), `scale`, `opacity` (multiplier on the drawn alpha), `swap`, and `custom` places (relative 0..1, only for controls the player placed; defaults are the old pixel offsets / 1280x576, mirrored when swapped; `to_screen` clamps a whole control onto the screen). Swap mirrors defaults and, when toggled, custom places. Floating mode ignores stick places; the Dash button place is used in both modes. Fixed sticks take only touches within `GRAB` (1.5) radii and their centre does not follow the finger. `TouchLayoutEditor` (`game/ui/touch_layout_editor.gd`) works on a copy; Save writes, Cancel / Android back discards. The look and feel of the Settings page and the editor are not checked on a real screen.
 - **Modifiers:** Modifier definitions (only Training's sandbox sets levels; Play has none until the shop exists), English texts and all their numbers live in `game/sim/mods.gd`.
-- **Release:** Testers get APKs from the PUBLIC repository `Joni9993/slice-n-dice-releases` (this one was private until 2026-11-18).
-  How a release is made: (1) add a section `## MAJOR.MINOR.PATCH` to `CHANGELOG.md` (the workflow fails without it;
-  it becomes the release notes); (2) merge to `main`, or tag the branch you want to release; (3) push the tag
-  `vMAJOR.MINOR.PATCH`. `.github/workflows/release.yml` then runs `tests/run.sh`, sets the version from the tag
-  (`tools/set-version.sh`), builds the APK signed with the fixed test key (it fails if the key secrets are missing),
-  and publishes a normal (not pre-)release `slice-n-dice-vX.Y.Z.apk` there with `gh release create` using the secret
-  `RELEASES_TOKEN` (fine-grained token, contents read/write on that repository only). A retry (Actions > Release >
-  Run workflow with the tag; the workflow file must be on `main` for that button) replaces the APK of an existing
-  release. The workflow cannot be tested locally; the first real run is its test. Older pre-releases (`v0.1.0`,
-  `v0.2.0`, `v0.2.1`) were made by hand and live in the private repository. Version rule: one number
-  `MAJOR.MINOR.PATCH`; `tools/set-version.sh` writes it to `application/config/version` in `game/project.godot` (what
-  the game shows and compares), and `version/name` and `version/code` (= MAJOR*10000 + MINOR*100 + PATCH, so MINOR
-  and PATCH stay below 100) in `game/export_presets.cfg`. The committed files hold the version of the NEXT release
-  (now 0.16.1); a test checks that they agree. CI builds of branches use the committed version plus the suffix
-  `-dev+<commit>` in `application/config/version` only (set by the `apk` job), so the game shows it is a dev build and
-  never offers an update for the same version. How the app finds updates: `game/update/update_check.gd` (pure logic)
-  and `main.gd` ask `https://api.github.com/repos/Joni9993/slice-n-dice-releases/releases/latest` once, 3 s after the
-  start (not headless, not in server mode, silent on any failure), compare versions and show a banner and a button
-  in the settings; the download link is accepted only below `https://github.com/Joni9993/slice-n-dice-releases/` and
-  is opened with `OS.shell_open`. Android installs the APK over the old one only if the signing key is the same (trap 7).
+- **Release:** Testers get the APKs from the GitHub Releases of THIS repository
+  (https://github.com/Dr-Nerdlove/project-slice-n-dice/releases; moved here on 2026-11-20, before that
+  `Joni9993/slice-n-dice-releases`, while this repository was private). Joni9993 decides about test releases (see
+  "People"). How a release is made: (1) add a section `## MAJOR.MINOR.PATCH` (no `v`) to `CHANGELOG.md`, written for
+  testers (the workflow fails without it; it becomes the release notes), and merge it to `main`; (2) start it by hand:
+  GitHub > Actions > Release > Run workflow > branch `main` > enter the version (e.g. `0.17.0`) > Run workflow; or in
+  PowerShell `gh workflow run release.yml --repo Dr-Nerdlove/project-slice-n-dice -f version=0.17.0`. Nothing else is
+  done by hand, and no tag is pushed (a cloud session cannot push tags). `.github/workflows/release.yml` (only
+  `workflow_dispatch`) stops at once if the tag `vX.Y.Z` exists, runs `tests/run.sh`, sets the version from the input
+  (`tools/set-version.sh`), builds the APK signed with the fixed test key (fails if the key secrets are missing; trap
+  7), and at the very end creates the tag on the built commit and a normal (not pre-)release with
+  `slice-n-dice-vX.Y.Z.apk` attached (`gh release create --target`, `GITHUB_TOKEN`, `contents: write`). A failed run
+  creates nothing and is simply started again with the same version. It takes about 5 minutes (the tests are most of
+  it); the release page shows the new version once the run is green; the app on the phones sees it at its next start
+  (GitHub's API may answer from its cache for a few minutes). **Transition:** app versions up to 0.16.1 look for
+  updates in `Joni9993/slice-n-dice-releases` and accept downloads only from there. The first release after the move
+  (planned 0.16.2) must be started with the box "also_old_repo" ticked: the same APK is then also published there
+  (secret `RELEASES_TOKEN`, a fine-grained token of Joni9993 with contents read/write on that repository only; the
+  step runs before the release here, an existing release there gets its APK replaced). Installed from there, the app
+  looks here from then on. After the transition release, leave the box off; `RELEASES_TOKEN` can then be deleted and
+  the token revoked. The workflow cannot be tested locally; the first real run is its test. Older pre-releases
+  (`v0.1.0`, `v0.2.0`, `v0.2.1`) were made by hand and stay here as pre-releases (the app ignores pre-releases). Version
+  rule: one number `MAJOR.MINOR.PATCH`; `tools/set-version.sh` writes it to `application/config/version` in
+  `game/project.godot` (what the game shows and compares), and `version/name` and `version/code` (= MAJOR*10000 +
+  MINOR*100 + PATCH, so MINOR and PATCH stay below 100) in `game/export_presets.cfg`. The committed files should hold
+  the version of the NEXT release (they still say 0.16.1, the last release; the release run sets the input version
+  anyway); a test checks that they agree. A local build can carry a suffix (`tools/set-version.sh 0.16.2 -dev+abc`),
+  so the game shows it is a dev build and never offers an update for the same version. How the app finds updates:
+  `game/update/update_check.gd` (pure logic) and `main.gd` ask
+  `https://api.github.com/repos/Dr-Nerdlove/project-slice-n-dice/releases/latest` once, 3 s after the start (not
+  headless, not in server mode, silent on any failure), compare versions and show a banner and a button in the
+  settings; the download link is accepted only below `https://github.com/Dr-Nerdlove/project-slice-n-dice/releases/download/`
+  and is opened with `OS.shell_open`. Android installs the APK over the old one only if the signing key is the same
+  (trap 7).
 - **Traps:** (1) ENet turns an unreliable packet bigger than one MTU into a reliable one unless it is sent with
   `FLAG_UNRELIABLE_FRAGMENT` (`ENetEndpoint` does; from ENet's source, not provable from GDScript). (2)
   `PackedByteArray.decompress_dynamic` works only for gzip, deflate and brotli, not zstd: the snapshot stores its raw
@@ -419,4 +433,7 @@ repository belongs to someone else, these points still apply unless "Project kno
 - **Limits of the environment:** Cloud sessions (Claude Code on the web) cannot open the repository settings
   (rulesets, secrets, Pages); the owner does that on github.com. GitHub is reached through the GitHub MCP tools,
   not the `gh` CLI. A cloud session cannot push tags, so a release must not depend on pushing one from a session. Local sessions on
-  the collaborator's Linux machine have git over HTTPS working.
+  the collaborator's Linux machine have git over HTTPS working. In a cloud container (2026-11-20) `tests/run.sh net` run on the repository's
+  own `game/` failed one check ("main rejoin: a refused rejoin shows the status ...", it connected instead) even on
+  unchanged `main` code, while the same code passed as a copy (`GAME_DIR=<copy> TEST_PORT_OFFSET=50`) and in CI; cause
+  not found. Run the net suite on a copy there before suspecting a change.
