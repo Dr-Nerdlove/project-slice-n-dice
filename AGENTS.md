@@ -2,7 +2,7 @@
 
 Instructions for every AI tool working on this repository.
 
-<!-- owner-rules v16: general (AGENTS.md) - begin -->
+<!-- owner-rules v19: general (AGENTS.md) - begin -->
 
 ## General rules
 
@@ -67,6 +67,10 @@ Instructions for every AI tool working on this repository.
   once, without repeating the value. The secret counts as burnt: it must be **changed at the provider**, which
   makes the leaked copy worthless. Deleting it from the history alone is not enough (copies, caches, forks and
   logs keep it), and rewriting history happens only when the owner explicitly agrees.
+- **Before a repository is made public**, check its whole history (all commits and branches) for secrets and
+  for what tells others about the people or their machines (see above). Report what you find without showing
+  the values, and change nothing in the history without the owner's consent. Anything found counts as burnt
+  once the repository is public. If it is public already, do the check at once.
 - **Personal data** (of the people or of the product's users) is not sent anywhere new, logged or published
   without asking.
 - **What users have stays usable after an update**: their settings, saved data, accounts. When a change
@@ -113,10 +117,11 @@ missing, with a recommendation, and let the people choose.
   it (build, test, release), and its licence. Keep it up to date with every change that affects it.
 - **Pull request descriptions**: what changes, why, how it was tested (and what was not), and anything the
   reviewer should know.
-- **Automatic checks (CI)**: every push and pull request builds the project and runs its tests
-  automatically; merge only when they pass. Where a project has none, offer to set it up. Where they do not
-  look for secrets yet, offer a secret scan of every push (e.g. gitleaks); add it only when the owner chooses
-  it.
+- **Automatic checks (CI)**: every pull request runs the project's tests and checks that the code compiles,
+  also where there are no tests; merge only when this passes. Keep these checks quick and keep nothing they
+  build; files to publish are built for releases (see "GitHub Actions"). Where a project has none, offer to
+  set it up. Where they do not look for secrets yet, offer a secret scan of every push (e.g. gitleaks); add it
+  only when the owner chooses it.
 - **Releases**: version numbers `vMAJOR.MINOR.PATCH` (e.g. `v1.4.2`: major for breaking changes, minor for
   new features, patch for fixes). Files that are published are built by CI, never by hand. Each release says
   in plain words what is new and how to install or update.
@@ -159,6 +164,48 @@ missing, with a recommendation, and let the people choose.
   Für weitere Projekte: das Ruleset dort über **Export ruleset** speichern und im nächsten Projekt über
   **Import a ruleset** übernehmen.
 
+### GitHub Actions
+
+The owner's account is on GitHub's free plan: 0.5 GB of storage and a limited number of minutes. Where the
+repository belongs to someone else, these points still apply unless "Project knowledge" says otherwise.
+
+- **Storage counts in every repository.** Artifacts that are kept (test builds, APKs from pull requests) are
+  what fills it; keep as little as possible, as short as possible.
+- **Minutes count only in private repositories.** In public ones, GitHub-hosted runners are free. Check whether
+  the repository is public or private before weighing a change: in a public one, saving minutes is tidiness,
+  not money; in a private one, it matters.
+- Apply the points below in both cases; they keep the project tidy and make it ready to become private.
+
+- **Builds** (an APK and the like) run only for release tags (`v*`) and when started by hand
+  (`workflow_dispatch`), not on every push.
+- **Releases are started by hand**, because a cloud session cannot push tags: the release workflow has
+  `workflow_dispatch` with the version as input, creates the tag and the GitHub Release itself
+  (`permissions: contents: write`) and builds in the same run, since a tag created by a workflow does not
+  start other workflows. Tell the person how to start it (Actions → the release workflow → Run workflow →
+  enter the version) and describe it under "Release" in "Project knowledge". If the tag exists already, the
+  workflow stops at the start with a clear message.
+- Where a build on push is needed (e.g. publishing to GitHub Pages after a merge): only on `main`, and with
+  `paths-ignore:` so that changes to documentation, the README and the AI instructions (`AGENTS.md`,
+  `CLAUDE.md`, `.claude/**`) do not start it.
+- Checks on pull requests skip changes that only touch those files (`paths-ignore:`). Not where `main`
+  requires the check (see "Protecting `main`"): a required check that never ran blocks the merge.
+- Every workflow sets `concurrency` with `cancel-in-progress: true`, except the release workflow: there
+  `cancel-in-progress: false`, so a second run waits instead of breaking off a release halfway.
+- Every job has `timeout-minutes`.
+- Dependencies are cached (e.g. `gradle/actions/setup-gradle`, `actions/setup-node` with `cache:`).
+- Finished APKs are attached to a GitHub Release instead of kept as an artifact.
+- Where an artifact is needed: only the final file, with `retention-days: 1`.
+- Build only the one variant that is needed (e.g. release, not debug as well).
+- **A release APK must be signed**, always with the same key, the keystore and its passwords kept as
+  repository secrets. An app signed with a different key cannot be installed as an update: the old one has to
+  be removed first, and its data with it. Before switching from a debug build, check whether the earlier APKs
+  had a fixed key at all (on GitHub's runners the debug key is made anew on every run unless the project
+  keeps one), tell the owner which case it is and whether users will have to reinstall, and ask. When the
+  keystore is set up, ask the owner to keep a copy of it and its passwords outside GitHub (e.g. in a password
+  manager): a secret cannot be read back, and without the key no update can ever be built again.
+- When the rules are installed, check the project's workflows against these points and point out what
+  differs, with a proposed change.
+
 ### Showing changes
 
 - Show visual changes rather than describing them: **screenshots** where the result runs on a computer.
@@ -178,15 +225,17 @@ missing, with a recommendation, and let the people choose.
   conversation: decisions and why, traps that cost time, how to build, test and release, and the limits of
   the environment (what a cloud session cannot do there).
 
-<!-- owner-rules v16: general (AGENTS.md) - end -->
+<!-- owner-rules v19: general (AGENTS.md) - end -->
 
 ## Project knowledge
 
 - **People:** Two people work on the project together with AI assistants; neither programs themselves. The
-  repository owner (GitHub: Dr-Nerdlove) and a collaborator (GitHub: Joni9993), who has admin rights and whose
-  machine the local sessions run on (`gh` is logged in as Joni9993 there: `gh repo create` creates under that
+  repository owner (GitHub: Dr-Nerdlove) and a collaborator (GitHub: Joni9993), who has write access (role "write" in the repository's collaborators,
+  checked 2026-11-20) and whose Linux machine the local sessions run on (`gh` is logged in as Joni9993 there: `gh repo create` creates under that
   account even when another owner is named). Agreed between them (2026-11-13): while the concept is being worked
   out, Joni9993 works ahead and decides about merging and test releases; Dr-Nerdlove builds on it afterwards.
+  The owner works on Windows with PowerShell and has the GitHub CLI (`gh`) installed and logged in: give them
+  commands for PowerShell.
 - **What the project is:** "Spinback Rumble" (formerly the working title "Slice n Dice"; the repository and file names keep the old name), a top-down arena brawler for Android with local multiplayer
   (2-8 players) and a yo-yo as the weapon. Plan and decisions: `docs/PLAN.md`.
 - **Product languages:** English only (decided by the owner on 2026-11-15). All texts in the game are English now (translated 2026-11-15, version 0.6.0); all new text is English.
@@ -289,7 +338,7 @@ missing, with a recommendation, and let the people choose.
   `ToyPose.Kind` with its `CYCLE` entry and gait flavour, a `_build_*` function in `toy_figure.gd` that creates at
   least the six standard pieces (Body first, Head, ArmL, ArmR, FootL, FootR), its accent in `ACCENTS` and name in
   `NAMES`; `tests/test_view.gd` then checks it builds and fits the hit circle (body shell and `solid_reach()` of body and head: 0.9 to 1.3 player radii, the hit circle is the same for every figure). The standard pieces may be empty: the imp, the top, the roly-poly doll and the die have no visible feet (a test checks it), the duck's FootL/FootR carry its wheels (turned by the walk phase), the dino's hinged UPPER jaw (node "Jaw" = skull with the eyes, snout and upper teeth; the lower jaw with tongue and teeth is fixed to the Head piece; it opens upward, towards the camera, with the `JAW` pose channel) and the doll's rocking (`TILT_F`/`TILT_S`, underdamped springs) are pose channels in `toy_pose.gd`; the top's base turns with `ToyMotion.spin`. The die really rolls: all its cube visuals hang on the node `_cube` (child of Body); `ToyMotion.tumble` (a Basis in the figure's frame) is rotated from the drawn movement of every frame (one side length = a quarter turn), eases back to the identity (face to the front, with a small hop, `die_hop()`) when it stands, is stunned or spawns, and `die_height()` keeps the cube on the floor; the pose gives the die no lean, roll or twist. **Held yo-yo:** `ArenaView.drawn_head_r` draws a held head at NORMAL size (`Config.head_radius` x `HELD_SCALE`) and a thrown one at its real size (Big Chunk), eased over `GROW_TIME` (`grow_step`, state `_grow`, view only); `ToyFigure.hand_side(head_index, head_count)` gives the hand (+1 right = the yo-yo arm `_paw`, -1 left = `_paw_l` on `ArmL`; with two heads head 0 right, head 1 left; `left_hold` mirrors the left arm onto the right one's pose). The 3D meshes of a figure count 15..58 including the shadow, colour ring, stars and ghosts (8); the dino is the richest. `rounded_box()` is the only hand-built mesh: Godot's front faces are clockwise from outside, a test compares its winding with `BoxMesh`. **Screenshots cannot be made on the
-  owner's Linux machine:** no X server, no Xvfb, no GL/EGL or Vulkan libraries (Godot's x11 and wayland drivers fail
+  collaborator's Linux machine:** no X server, no Xvfb, no GL/EGL or Vulkan libraries (Godot's x11 and wayland drivers fail
   on missing `libXcursor` / `libwayland-client`; headless only has the dummy renderer). The look is checked on the
   phone; rendering in CI (Xvfb with Mesa on a GitHub runner) would be an option.
 - **Toy train:** a moving hazard in the simulation (`Sim._step_train`, geometry in `game/sim/train_track.gd`: a rounded rectangle around the arena centre, scaled with the arena; speed `Config.train_speed`, default 5.7, 0 = off). It kills players with `_kill(victim, null)` (event `killer: -1`, `cause: "train"`, no kill credit), shoves the crate; its cars are solid for yo-yo heads like the crate (`Sim._push_train` in `_resolve_head` and `_sweep_retract` when `pass_level < 2`; a head lying OUT is shoved aside in `_step_train` and can kill that way), while strings, wires and shards still pass over it; its position is ordinary state. Tests switch it off in `mk()` (test_sim) and `make_rig()` (test_net, `with_train` turns it on) because the client's world clock follows the server's, so a client with a moving train is never equal to a purely local sim. When the arena or the obstacles change, the geometry checks at the end of `_train_tests` (clearance to obstacles, walls, spawns, the gap around the centre block) must still hold.
@@ -314,7 +363,7 @@ missing, with a recommendation, and let the people choose.
 - **Shop (M3 step 6, version 0.7.0, protocol version 7):** phase `MatchMode.Phase.SHOP` (after RESULT, not after the deciding round; `MatchMode.running()` = countdown, play, result, shop is what locks joining and allows reconnecting). Numbers in `Economy` (`SHOP_TIME`, `OFFERS`, `REROLL_PRICE`, `SLOTS`, bot timing); prices `Mods.PRICES`. State per slot in `MatchMode` (`owned`, `offers`, `locked`, `shop_ready`, `shop_seq`); commands `Sim.shop_buy/shop_reroll/shop_sell/shop_lock/shop_done` with the `shop_seq` counter against repeats; `ServerCore.apply_shop` for `NetProto.T_SHOP`; `ClientCore.send_shop`; `main._shop` routes the `ShopPanel` buttons (Solo into the sim, online to the server). **Rework 2026-11-16:** the build slots are the keys of `owned` in insertion order; selling removes a modifier with all copies for `floor(copies * price / 2)` (`MatchMode.sell_refund`; wire: `SHOP_SELL` with the index in `Mods.ORDER`); a per-offer lock (`locked`, toggled by `shop_lock`, wire `SHOP_LOCK`) keeps an offer through rerolls and into the next shop (`Sim._roll_offers`), buying or `start_match` clears it. Cards use `Mods.short(id)` (short texts; the long ones are for Training), `ModIcon` draws the icons, `ShopPanel` has no scrolling and a test checks its minimum size. **Rule: in a match (`phase != OFF`) the modifiers come only from `owned`:** `main._sync_mods`, `ClientCore` (on snapshots and on a change) and the server's `T_MODS` all skip `apply_mods` then; `start_match` clears the build. **Even odds (protocol version 18):** `Sim._roll_offers` draws every offer uniformly from ALL of `Mods.ORDER` (not only what `can_take`), so full slots or max-level mods still show up; the card says "Slots full – sell one" / "Max level" with Buy disabled, `shop_buy` and bots still check `can_take`, locked offers stay even when unbuyable. Tests that need the next round go through the shop: `next_round()` in `tests/test_sim.gd` marks everybody done.
 - **Touch settings (M3 step 7, version 0.7.0):** `game/input/touch_settings.gd` (`TouchSettings`, pure data and geometry) is saved per device in `user://touch.json` (`TouchSettings.path` is overridable for tests; missing or damaged file = defaults, numbers clamped, parsed with `JSON.new().parse` so garbage prints no engine error). It is not part of `Config` and the tuning Reset does not touch it; Play and Training use it alike. `main.gd` loads one instance (`touch_settings`) and hands it to `InputRouter.touch` and `MainMenu.setup`, so a change in Settings acts at once. Fields: stick mode (Floating default / Fixed), `scale`, `opacity` (multiplier on the drawn alpha), `swap`, and `custom` places (relative 0..1, only for controls the player placed; defaults are the old pixel offsets / 1280x576, mirrored when swapped; `to_screen` clamps a whole control onto the screen). Swap mirrors defaults and, when toggled, custom places. Floating mode ignores stick places; the Dash button place is used in both modes. Fixed sticks take only touches within `GRAB` (1.5) radii and their centre does not follow the finger. `TouchLayoutEditor` (`game/ui/touch_layout_editor.gd`) works on a copy; Save writes, Cancel / Android back discards. The look and feel of the Settings page and the editor are not checked on a real screen.
 - **Modifiers:** Modifier definitions (only Training's sandbox sets levels; Play has none until the shop exists), English texts and all their numbers live in `game/sim/mods.gd`.
-- **Release:** Testers get APKs from the PUBLIC repository `Joni9993/slice-n-dice-releases` (this one is private).
+- **Release:** Testers get APKs from the PUBLIC repository `Joni9993/slice-n-dice-releases` (this one was private until 2026-11-18).
   How a release is made: (1) add a section `## MAJOR.MINOR.PATCH` to `CHANGELOG.md` (the workflow fails without it;
   it becomes the release notes); (2) merge to `main`, or tag the branch you want to release; (3) push the tag
   `vMAJOR.MINOR.PATCH`. `.github/workflows/release.yml` then runs `tests/run.sh`, sets the version from the tag
@@ -349,14 +398,20 @@ missing, with a recommendation, and let the people choose.
   and `TEST_KEYSTORE_PASSWORD` (alias `slicendice-test`; created by the owner with `tools/setup-test-keystore.sh`,
   the key itself stays outside the repository on the owner's machine). Without the secrets CI falls back to a
   throwaway key and prints a warning. `v0.1.0` and `v0.2.0` were signed with other keys.
-- **Repository:** Private, owned by Dr-Nerdlove. Licence: GNU AGPL v3 (`LICENSE`). Default branch `main`. CI:
+- **Repository:** Public since 2026-11-18 (private before), owned by Dr-Nerdlove. History check before/after going
+  public (2026-11-20, all commits of `main`, all pull request heads and tags; gitleaks 8.30.1 plus a search for
+  local paths, home-network addresses, e-mail addresses and image metadata): no secrets; findings were a compiled
+  Python file `tests/__pycache__/sabotage.cpython-314.pyc` (added in 554d221) that contains a local path with a user
+  name, and a personal e-mail address in the author line of some commits; history left unchanged
+  (owner's decision pending). The IP addresses in `tests/test_net.gd` are made-up test values. Licence: GNU AGPL v3 (`LICENSE`). Default branch `main`. CI:
   `.github/workflows/ci.yml` runs on every push and pull request: job `test` runs `tests/run.sh`; job `secrets` scans the full git history with a pinned,
   checksum-verified gitleaks binary (`--redact`, no config file; a finding fails the run); job `apk`
   (after `test`) exports the debug APK and uploads it as an artifact (14 days). Godot and the Android export
   templates are downloaded from the official release and cached; the APK is signed with the fixed test key (trap
-  7), the Java/SDK/keystore paths are written to Godot's editor settings (no env vars exist for them). No branch protection: not available for private repositories on the owner's free plan (see
-  "Protecting `main`"). GitHub security settings (set by the owner, Nov 2026): Dependabot alerts on (with the dependency graph); secret scanning is not available for private repositories on the
-  free plan; automatic dependency submission and AI scan off (Actions minutes and AI credits for little gain). A Dependabot alert is checked in a session before anything is changed.
+  7), the Java/SDK/keystore paths are written to Godot's editor settings (no env vars exist for them). No branch protection yet: while the repository was private it was not available on the owner's free plan; now that
+  it is public, protecting `main` is recommended (see "Protecting `main`"), the owner decides. GitHub security settings (set by the owner, Nov 2026): Dependabot alerts on (with the dependency graph); secret scanning was not available while the repository was private (free plan; for a public repository GitHub
+  offers it, not checked whether it is on); automatic dependency submission and AI scan off (Actions minutes and AI credits for little gain). A Dependabot alert is checked in a session before anything is changed.
 - **Limits of the environment:** Cloud sessions (Claude Code on the web) cannot open the repository settings
   (rulesets, secrets, Pages); the owner does that on github.com. GitHub is reached through the GitHub MCP tools,
-  not the `gh` CLI. Local sessions on the owner's Linux machine have git over HTTPS working.
+  not the `gh` CLI. A cloud session cannot push tags, so a release must not depend on pushing one from a session. Local sessions on
+  the collaborator's Linux machine have git over HTTPS working.
