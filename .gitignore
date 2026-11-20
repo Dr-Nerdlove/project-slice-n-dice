@@ -16,3 +16,7 @@ build/
 
 # Working copies of AI helper agents
 .claude/worktrees/
+
+# Python bytecode (contains local paths)
+__pycache__/
+*.pyc
