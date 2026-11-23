@@ -5,9 +5,6 @@ name: Release
 # it checks the version, runs the tests, builds and signs the APK, and only at the very end creates the tag and
 # the GitHub Release in THIS repository with the APK attached. Nothing is created when a step fails before that,
 # so a failed release is simply started again. A version whose tag exists already stops at the start.
-#
-# "also_old_repo" (transition only): also publishes the same APK to Joni9993/slice-n-dice-releases, the place
-# where app versions up to 0.16.1 look for updates. Installed from there, the new APK looks here for updates.
 on:
   workflow_dispatch:
     inputs:
@@ -15,11 +12,6 @@ on:
         description: "Version to release, e.g. 0.17.0 (needs a section '## 0.17.0' in CHANGELOG.md)"
         required: true
         type: string
-      also_old_repo:
-        description: "Also publish to Joni9993/slice-n-dice-releases (only for the transition release)"
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -32,7 +24,6 @@ concurrency:
 env:
   GODOT_VERSION: 4.7.2
   GODOT_RELEASE: https://github.com/godotengine/godot/releases/download/4.7.2-stable
-  OLD_RELEASES_REPO: Joni9993/slice-n-dice-releases
 
 # Same setup as the job "test" in ci.yml, repeated here on purpose. Differences: the version comes from the
 # input, the fixed key is required, and the APK is attached to a release (never kept as an artifact).
@@ -64,17 +55,6 @@ jobs:
             exit 1
           fi
           echo "$TAG is new; building from $(git rev-parse --short HEAD) on $GITHUB_REF_NAME."
-
-      - name: Check the token for the old releases repository
-        if: inputs.also_old_repo
-        env:
-          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: |
-          set -eu
-          if [ -z "$RELEASES_TOKEN" ]; then
-            echo "::error::also_old_repo needs the secret RELEASES_TOKEN (write access to $OLD_RELEASES_REPO)" >&2
-            exit 1
-          fi
 
       - name: Release notes from CHANGELOG.md
         run: |
@@ -200,31 +180,6 @@ jobs:
             echo "APK is missing or too small" >&2
             exit 1
           fi
-
-      # Before the release here: if this fails, nothing is created here and the run can simply be started again
-      # (an existing release there gets its APK replaced).
-      - name: Publish to the old releases repository (transition)
-        if: inputs.also_old_repo
-        env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: |
-          set -eu
-          apk="build/slice-n-dice-$TAG.apk"
-          {
-            cat "$RUNNER_TEMP/notes.md"
-            echo
-            echo "**New place for releases:** from this version on, releases are published at https://github.com/$GITHUB_REPOSITORY/releases. Install this one as usual; the app then finds later versions there by itself."
-          } > "$RUNNER_TEMP/notes-old.md"
-          if gh release view "$TAG" --repo "$OLD_RELEASES_REPO" >/dev/null 2>&1; then
-            echo "Release $TAG exists there: replacing its APK and notes"
-            gh release upload "$TAG" "$apk" --repo "$OLD_RELEASES_REPO" --clobber
-            gh release edit "$TAG" --repo "$OLD_RELEASES_REPO" --notes-file "$RUNNER_TEMP/notes-old.md" --prerelease=false --latest
-          else
-            gh release create "$TAG" "$apk" --repo "$OLD_RELEASES_REPO" \
-              --title "$TAG" --notes-file "$RUNNER_TEMP/notes-old.md" --latest
-          fi
-          gh release view "$TAG" --repo "$OLD_RELEASES_REPO" --json tagName,isPrerelease,assets \
-            --jq '"published " + .tagName + ", prerelease=" + (.isPrerelease|tostring) + ", assets=" + ([.assets[].name]|join(","))'
 
       # Last step: creates the tag (on the commit that was built) and the release with the APK.
       - name: Publish the release
