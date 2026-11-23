@@ -20,8 +20,8 @@ download the `.apk` of the newest release, open it and allow installing from thi
 the app tells you by itself ("New version ... available" in the main menu, with a download button; also in Settings) when a
 newer version exists; installing it over the old one keeps your settings. The check sends nothing about you.
 Versions before 0.2.1 have to be uninstalled once.
-Versions up to 0.16.1 looked for updates in the former releases repository Joni9993/slice-n-dice-releases; the
-first release after the move is published there as well, so they find it by themselves.
+Versions up to 0.16.1 looked for updates in the former releases repository Joni9993/slice-n-dice-releases; 0.16.2
+was published there as well, so they found it by themselves. From 0.16.2 on, the app looks here.
 
 ## Working on it
 

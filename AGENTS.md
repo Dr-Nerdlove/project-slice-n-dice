@@ -379,13 +379,13 @@ repository belongs to someone else, these points still apply unless "Project kno
   `slice-n-dice-vX.Y.Z.apk` attached (`gh release create --target`, `GITHUB_TOKEN`, `contents: write`). A failed run
   creates nothing and is simply started again with the same version. It takes about 5 minutes (the tests are most of
   it); the release page shows the new version once the run is green; the app on the phones sees it at its next start
-  (GitHub's API may answer from its cache for a few minutes). **Transition:** app versions up to 0.16.1 look for
-  updates in `Joni9993/slice-n-dice-releases` and accept downloads only from there. The first release after the move
-  (planned 0.16.2) must be started with the box "also_old_repo" ticked: the same APK is then also published there
-  (secret `RELEASES_TOKEN`, a fine-grained token of Joni9993 with contents read/write on that repository only; the
-  step runs before the release here, an existing release there gets its APK replaced). Installed from there, the app
-  looks here from then on. After the transition release, leave the box off; `RELEASES_TOKEN` can then be deleted and
-  the token revoked. The workflow cannot be tested locally; the first real run is its test. Older pre-releases
+  (GitHub's API may answer from its cache for a few minutes). **Transition (done):** app versions up to 0.16.1 look for updates in
+  `Joni9993/slice-n-dice-releases` and accept downloads only from there. The transition release 0.16.2 was published
+  on 2026-11-23 to both repositories (same APK, same signing key; the workflow then had an option `also_old_repo`
+  for it); installed from there, the app looks here. Nothing went wrong, so the option was removed from the workflow
+  on 2026-11-23 and the repository secret `RELEASES_TOKEN` is no longer used (the owner deletes it under Settings >
+  Secrets and variables > Actions, Joni9993 revokes the token). Releases are published only here from now on.
+  The workflow cannot be tested locally; the first real run is its test. Older pre-releases
   (`v0.1.0`, `v0.2.0`, `v0.2.1`) were made by hand and stay here as pre-releases (the app ignores pre-releases). Version
   rule: one number `MAJOR.MINOR.PATCH`; `tools/set-version.sh` writes it to `application/config/version` in
   `game/project.godot` (what the game shows and compares), and `version/name` and `version/code` (= MAJOR*10000 +
