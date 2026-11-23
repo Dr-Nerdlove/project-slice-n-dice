@@ -234,6 +234,8 @@ repository belongs to someone else, these points still apply unless "Project kno
   checked 2026-11-20) and whose Linux machine the local sessions run on (`gh` is logged in as Joni9993 there: `gh repo create` creates under that
   account even when another owner is named). Agreed between them (2026-11-13): while the concept is being worked
   out, Joni9993 works ahead and decides about merging and test releases; Dr-Nerdlove builds on it afterwards.
+  Dr-Nerdlove owns the repository and may merge or start a release at any time; the agreement means that Joni9993
+  may do so without asking first (clarified by the owner on 2026-11-20).
   The owner works on Windows with PowerShell and has the GitHub CLI (`gh`) installed and logged in: give them
   commands for PowerShell.
 - **What the project is:** "Spinback Rumble" (formerly the working title "Slice n Dice"; the repository and file names keep the old name), a top-down arena brawler for Android with local multiplayer
